@@ -1,4 +1,4 @@
-package com.example.juka
+package com.example.huka
 
 data class FishInfo(
     val name: String,

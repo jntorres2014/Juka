@@ -1,5 +1,5 @@
 // LocationDetector.kt - Detector de zonas de pesca (versión simplificada)
-package com.example.juka
+package com.example.huka
 
 import android.app.Application
 import android.content.Context

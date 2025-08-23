@@ -1,4 +1,4 @@
-package com.example.juka
+package com.example.huka
 
 import org.junit.Test
 

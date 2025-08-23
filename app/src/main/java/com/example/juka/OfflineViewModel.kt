@@ -1,5 +1,5 @@
 /*
-package com.example.juka
+package com.example.huka
 import android.app.Application
 import android.content.Context
 import android.net.ConnectivityManager

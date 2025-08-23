@@ -1,9 +1,13 @@
-// ChatViewModel.kt - Archivo principal
+// ChatViewModel.kt - Versión actualizada con audio robusto
 package com.example.juka
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.huka.FishDatabase
+import com.example.huka.FishIdentifier
+import com.example.huka.FishingStoryAnalyzer
+import com.example.huka.IntelligentResponses
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,7 +38,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val fishDatabase = FishDatabase()
     private val intelligentResponses = IntelligentResponses(fishDatabase)
     private val fishIdentifier = FishIdentifier(getApplication())
-    private val storyAnalyzer = FishingStoryAnalyzer(getApplication()) // 🔥 NUEVO
+    private val storyAnalyzer = FishingStoryAnalyzer(getApplication())
+    private val dataExtractor = FishingDataExtractor(getApplication())
 
     init {
         loadMessagesFromFile()
@@ -48,9 +53,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         "**Funciones:**\n" +
                         "• Consejos sobre especies argentinas\n" +
                         "• Análisis de técnicas y carnadas\n" +
-                        "• 📸 **Identificación de peces con IA**\n" +
-                        "• 📊 **Análisis automático de relatos de pesca**\n\n" +
-                        "Contame sobre tus jornadas o subí fotos para análisis completo! 🐟",
+                        "• 📸 **Registro de fotos para el reporte**\n" +
+                        "• 📊 **Análisis automático de relatos de pesca**\n" +
+                        "• 📝 **Registro de datos de pesca** (día, horas, piezas, etc.)\n\n" +
+                        "¡Contame sobre tus jornadas, subí fotos o grabá un audio! 🐟",
                 isFromUser = false,
                 type = MessageType.TEXT,
                 timestamp = getCurrentTimestamp()
@@ -71,7 +77,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         saveMessageToFile(userMessage)
         saveConversationLog("USER", content)
 
-        // 🔥 NUEVO: Detectar si es un relato de pesca
+        // Extraer datos de pesca
+        val extractedData = dataExtractor.extractFromMessage(content)
+        val missingFields = dataExtractor.getMissingFields(extractedData)
+
+        // Detectar si es un relato de pesca
         val isLikelyStory = isLikelyFishingStory(content)
 
         _isTyping.value = true
@@ -83,13 +93,74 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 // Analizar relato de pesca
                 val storyAnalysis = storyAnalyzer.analyzeStory(content)
                 val analysisResponse = storyAnalyzer.buildAnalysisResponse(storyAnalysis)
-
-                // Combinar análisis con respuesta inteligente
                 val contextualResponse = intelligentResponses.getStoryResponse(storyAnalysis)
                 "$analysisResponse\n\n$contextualResponse"
             } else {
                 // Respuesta normal inteligente
                 intelligentResponses.getResponse(content)
+            }
+
+            // Agregar preguntas por datos faltantes
+            val finalResponse = if (missingFields.isNotEmpty()) {
+                "$response\n\nPara completar el registro: ${missingFields.joinToString(" ")}"
+            } else {
+                "$response\n\n¡Datos completos! Registrado: Día ${extractedData.day}, " +
+                        "Inicio ${extractedData.startTime}, Fin ${extractedData.endTime}, " +
+                        "${extractedData.fishCount} piezas, Tipo ${extractedData.type}, " +
+                        "${extractedData.rodsCount} cañas, Foto ${extractedData.photoUri ?: "ninguna"}"
+            }
+
+            val botMessage = ChatMessage(
+                content = finalResponse,
+                isFromUser = false,
+                type = MessageType.TEXT,
+                timestamp = getCurrentTimestamp()
+            )
+
+            _isTyping.value = false
+            addMessage(botMessage)
+            saveMessageToFile(botMessage)
+            saveConversationLog("BOT_SMART", finalResponse)
+
+            // Resetear sesión si datos completos
+            if (missingFields.isEmpty()) {
+                dataExtractor.resetSession()
+            }
+        }
+    }
+
+    fun sendImageMessage(imagePath: String) {
+        val userMessage = ChatMessage(
+            content = imagePath,
+            isFromUser = true,
+            type = MessageType.IMAGE,
+            timestamp = getCurrentTimestamp()
+        )
+
+        addMessage(userMessage)
+        saveMessageToFile(userMessage, "IMAGE: $imagePath")
+        saveConversationLog("USER_IMAGE", imagePath)
+
+        // Solo extraer datos de pesca (foto para reporte)
+        val extractedData = dataExtractor.extractFromMessage("", imagePath)
+        val missingFields = dataExtractor.getMissingFields(extractedData)
+
+        _isTyping.value = true
+
+        viewModelScope.launch {
+            delay(Random.nextLong(1500, 2500))
+
+            // Respuesta simple para foto (sin identificación de especies)
+            var response = "📸 ¡Excelente foto! Agregada al reporte de pesca."
+
+            if (missingFields.isNotEmpty()) {
+                response += "\n\nPara completar el registro: ${missingFields.joinToString(" ")}"
+            } else {
+                response += "\n\n¡Datos completos! Registrado: Día ${extractedData.day ?: "no especificado"}, " +
+                        "Inicio ${extractedData.startTime ?: "no especificado"}, Fin ${extractedData.endTime ?: "no especificado"}, " +
+                        "${extractedData.fishCount ?: 0} piezas, Tipo ${extractedData.type ?: "no especificado"}, " +
+                        "${extractedData.rodsCount ?: 0} cañas, Foto incluida ✅"
+                dataExtractor.resetSession()
             }
 
             val botMessage = ChatMessage(
@@ -102,7 +173,59 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             _isTyping.value = false
             addMessage(botMessage)
             saveMessageToFile(botMessage)
-            saveConversationLog("BOT_SMART", response)
+            saveConversationLog("BOT_IMAGE", response)
+        }
+    }
+
+    // 🎤 NUEVO MÉTODO PARA AUDIO ROBUSTO
+    fun sendAudioTranscript(transcript: String) {
+        // Crear mensaje del usuario con el audio transcrito
+        val userMessage = ChatMessage(
+            content = "🎤 Audio: \"$transcript\"",
+            isFromUser = true,
+            type = MessageType.AUDIO,
+            timestamp = getCurrentTimestamp()
+        )
+
+        addMessage(userMessage)
+        saveMessageToFile(userMessage, "AUDIO_TRANSCRIPT: $transcript")
+        saveConversationLog("USER_AUDIO", transcript)
+
+        // Extraer datos de pesca del texto transcrito
+        val extractedData = dataExtractor.extractFromMessage(transcript)
+        val missingFields = dataExtractor.getMissingFields(extractedData)
+
+        _isTyping.value = true
+
+        viewModelScope.launch {
+            delay(Random.nextLong(1000, 2500))
+
+            val baseResponse = intelligentResponses.getAudioResponse()
+            val response = if (missingFields.isNotEmpty()) {
+                "$baseResponse\n\nEntendí: \"$transcript\"\n\nPara completar el registro: ${missingFields.joinToString(" ")}"
+            } else {
+                "$baseResponse\n\nEntendí: \"$transcript\"\n\n¡Datos completos! Registrado: Día ${extractedData.day}, " +
+                        "Inicio ${extractedData.startTime}, Fin ${extractedData.endTime}, " +
+                        "${extractedData.fishCount} piezas, Tipo ${extractedData.type}, " +
+                        "${extractedData.rodsCount} cañas, Foto ${extractedData.photoUri ?: "ninguna"}"
+            }
+
+            val botMessage = ChatMessage(
+                content = response,
+                isFromUser = false,
+                type = MessageType.TEXT,
+                timestamp = getCurrentTimestamp()
+            )
+
+            _isTyping.value = false
+            addMessage(botMessage)
+            saveMessageToFile(botMessage)
+            saveConversationLog("BOT_AUDIO", response)
+
+            // Resetear sesión si datos completos
+            if (missingFields.isEmpty()) {
+                dataExtractor.resetSession()
+            }
         }
     }
 
@@ -120,117 +243,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         return text.length > 50 && indicatorCount >= 2
     }
 
-    fun sendImageMessage(imagePath: String) {
-        val userMessage = ChatMessage(
-            content = imagePath,
-            isFromUser = true,
-            type = MessageType.IMAGE,
-            timestamp = getCurrentTimestamp()
-        )
-
-        addMessage(userMessage)
-        saveMessageToFile(userMessage, "IMAGE: $imagePath")
-        saveConversationLog("USER_IMAGE", imagePath)
-
-        _isAnalyzing.value = true
-
-        viewModelScope.launch {
-            try {
-                // Identificación real con iNaturalist
-                val identification = fishIdentifier.identifyFish(imagePath)
-
-                val analysisMessage = ChatMessage(
-                    content = identification,
-                    isFromUser = false,
-                    type = MessageType.TEXT,
-                    timestamp = getCurrentTimestamp()
-                )
-
-                _isAnalyzing.value = false
-                addMessage(analysisMessage)
-                saveMessageToFile(analysisMessage)
-                saveConversationLog("BOT_FISH_ID", identification)
-
-                // Pregunta de seguimiento
-                delay(2000)
-                val followUpMessage = ChatMessage(
-                    content = intelligentResponses.getFollowUpQuestion(),
-                    isFromUser = false,
-                    type = MessageType.TEXT,
-                    timestamp = getCurrentTimestamp()
-                )
-                addMessage(followUpMessage)
-                saveMessageToFile(followUpMessage)
-
-            } catch (e: Exception) {
-                _isAnalyzing.value = false
-                val fallbackAnalysis = intelligentResponses.getImageAnalysisFallback()
-
-                val fallbackMessage = ChatMessage(
-                    content = "$fallbackAnalysis\n\n⚠️ *Identificación automática no disponible - análisis visual local*",
-                    isFromUser = false,
-                    type = MessageType.TEXT,
-                    timestamp = getCurrentTimestamp()
-                )
-
-                addMessage(fallbackMessage)
-                saveMessageToFile(fallbackMessage)
-                saveConversationLog("BOT_FALLBACK_IMAGE", fallbackAnalysis)
-            }
-        }
-    }
-
-    fun sendAudioMessage(audioPath: String) {
-        val userMessage = ChatMessage(
-            content = audioPath,
-            isFromUser = true,
-            type = MessageType.AUDIO,
-            timestamp = getCurrentTimestamp()
-        )
-
-        addMessage(userMessage)
-        saveMessageToFile(userMessage, "AUDIO: $audioPath")
-        saveConversationLog("USER_AUDIO", audioPath)
-
-        _isTyping.value = true
-
-        viewModelScope.launch {
-            delay(Random.nextLong(2000, 4000))
-
-            val botMessage = ChatMessage(
-                content = intelligentResponses.getAudioResponse(),
-                isFromUser = false,
-                type = MessageType.TEXT,
-                timestamp = getCurrentTimestamp()
-            )
-
-            _isTyping.value = false
-            addMessage(botMessage)
-            saveMessageToFile(botMessage)
-            saveConversationLog("BOT_AUDIO", botMessage.content)
-        }
-    }
-
-    private fun saveConversationLog(sender: String, content: String) {
-        try {
-            val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
-            val logEntry = "$timestamp | $sender: $content\n"
-            conversationLogFile.appendText(logEntry)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
     fun getConversationStats(): String {
         return try {
             val totalMessages = _messages.value.size
             val userMessages = _messages.value.count { it.isFromUser }
             val botMessages = totalMessages - userMessages
-            val identifiedSpecies = if (speciesLogFile.exists()) {
-                speciesLogFile.readLines().size
-            } else 0
+            val audioMessages = _messages.value.count { it.type == MessageType.AUDIO }
 
-            "📊 Total: $totalMessages | Usuario: $userMessages | Bot: $botMessages | Especies ID: $identifiedSpecies | IA: Local + iNaturalist"
+            "📊 Total: $totalMessages | Usuario: $userMessages | Bot: $botMessages | Audio: $audioMessages | IA: Local"
         } catch (e: Exception) {
             "📊 Estadísticas no disponibles"
         }
@@ -244,6 +264,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         try {
             val messageText = "${message.timestamp} - ${if (message.isFromUser) "USER" else "BOT"}: ${customContent ?: message.content}\n"
             chatFile.appendText(messageText)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun saveConversationLog(sender: String, content: String) {
+        try {
+            val timestamp = getCurrentTimestamp()
+            val logText = "$timestamp - $sender: $content\n"
+            conversationLogFile.appendText(logText)
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -263,10 +293,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                             val content = parts[1]
 
                             when {
-                                content.startsWith("USER: AUDIO:") -> {
-                                    val audioPath = content.removePrefix("USER: AUDIO: ")
+                                content.startsWith("USER: AUDIO_TRANSCRIPT:") -> {
+                                    val transcript = content.removePrefix("USER: AUDIO_TRANSCRIPT: ")
                                     loadedMessages.add(
-                                        ChatMessage(audioPath, true, MessageType.AUDIO, timestamp)
+                                        ChatMessage("🎤 Audio: \"$transcript\"", true, MessageType.AUDIO, timestamp)
                                     )
                                 }
                                 content.startsWith("USER: IMAGE:") -> {
@@ -301,6 +331,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         _messages.value = emptyList()
         try {
             if (chatFile.exists()) chatFile.delete()
+            if (conversationLogFile.exists()) conversationLogFile.delete()
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -313,7 +344,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 }
 
-// Data classes
+// Data classes (sin cambios)
 data class ChatMessage(
     val content: String,
     val isFromUser: Boolean,

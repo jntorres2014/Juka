@@ -1,4 +1,4 @@
-package com.example.juka
+package com.example.huka
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -35,7 +35,10 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.rememberAsyncImagePainter
-import com.example.juka.ui.theme.JukaTheme
+import com.example.huka.ui.theme.HukaTheme
+import com.example.juka.ChatMessage
+import com.example.juka.ChatViewModel
+import com.example.juka.MessageType
 import kotlinx.coroutines.delay
 import java.io.File
 
@@ -53,7 +56,7 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            JukaTheme {
+            HukaTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -102,7 +105,7 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel()) {
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "Juka 🎣",
+                        "Huka 🎣",
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimary
                     )
@@ -227,8 +230,8 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel()) {
                 Row {
                     // Botón de audio
                     AudioRecordButton(
-                        onAudioRecorded = { audioPath ->
-                            viewModel.sendAudioMessage(audioPath)
+                        onAudioRecorded = { transcript ->
+                            viewModel.sendAudioTranscript(transcript)
                         }
                     )
 
@@ -389,7 +392,7 @@ fun TypingIndicator() {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "Juka está escribiendo",
+                    "Huka está escribiendo",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 14.sp,
                     fontStyle = androidx.compose.ui.text.font.FontStyle.Italic

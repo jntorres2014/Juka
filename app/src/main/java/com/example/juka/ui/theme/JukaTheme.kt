@@ -1,4 +1,4 @@
-package com.example.juka.ui.theme
+package com.example.huka.ui.theme
 
 import android.app.Activity
 import android.os.Build
@@ -126,7 +126,7 @@ private val DarkColors = darkColorScheme(
 )
 
 @Composable
-fun JukaTheme(
+fun HukaTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     // Dynamic color is available on Android 12+
     dynamicColor: Boolean = true,

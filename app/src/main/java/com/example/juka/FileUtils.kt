@@ -1,4 +1,4 @@
-package com.example.juka
+package com.example.huka
 
 import android.content.Context
 import java.io.File

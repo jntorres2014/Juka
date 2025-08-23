@@ -16,7 +16,8 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven { url = uri("https://jitpack.io") } // Agregado para compatibilidad con build.gradle
+        maven { url = uri("https://jitpack.io") }
+        maven { url = uri("https://maven.google.com") } // Tu backup de Google
     }
 }
 
