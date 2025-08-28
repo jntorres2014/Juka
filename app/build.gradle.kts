@@ -51,14 +51,10 @@ android {
 }
 
 dependencies {
-    // Firebase BOM
-    //implementation(platform("com.google.firebase:firebase-bom:34.1.0"))
-    // Firestore
-    // ✅ AGREGAR VERSIONES ESPECÍFICAS
+    // Firebase
     implementation("com.google.firebase:firebase-firestore-ktx:24.7.1")
     implementation("com.google.firebase:firebase-analytics-ktx:21.3.0")
-    // implementation("com.google.firebase:firebase-firestore-ktx:24.10.0")
-    // implementation("com.google.firebase:firebase-analytics-ktx:21.5.0")
+
     // BÁSICO
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
@@ -75,16 +71,14 @@ dependencies {
     // ViewModel
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
 
+    // Navigation - CORREGIDO
+    implementation("androidx.navigation:navigation-compose:2.7.4")
+
     // Coil
     implementation("io.coil-kt:coil-compose:2.5.0")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
-    implementation(libs.androidx.navigation.compose.jvmstubs)
-
-
-    // ELIMINA ESTA LÍNEA COMPLETAMENTE:
-    // implementation("com.google.mlkit:speech:16.0.0-beta1")
 
     // Testing
     testImplementation("junit:junit:4.13.2")
