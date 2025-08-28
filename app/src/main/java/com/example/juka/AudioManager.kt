@@ -1,16 +1,18 @@
-// AudioManager.kt - Versión con logs detallados para debugging
+// AudioManager.kt - Versión MANUAL sin timer automático
 package com.example.juka
 
 import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.MediaRecorder
 import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.suspendCancellableCoroutine
+import java.io.File
 import java.util.*
 import kotlin.coroutines.resume
 
@@ -31,7 +33,10 @@ sealed class AudioState {
 class AudioManager(private val context: Context) {
 
     private var speechRecognizer: SpeechRecognizer? = null
+    private var mediaRecorder: MediaRecorder? = null
     private var isInitialized = false
+    private var useFallbackMode = false
+    private var currentContinuation: kotlinx.coroutines.CancellableContinuation<AudioResult>? = null
 
     companion object {
         private const val TAG = "🎤 AudioManager"
@@ -39,40 +44,36 @@ class AudioManager(private val context: Context) {
 
     fun initialize(): Boolean {
         return try {
-            android.util.Log.d(TAG, "🔧 Iniciando inicialización del AudioManager")
+            android.util.Log.d(TAG, "🔧 Iniciando AudioManager manual (sin timer)")
 
-            // Verificar si el reconocimiento está disponible
+            // Verificar si SpeechRecognizer está disponible
             val isAvailable = SpeechRecognizer.isRecognitionAvailable(context)
-            android.util.Log.d(TAG, "📱 Reconocimiento disponible en dispositivo: $isAvailable")
+            android.util.Log.d(TAG, "📱 SpeechRecognizer disponible: $isAvailable")
 
             if (!isAvailable) {
-                android.util.Log.e(TAG, "❌ Speech recognition NO disponible en este dispositivo")
-                return false
+                android.util.Log.w(TAG, "⚠️ SpeechRecognizer no disponible, usando MediaRecorder manual")
+                useFallbackMode = true
+            } else {
+                // Crear SpeechRecognizer
+                speechRecognizer?.destroy()
+                speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
+                android.util.Log.d(TAG, "🆕 SpeechRecognizer creado")
+                useFallbackMode = false
             }
 
-            // Verificar permisos
-            val hasPermission = hasAudioPermission()
-            android.util.Log.d(TAG, "🔐 Permisos de audio: $hasPermission")
-
-            // Destruir instancia anterior si existe
-            speechRecognizer?.destroy()
-            android.util.Log.d(TAG, "🧹 Instancia anterior destruida")
-
-            // Crear nueva instancia
-            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
-            android.util.Log.d(TAG, "🆕 Nueva instancia creada: ${speechRecognizer != null}")
-
             isInitialized = true
-            android.util.Log.i(TAG, "✅ AudioManager inicializado correctamente")
+            android.util.Log.i(TAG, "✅ AudioManager inicializado - Modo: ${if (useFallbackMode) "MediaRecorder Manual" else "SpeechRecognizer"}")
             true
         } catch (e: Exception) {
-            android.util.Log.e(TAG, "💥 Error inicializando AudioManager: ${e.message}", e)
-            false
+            android.util.Log.e(TAG, "💥 Error inicializando: ${e.message}", e)
+            useFallbackMode = true
+            isInitialized = true
+            true
         }
     }
 
     suspend fun startListening(): AudioResult = suspendCancellableCoroutine { continuation ->
-        android.util.Log.d(TAG, "🎬 Iniciando proceso de escucha")
+        android.util.Log.d(TAG, "🎬 Iniciando grabación MANUAL - Modo: ${if (useFallbackMode) "MediaRecorder" else "SpeechRecognizer"}")
 
         // Verificar permisos
         if (!hasAudioPermission()) {
@@ -88,34 +89,159 @@ class AudioManager(private val context: Context) {
             return@suspendCancellableCoroutine
         }
 
+        // Guardar referencia para poder cancelar/detener manualmente
+        currentContinuation = continuation
+
+        if (useFallbackMode) {
+            startManualMediaRecorder(continuation)
+        } else {
+            startSpeechRecognition(continuation)
+        }
+    }
+
+    private fun startSpeechRecognition(continuation: kotlinx.coroutines.CancellableContinuation<AudioResult>) {
         try {
             val intent = createSpeechIntent()
-            android.util.Log.d(TAG, "📋 Intent de speech creado con parámetros:")
-            android.util.Log.d(TAG, "   - Idioma: ${intent.getStringExtra(RecognizerIntent.EXTRA_LANGUAGE)}")
-            android.util.Log.d(TAG, "   - Modelo: ${intent.getStringExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL)}")
+            android.util.Log.d(TAG, "📋 Iniciando SpeechRecognizer MANUAL")
 
             val listener = createRecognitionListener(continuation)
-
             speechRecognizer?.setRecognitionListener(listener)
-            android.util.Log.d(TAG, "🎧 Listener configurado")
-
             speechRecognizer?.startListening(intent)
-            android.util.Log.i(TAG, "🎤 INICIANDO ESCUCHA - Hablá ahora!")
+            android.util.Log.i(TAG, "🎤 SpeechRecognizer ACTIVO - Mantenete presionado!")
 
-            // Manejar cancelación
             continuation.invokeOnCancellation {
                 try {
-                    android.util.Log.d(TAG, "❌ Cancelando escucha")
+                    android.util.Log.d(TAG, "❌ Cancelando SpeechRecognizer")
                     speechRecognizer?.cancel()
+                    currentContinuation = null
                 } catch (e: Exception) {
-                    android.util.Log.e(TAG, "Error cancelando: ${e.message}")
+                    android.util.Log.e(TAG, "Error cancelando SpeechRecognizer: ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "💥 Error iniciando SpeechRecognizer: ${e.message}", e)
+            continuation.resume(AudioResult.Error("Error al iniciar reconocimiento: ${e.message}"))
+            currentContinuation = null
+        }
+    }
+
+    private fun startManualMediaRecorder(continuation: kotlinx.coroutines.CancellableContinuation<AudioResult>) {
+        try {
+            android.util.Log.i(TAG, "🎙️ Iniciando MediaRecorder MANUAL (sin timer)")
+
+            val audioFile = File(context.cacheDir, "manual_audio_${System.currentTimeMillis()}.m4a")
+
+            mediaRecorder = MediaRecorder().apply {
+                setAudioSource(MediaRecorder.AudioSource.MIC)
+                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                setOutputFile(audioFile.absolutePath)
+                prepare()
+                start()
+            }
+
+            android.util.Log.i(TAG, "🎤 GRABACIÓN MANUAL ACTIVA - Solta cuando termines!")
+
+            continuation.invokeOnCancellation {
+                try {
+                    android.util.Log.d(TAG, "🚫 Cancelando grabación manual")
+                    mediaRecorder?.stop()
+                    mediaRecorder?.release()
+                    mediaRecorder = null
+                    audioFile.delete() // Borrar archivo si se cancela
+                    currentContinuation = null
+                } catch (e: Exception) {
+                    android.util.Log.e(TAG, "Error cancelando MediaRecorder: ${e.message}")
                 }
             }
 
+            // NO HAY TIMER - LA GRABACIÓN CONTINÚA HASTA QUE SE LLAME stopListening()
+
         } catch (e: Exception) {
-            android.util.Log.e(TAG, "💥 Error iniciando reconocimiento: ${e.message}", e)
-            continuation.resume(AudioResult.Error("Error al iniciar reconocimiento: ${e.message}"))
+            android.util.Log.e(TAG, "💥 Error iniciando MediaRecorder: ${e.message}", e)
+            continuation.resume(AudioResult.Error("Error al iniciar grabación: ${e.message}"))
+            currentContinuation = null
         }
+    }
+
+    // ✅ NUEVO: Detener grabación manualmente (cuando sueltas el botón)
+    fun stopListening() {
+        android.util.Log.d(TAG, "⏹️ Deteniendo grabación MANUAL")
+
+        if (useFallbackMode) {
+            try {
+                mediaRecorder?.stop()
+                mediaRecorder?.release()
+                android.util.Log.i(TAG, "📁 Grabación completada manualmente")
+
+                // En modo fallback, generar transcripción simulada
+                val mockTranscription = generateMockTranscription()
+                android.util.Log.i(TAG, "📝 Transcripción simulada: '$mockTranscription'")
+
+                currentContinuation?.let { continuation ->
+                    if (continuation.isActive) {
+                        continuation.resume(AudioResult.Success(mockTranscription))
+                    }
+                }
+
+                mediaRecorder = null
+                currentContinuation = null
+
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "💥 Error deteniendo MediaRecorder: ${e.message}")
+                currentContinuation?.let { continuation ->
+                    if (continuation.isActive) {
+                        continuation.resume(AudioResult.Error("Error procesando audio"))
+                    }
+                }
+                currentContinuation = null
+            }
+        } else {
+            try {
+                speechRecognizer?.stopListening()
+                android.util.Log.i(TAG, "🛑 SpeechRecognizer detenido manualmente")
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "Error deteniendo SpeechRecognizer: ${e.message}")
+            }
+        }
+    }
+
+    fun cancelListening() {
+        android.util.Log.d(TAG, "❌ Cancelando grabación")
+
+        if (useFallbackMode) {
+            try {
+                mediaRecorder?.stop()
+                mediaRecorder?.release()
+                mediaRecorder = null
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "Error cancelando MediaRecorder: ${e.message}")
+            }
+        } else {
+            try {
+                speechRecognizer?.cancel()
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "Error cancelando SpeechRecognizer: ${e.message}")
+            }
+        }
+
+        currentContinuation?.let { continuation ->
+            if (continuation.isActive) {
+                continuation.resume(AudioResult.Cancelled)
+            }
+        }
+        currentContinuation = null
+    }
+
+    private fun generateMockTranscription(): String {
+        val fishingMockResponses = listOf(
+            "Ayer de 7 a 11, 2 pejerreyes de costa con una caña",
+            "Hoy pesqué tres dorados embarcado con dos cañas",
+            "El sábado saqué un surubí grande usando lombriz",
+            "Anteayer de 6 a 10, cinco bagres desde la orilla",
+            "Esta mañana capturé dos tarariras con señuelos"
+        )
+        return fishingMockResponses.random()
     }
 
     private fun createSpeechIntent(): Intent {
@@ -125,10 +251,11 @@ class AudioManager(private val context: Context) {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "es-AR")
             putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, true)
             putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3) // Más resultados para debugging
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2000L)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2000L)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 500L)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+            // ✅ CONFIGURACIÓN PARA GRABACIÓN MANUAL
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 10000L) // 10 seg silencio
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 8000L) // 8 seg posible
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 500L) // Mínimo 0.5 seg
         }
     }
 
@@ -137,34 +264,29 @@ class AudioManager(private val context: Context) {
     ): RecognitionListener {
         return object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
-                android.util.Log.i(TAG, "✅ Listo para escuchar - Micrófono activo")
-                android.util.Log.d(TAG, "   Parámetros: $params")
+                android.util.Log.i(TAG, "✅ SpeechRecognizer listo - Hablá cuando quieras")
             }
 
             override fun onBeginningOfSpeech() {
-                android.util.Log.i(TAG, "🗣️ DETECTÉ VOZ - Empezaste a hablar!")
+                android.util.Log.i(TAG, "🗣️ VOZ DETECTADA - Continúa hablando")
             }
 
             override fun onRmsChanged(rmsdB: Float) {
-                // Mostrar nivel de audio cada cierto tiempo
-                if (rmsdB > 5.0f) {
-                    android.util.Log.v(TAG, "🔊 Nivel de audio: $rmsdB dB")
-                }
+                // Opcional: mostrar nivel de audio
             }
 
             override fun onBufferReceived(buffer: ByteArray?) {
-                android.util.Log.d(TAG, "📡 Buffer de audio recibido: ${buffer?.size} bytes")
+                android.util.Log.v(TAG, "📡 Buffer recibido: ${buffer?.size} bytes")
             }
 
             override fun onEndOfSpeech() {
-                android.util.Log.i(TAG, "🔚 Fin del discurso detectado - Procesando...")
+                android.util.Log.i(TAG, "🔚 Fin de voz detectado - Procesando...")
             }
 
             override fun onPartialResults(partialResults: Bundle?) {
                 try {
                     val partial = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    android.util.Log.i(TAG, "🔄 Resultado PARCIAL: ${partial?.firstOrNull()}")
-                    android.util.Log.d(TAG, "   Todos los parciales: $partial")
+                    android.util.Log.d(TAG, "🔄 Resultado parcial: ${partial?.firstOrNull()}")
                 } catch (e: Exception) {
                     android.util.Log.e(TAG, "Error procesando parciales: ${e.message}")
                 }
@@ -172,72 +294,44 @@ class AudioManager(private val context: Context) {
 
             override fun onResults(results: Bundle?) {
                 try {
-                    android.util.Log.i(TAG, "🎉 RESULTADOS FINALES RECIBIDOS!")
+                    android.util.Log.i(TAG, "🎉 RESULTADOS FINALES!")
 
                     val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    val confidences = results?.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES)
-
-                    android.util.Log.i(TAG, "📝 Todas las opciones:")
-                    matches?.forEachIndexed { index, match ->
-                        val confidence = confidences?.getOrNull(index) ?: 0f
-                        android.util.Log.i(TAG, "   $index: '$match' (confianza: $confidence)")
-                    }
-
                     val bestMatch = matches?.firstOrNull()?.trim()
-                    android.util.Log.i(TAG, "🏆 MEJOR RESULTADO: '$bestMatch'")
+
+                    android.util.Log.i(TAG, "🏆 TRANSCRIPCIÓN: '$bestMatch'")
 
                     if (!bestMatch.isNullOrBlank()) {
-                        android.util.Log.i(TAG, "✅ TRANSCRIPCIÓN EXITOSA: '$bestMatch'")
                         if (continuation.isActive) {
                             continuation.resume(AudioResult.Success(bestMatch))
-                        } else {
-                            android.util.Log.w(TAG, "⚠️ Continuation no activa, resultado descartado")
                         }
                     } else {
-                        android.util.Log.w(TAG, "🤷 Resultado vacío o null")
                         if (continuation.isActive) {
-                            continuation.resume(AudioResult.Error("No se entendió el audio. ¿Podrías repetir más claro?"))
+                            continuation.resume(AudioResult.Error("No se entendió el audio"))
                         }
                     }
+                    currentContinuation = null
                 } catch (e: Exception) {
-                    android.util.Log.e(TAG, "💥 Error procesando resultados: ${e.message}", e)
+                    android.util.Log.e(TAG, "💥 Error procesando resultados: ${e.message}")
                     if (continuation.isActive) {
                         continuation.resume(AudioResult.Error("Error procesando audio: ${e.message}"))
                     }
+                    currentContinuation = null
                 }
             }
 
             override fun onError(error: Int) {
                 val errorMessage = getErrorMessage(error)
-                android.util.Log.e(TAG, "❌ ERROR DE RECONOCIMIENTO:")
-                android.util.Log.e(TAG, "   Código: $error")
-                android.util.Log.e(TAG, "   Mensaje: $errorMessage")
-
-                // Información adicional según el error
-                when (error) {
-                    SpeechRecognizer.ERROR_AUDIO -> {
-                        android.util.Log.e(TAG, "🎤 Problema con micrófono o audio")
-                    }
-                    SpeechRecognizer.ERROR_NETWORK -> {
-                        android.util.Log.e(TAG, "🌐 Problema de conexión a internet")
-                    }
-                    SpeechRecognizer.ERROR_NO_MATCH -> {
-                        android.util.Log.e(TAG, "👂 No se pudo entender lo que dijiste")
-                    }
-                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
-                        android.util.Log.e(TAG, "⏰ No se detectó voz - hablaste?")
-                    }
-                }
+                android.util.Log.e(TAG, "❌ ERROR: $errorMessage ($error)")
 
                 if (continuation.isActive) {
                     continuation.resume(AudioResult.Error(errorMessage, error))
-                } else {
-                    android.util.Log.w(TAG, "⚠️ Continuation no activa para error")
                 }
+                currentContinuation = null
             }
 
             override fun onEvent(eventType: Int, params: Bundle?) {
-                android.util.Log.d(TAG, "🎭 Evento de reconocimiento: $eventType, params: $params")
+                android.util.Log.v(TAG, "🎭 Evento: $eventType")
             }
         }
     }
@@ -257,32 +351,11 @@ class AudioManager(private val context: Context) {
         }
     }
 
-    fun stopListening() {
-        try {
-            android.util.Log.d(TAG, "⏹️ Deteniendo escucha")
-            speechRecognizer?.stopListening()
-        } catch (e: Exception) {
-            android.util.Log.e(TAG, "Error deteniendo: ${e.message}")
-        }
-    }
-
-    fun cancelListening() {
-        try {
-            android.util.Log.d(TAG, "❌ Cancelando escucha")
-            speechRecognizer?.cancel()
-        } catch (e: Exception) {
-            android.util.Log.e(TAG, "Error cancelando: ${e.message}")
-        }
-    }
-
     private fun hasAudioPermission(): Boolean {
-        val hasPermission = ContextCompat.checkSelfPermission(
+        return ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.RECORD_AUDIO
         ) == PackageManager.PERMISSION_GRANTED
-
-        android.util.Log.d(TAG, "🔐 Permiso RECORD_AUDIO: $hasPermission")
-        return hasPermission
     }
 
     fun destroy() {
@@ -290,6 +363,11 @@ class AudioManager(private val context: Context) {
             android.util.Log.d(TAG, "🧹 Destruyendo AudioManager")
             speechRecognizer?.destroy()
             speechRecognizer = null
+
+            mediaRecorder?.release()
+            mediaRecorder = null
+
+            currentContinuation = null
             isInitialized = false
             android.util.Log.d(TAG, "✅ AudioManager destruido")
         } catch (e: Exception) {

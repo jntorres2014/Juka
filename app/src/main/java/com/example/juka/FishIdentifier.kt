@@ -1,5 +1,5 @@
 // FishIdentifier.kt - Versión que funciona sin API key
-package com.example.huka
+package com.example.juka
 
 import android.app.Application
 import android.graphics.BitmapFactory

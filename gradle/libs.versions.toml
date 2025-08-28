@@ -9,7 +9,9 @@ appcompat = "1.7.0"
 material = "1.12.0"
 composeBom = "2024.02.00" # Agregado para la BOM de Compose
 composeCompiler = "1.5.8"
-places = "4.4.1" # Agregado para el compilador de Compose
+places = "4.4.1"
+firebaseCommonKtx = "34.1.0"
+navigationComposeJvmstubs = "2.9.3" # Agregado para el compilador de Compose
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -19,6 +21,8 @@ androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-co
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 material = { group = "com.google.android.material", name = "material", version.ref = "material" }
 places = { group = "com.google.android.libraries.places", name = "places", version.ref = "places" }
+firebase-common-ktx = { group = "com.google.firebase", name = "firebase-common-ktx", version.ref = "firebaseCommonKtx" }
+androidx-navigation-compose-jvmstubs = { group = "androidx.navigation", name = "navigation-compose-jvmstubs", version.ref = "navigationComposeJvmstubs" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

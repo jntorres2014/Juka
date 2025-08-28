@@ -1,5 +1,5 @@
 // IntelligentResponses.kt - Sistema de respuestas inteligentes COMPLETO
-package com.example.huka
+package com.example.juka
 
 import kotlin.random.Random
 

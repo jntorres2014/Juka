@@ -1,14 +1,15 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("com.google.gms.google-services")
 }
 
 android {
-    namespace = "com.example.huka"
-    compileSdk = 34
+    namespace = "com.example.juka"
+    compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.example.huka"
+        applicationId = "com.example.juka"
         minSdk = 24
         targetSdk = 34
         versionCode = 1
@@ -40,7 +41,7 @@ android {
         compose = true
     }
     composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.8"
+        kotlinCompilerExtensionVersion = "1.5.14"
     }
     packaging {
         resources {
@@ -50,6 +51,14 @@ android {
 }
 
 dependencies {
+    // Firebase BOM
+    //implementation(platform("com.google.firebase:firebase-bom:34.1.0"))
+    // Firestore
+    // ✅ AGREGAR VERSIONES ESPECÍFICAS
+    implementation("com.google.firebase:firebase-firestore-ktx:24.7.1")
+    implementation("com.google.firebase:firebase-analytics-ktx:21.3.0")
+    // implementation("com.google.firebase:firebase-firestore-ktx:24.10.0")
+    // implementation("com.google.firebase:firebase-analytics-ktx:21.5.0")
     // BÁSICO
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
@@ -71,6 +80,8 @@ dependencies {
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    implementation(libs.androidx.navigation.compose.jvmstubs)
+
 
     // ELIMINA ESTA LÍNEA COMPLETAMENTE:
     // implementation("com.google.mlkit:speech:16.0.0-beta1")

@@ -1,13 +1,13 @@
-// ChatViewModel.kt - Versión actualizada con audio robusto
+// ChatViewModel.kt - Versión con Firebase integrado
 package com.example.juka
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.huka.FishDatabase
-import com.example.huka.FishIdentifier
-import com.example.huka.FishingStoryAnalyzer
-import com.example.huka.IntelligentResponses
+import com.example.juka.FishDatabase
+import com.example.juka.FishIdentifier
+import com.example.juka.FishingStoryAnalyzer
+import com.example.juka.IntelligentResponses
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,10 +29,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val _isTyping = MutableStateFlow(false)
     val isTyping: StateFlow<Boolean> = _isTyping.asStateFlow()
 
-    // Archivos para persistencia
+    // Firebase integration
+    private val _firebaseStatus = MutableStateFlow<String?>(null)
+    val firebaseStatus: StateFlow<String?> = _firebaseStatus.asStateFlow()
+
+    // Archivos para persistencia local (backup)
     private val chatFile = File(getApplication<Application>().filesDir, "fishing_chat_history.txt")
     private val conversationLogFile = File(getApplication<Application>().filesDir, "conversation_log.txt")
-    private val speciesLogFile = File(getApplication<Application>().filesDir, "identified_species.txt")
 
     // Instancias de las clases auxiliares
     private val fishDatabase = FishDatabase()
@@ -40,6 +43,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val fishIdentifier = FishIdentifier(getApplication())
     private val storyAnalyzer = FishingStoryAnalyzer(getApplication())
     private val dataExtractor = FishingDataExtractor(getApplication())
+
+    // Firebase Manager
+    private val firebaseManager = FirebaseManager(getApplication())
 
     init {
         loadMessagesFromFile()
@@ -49,14 +55,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private fun addWelcomeMessage() {
         if (_messages.value.isEmpty()) {
             val welcomeMessage = ChatMessage(
-                content = "¡Hola pescador! 🎣 Soy Juka, tu asistente de pesca inteligente.\n\n🧠 " +
+                content = "Hola pescador! Soy Juka, tu asistente de pesca inteligente.\n\n" +
                         "**Funciones:**\n" +
                         "• Consejos sobre especies argentinas\n" +
                         "• Análisis de técnicas y carnadas\n" +
-                        "• 📸 **Registro de fotos para el reporte**\n" +
-                        "• 📊 **Análisis automático de relatos de pesca**\n" +
-                        "• 📝 **Registro de datos de pesca** (día, horas, piezas, etc.)\n\n" +
-                        "¡Contame sobre tus jornadas, subí fotos o grabá un audio! 🐟",
+                        "• Registro automático en Firebase\n" +
+                        "• Análisis automático de relatos de pesca\n" +
+                        "• Registro de datos de pesca\n\n" +
+                        "Contame sobre tus jornadas, subí fotos o grabá un audio!",
                 isFromUser = false,
                 type = MessageType.TEXT,
                 timestamp = getCurrentTimestamp()
@@ -90,24 +96,46 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             delay(Random.nextLong(1000, 3000))
 
             val response = if (isLikelyStory) {
-                // Analizar relato de pesca
                 val storyAnalysis = storyAnalyzer.analyzeStory(content)
                 val analysisResponse = storyAnalyzer.buildAnalysisResponse(storyAnalysis)
                 val contextualResponse = intelligentResponses.getStoryResponse(storyAnalysis)
                 "$analysisResponse\n\n$contextualResponse"
             } else {
-                // Respuesta normal inteligente
                 intelligentResponses.getResponse(content)
             }
 
-            // Agregar preguntas por datos faltantes
-            val finalResponse = if (missingFields.isNotEmpty()) {
-                "$response\n\nPara completar el registro: ${missingFields.joinToString(" ")}"
+            // Verificar si el parte está completo y guardarlo
+            var finalResponse = if (missingFields.isEmpty() && extractedData.fishCount != null && extractedData.fishCount!! > 0) {
+                // Parte completo - intentar guardar en Firebase
+                _firebaseStatus.value = "Guardando en Firebase..."
+
+                val firebaseResult = firebaseManager.guardarParteAutomatico(extractedData, content)
+
+                when (firebaseResult) {
+                    is FirebaseResult.Success -> {
+                        _firebaseStatus.value = "Guardado en Firebase"
+                        dataExtractor.resetSession()
+                        "$response\n\n✅ **Parte completo guardado automáticamente en Firebase!**\n" +
+                                "📊 Datos: Día ${extractedData.day}, ${extractedData.fishCount} peces, " +
+                                "Tipo ${extractedData.type}, ${extractedData.rodsCount} cañas"
+                    }
+                    is FirebaseResult.Error -> {
+                        _firebaseStatus.value = "Error Firebase"
+                        "$response\n\n⚠️ **Datos completos localmente, pero error guardando en Firebase:**\n" +
+                                "${firebaseResult.message}\n\n📊 Datos locales: ${extractedData.fishCount} peces, ${extractedData.type}"
+                    }
+                    else -> response
+                }
+            } else if (missingFields.isNotEmpty()) {
+                "$response\n\n📝 **Para completar el registro:** ${missingFields.joinToString(" ")}"
             } else {
-                "$response\n\n¡Datos completos! Registrado: Día ${extractedData.day}, " +
-                        "Inicio ${extractedData.startTime}, Fin ${extractedData.endTime}, " +
-                        "${extractedData.fishCount} piezas, Tipo ${extractedData.type}, " +
-                        "${extractedData.rodsCount} cañas, Foto ${extractedData.photoUri ?: "ninguna"}"
+                response
+            }
+
+            // Limpiar estado Firebase después de 3 segundos
+            if (_firebaseStatus.value != null) {
+                delay(3000)
+                _firebaseStatus.value = null
             }
 
             val botMessage = ChatMessage(
@@ -121,11 +149,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             addMessage(botMessage)
             saveMessageToFile(botMessage)
             saveConversationLog("BOT_SMART", finalResponse)
-
-            // Resetear sesión si datos completos
-            if (missingFields.isEmpty()) {
-                dataExtractor.resetSession()
-            }
         }
     }
 
@@ -141,7 +164,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         saveMessageToFile(userMessage, "IMAGE: $imagePath")
         saveConversationLog("USER_IMAGE", imagePath)
 
-        // Solo extraer datos de pesca (foto para reporte)
         val extractedData = dataExtractor.extractFromMessage("", imagePath)
         val missingFields = dataExtractor.getMissingFields(extractedData)
 
@@ -150,17 +172,32 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             delay(Random.nextLong(1500, 2500))
 
-            // Respuesta simple para foto (sin identificación de especies)
-            var response = "📸 ¡Excelente foto! Agregada al reporte de pesca."
+            var response = "Excelente foto! Agregada al reporte de pesca."
 
-            if (missingFields.isNotEmpty()) {
+            if (missingFields.isEmpty() && extractedData.fishCount != null && extractedData.fishCount!! > 0) {
+                _firebaseStatus.value = "Guardando en Firebase..."
+
+                val firebaseResult = firebaseManager.guardarParteAutomatico(extractedData, "Foto de pesca")
+
+                response += when (firebaseResult) {
+                    is FirebaseResult.Success -> {
+                        _firebaseStatus.value = "Guardado en Firebase"
+                        dataExtractor.resetSession()
+                        "\n\n✅ **Parte con foto guardado en Firebase!**"
+                    }
+                    is FirebaseResult.Error -> {
+                        _firebaseStatus.value = "Error Firebase"
+                        "\n\n⚠️ **Error guardando en Firebase:** ${firebaseResult.message}"
+                    }
+                    else -> ""
+                }
+            } else if (missingFields.isNotEmpty()) {
                 response += "\n\nPara completar el registro: ${missingFields.joinToString(" ")}"
-            } else {
-                response += "\n\n¡Datos completos! Registrado: Día ${extractedData.day ?: "no especificado"}, " +
-                        "Inicio ${extractedData.startTime ?: "no especificado"}, Fin ${extractedData.endTime ?: "no especificado"}, " +
-                        "${extractedData.fishCount ?: 0} piezas, Tipo ${extractedData.type ?: "no especificado"}, " +
-                        "${extractedData.rodsCount ?: 0} cañas, Foto incluida ✅"
-                dataExtractor.resetSession()
+            }
+
+            if (_firebaseStatus.value != null) {
+                delay(3000)
+                _firebaseStatus.value = null
             }
 
             val botMessage = ChatMessage(
@@ -177,11 +214,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // 🎤 NUEVO MÉTODO PARA AUDIO ROBUSTO
     fun sendAudioTranscript(transcript: String) {
-        // Crear mensaje del usuario con el audio transcrito
         val userMessage = ChatMessage(
-            content = "🎤 Audio: \"$transcript\"",
+            content = "🎤 \"$transcript\"",
             isFromUser = true,
             type = MessageType.AUDIO,
             timestamp = getCurrentTimestamp()
@@ -191,7 +226,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         saveMessageToFile(userMessage, "AUDIO_TRANSCRIPT: $transcript")
         saveConversationLog("USER_AUDIO", transcript)
 
-        // Extraer datos de pesca del texto transcrito
         val extractedData = dataExtractor.extractFromMessage(transcript)
         val missingFields = dataExtractor.getMissingFields(extractedData)
 
@@ -200,18 +234,40 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             delay(Random.nextLong(1000, 2500))
 
+            val confirmationResponse = "👂 Perfecto, entendí: \"$transcript\""
             val baseResponse = intelligentResponses.getAudioResponse()
-            val response = if (missingFields.isNotEmpty()) {
-                "$baseResponse\n\nEntendí: \"$transcript\"\n\nPara completar el registro: ${missingFields.joinToString(" ")}"
+
+            var finalResponse = if (missingFields.isEmpty() && extractedData.fishCount != null && extractedData.fishCount!! > 0) {
+                _firebaseStatus.value = "Guardando en Firebase..."
+
+                val firebaseResult = firebaseManager.guardarParteAutomatico(extractedData, transcript)
+
+                when (firebaseResult) {
+                    is FirebaseResult.Success -> {
+                        _firebaseStatus.value = "Guardado en Firebase"
+                        dataExtractor.resetSession()
+                        "$confirmationResponse\n\n$baseResponse\n\n🔥 **Audio procesado y parte guardado en Firebase!**\n" +
+                                "📊 Registrado: ${extractedData.fishCount} peces, tipo ${extractedData.type}"
+                    }
+                    is FirebaseResult.Error -> {
+                        _firebaseStatus.value = "Error Firebase"
+                        "$confirmationResponse\n\n$baseResponse\n\n⚠️ **Error guardando en Firebase:** ${firebaseResult.message}"
+                    }
+                    else -> "$confirmationResponse\n\n$baseResponse"
+                }
+            } else if (missingFields.isNotEmpty()) {
+                "$confirmationResponse\n\n$baseResponse\n\nPara completar: ${missingFields.joinToString(" ")}"
             } else {
-                "$baseResponse\n\nEntendí: \"$transcript\"\n\n¡Datos completos! Registrado: Día ${extractedData.day}, " +
-                        "Inicio ${extractedData.startTime}, Fin ${extractedData.endTime}, " +
-                        "${extractedData.fishCount} piezas, Tipo ${extractedData.type}, " +
-                        "${extractedData.rodsCount} cañas, Foto ${extractedData.photoUri ?: "ninguna"}"
+                "$confirmationResponse\n\n$baseResponse"
+            }
+
+            if (_firebaseStatus.value != null) {
+                delay(3000)
+                _firebaseStatus.value = null
             }
 
             val botMessage = ChatMessage(
-                content = response,
+                content = finalResponse,
                 isFromUser = false,
                 type = MessageType.TEXT,
                 timestamp = getCurrentTimestamp()
@@ -220,13 +276,18 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             _isTyping.value = false
             addMessage(botMessage)
             saveMessageToFile(botMessage)
-            saveConversationLog("BOT_AUDIO", response)
-
-            // Resetear sesión si datos completos
-            if (missingFields.isEmpty()) {
-                dataExtractor.resetSession()
-            }
+            saveConversationLog("BOT_AUDIO", finalResponse)
         }
+    }
+
+    // Función para obtener estadísticas Firebase
+    suspend fun obtenerEstadisticasFirebase(): Map<String, Any> {
+        return firebaseManager.obtenerEstadisticas()
+    }
+
+    // Función para obtener mis partes desde Firebase
+    suspend fun obtenerMisPartes(): List<PartePesca> {
+        return firebaseManager.obtenerMisPartes()
     }
 
     private fun isLikelyFishingStory(text: String): Boolean {
@@ -250,7 +311,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             val botMessages = totalMessages - userMessages
             val audioMessages = _messages.value.count { it.type == MessageType.AUDIO }
 
-            "📊 Total: $totalMessages | Usuario: $userMessages | Bot: $botMessages | Audio: $audioMessages | IA: Local"
+            "📊 Total: $totalMessages | Usuario: $userMessages | Bot: $botMessages | Audio: $audioMessages | Firebase: Activo"
         } catch (e: Exception) {
             "📊 Estadísticas no disponibles"
         }
@@ -296,7 +357,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                                 content.startsWith("USER: AUDIO_TRANSCRIPT:") -> {
                                     val transcript = content.removePrefix("USER: AUDIO_TRANSCRIPT: ")
                                     loadedMessages.add(
-                                        ChatMessage("🎤 Audio: \"$transcript\"", true, MessageType.AUDIO, timestamp)
+                                        ChatMessage("🎤 \"$transcript\"", true, MessageType.AUDIO, timestamp)
                                     )
                                 }
                                 content.startsWith("USER: IMAGE:") -> {

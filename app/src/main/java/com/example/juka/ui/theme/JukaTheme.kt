@@ -1,4 +1,4 @@
-package com.example.huka.ui.theme
+package com.example.juka.ui.theme
 
 import android.app.Activity
 import android.os.Build

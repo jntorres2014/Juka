@@ -1,9 +1,7 @@
-package com.example.huka
+package com.example.juka
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.media.MediaPlayer
-import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
@@ -34,13 +32,17 @@ import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavDestination.Companion.hierarchy
+import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
 import coil.compose.rememberAsyncImagePainter
-import com.example.huka.ui.theme.HukaTheme
-import com.example.juka.ChatMessage
-import com.example.juka.ChatViewModel
-import com.example.juka.MessageType
+import com.example.juka.ui.theme.HukaTheme
 import kotlinx.coroutines.delay
-import java.io.File
+import com.google.firebase.FirebaseApp
+
 
 class MainActivity : ComponentActivity() {
     private val RECORD_AUDIO_PERMISSION = 1001
@@ -48,7 +50,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Solicitar permisos
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this,
@@ -57,12 +58,68 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             HukaTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    ChatScreen()
+                JukaApp()
+            }
+        }
+    }
+}
+
+sealed class Screen(val route: String, val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
+    object Identificar : Screen("identificar", "Identificar", Icons.Default.PhotoCamera)
+    object Chat : Screen("chat", "Chat", Icons.Default.Chat)
+    object Reportes : Screen("reportes", "Reportes", Icons.Default.Book)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun JukaApp() {
+    val navController = rememberNavController()
+    val screens = listOf(
+        Screen.Identificar,
+        Screen.Chat,
+        Screen.Reportes
+    )
+
+    Scaffold(
+        bottomBar = {
+            NavigationBar {
+                val navBackStackEntry by navController.currentBackStackEntryAsState()
+                val currentDestination = navBackStackEntry?.destination
+
+                screens.forEach { screen ->
+                    NavigationBarItem(
+                        icon = { Icon(screen.icon, contentDescription = screen.title) },
+                        label = { Text(screen.title) },
+                        selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true,
+                        onClick = {
+                            navController.navigate(screen.route) {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        }
+                    )
                 }
+            }
+        }
+    ) { paddingValues ->
+        NavHost(
+            navController = navController,
+            startDestination = Screen.Chat.route,
+            modifier = Modifier.padding(paddingValues)
+        ) {
+            composable(Screen.Identificar.route) {
+                IdentificarPezScreen()
+            }
+
+            composable(Screen.Chat.route) {
+                ChatScreen()
+            }
+
+            composable(Screen.Reportes.route) {
+                MisReportesScreen()
             }
         }
     }
@@ -105,7 +162,7 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel()) {
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "Huka 🎣",
+                        "Huka 🎣",  //
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimary
                     )
@@ -133,7 +190,6 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel()) {
                 containerColor = MaterialTheme.colorScheme.primary
             ),
             actions = {
-                // Botón de estadísticas
                 IconButton(onClick = {
                     val stats = viewModel.getConversationStats()
                     Toast.makeText(context, stats, Toast.LENGTH_LONG).show()
@@ -168,14 +224,12 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel()) {
                 MessageBubble(message = message)
             }
 
-            // Indicador de análisis de imagen
             if (isAnalyzing) {
                 item {
                     AnalyzingIndicator()
                 }
             }
 
-            // Indicador de escritura
             if (isTyping) {
                 item {
                     TypingIndicator()
@@ -228,9 +282,9 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel()) {
 
                 // Botones de envío
                 Row {
-                    // Botón de audio
+                    // ✅ BOTÓN DE AUDIO CORRECTO - USA EL AudioManager
                     AudioRecordButton(
-                        onAudioRecorded = { transcript ->
+                        onAudioTranscribed = { transcript ->
                             viewModel.sendAudioTranscript(transcript)
                         }
                     )
@@ -260,7 +314,7 @@ fun ChatScreen(viewModel: ChatViewModel = viewModel()) {
     }
 }
 
-// 🔥 COMPONENTE MessageBubble COMPLETO 🔥
+// 🔥 RESTO DE COMPONENTES SIN CAMBIOS
 @Composable
 fun MessageBubble(message: ChatMessage) {
     val isUser = message.isFromUser
@@ -270,7 +324,6 @@ fun MessageBubble(message: ChatMessage) {
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
     ) {
         if (!isUser) {
-            // Avatar del bot
             Surface(
                 modifier = Modifier.size(40.dp),
                 shape = CircleShape,
@@ -317,9 +370,14 @@ fun MessageBubble(message: ChatMessage) {
                             )
                         }
                         MessageType.AUDIO -> {
-                            AudioMessageContent(
-                                audioPath = message.content,
-                                isUser = isUser
+                            // ✅ MOSTRAR MENSAJES DE AUDIO CORRECTAMENTE
+                            Text(
+                                text = message.content,
+                                color = if (isUser)
+                                    MaterialTheme.colorScheme.onPrimary
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 16.sp
                             )
                         }
                         MessageType.IMAGE -> {
@@ -332,7 +390,6 @@ fun MessageBubble(message: ChatMessage) {
                 }
             }
 
-            // Timestamp
             Text(
                 text = message.timestamp,
                 fontSize = 12.sp,
@@ -343,7 +400,6 @@ fun MessageBubble(message: ChatMessage) {
 
         if (isUser) {
             Spacer(modifier = Modifier.width(8.dp))
-            // Avatar del usuario
             Surface(
                 modifier = Modifier.size(40.dp),
                 shape = CircleShape,
@@ -360,7 +416,6 @@ fun MessageBubble(message: ChatMessage) {
     }
 }
 
-// 🔥 INDICADORES PARA IA 🔥
 @Composable
 fun TypingIndicator() {
     Row(
@@ -392,7 +447,7 @@ fun TypingIndicator() {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "Huka está escribiendo",
+                    "Juka está escribiendo",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 14.sp,
                     fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
@@ -448,118 +503,6 @@ fun AnalyzingIndicator() {
                 )
             }
         }
-    }
-}
-
-// 🔥 COMPONENTES DE AUDIO E IMAGEN 🔥
-@Composable
-fun AudioRecordButton(onAudioRecorded: (String) -> Unit) {
-    val context = LocalContext.current
-    var isRecording by remember { mutableStateOf(false) }
-    var mediaRecorder: MediaRecorder? by remember { mutableStateOf(null) }
-
-    FloatingActionButton(
-        onClick = {
-            if (isRecording) {
-                // Detener grabación
-                try {
-                    mediaRecorder?.stop()
-                    mediaRecorder?.release()
-                    val audioFile = File(context.filesDir, "audio_${System.currentTimeMillis()}.m4a")
-                    onAudioRecorded(audioFile.absolutePath)
-                    isRecording = false
-                    mediaRecorder = null
-                } catch (e: Exception) {
-                    Toast.makeText(context, "Error al detener grabación", Toast.LENGTH_SHORT).show()
-                }
-            } else {
-                // Iniciar grabación
-                try {
-                    val audioFile = File(context.filesDir, "temp_audio_${System.currentTimeMillis()}.m4a")
-                    mediaRecorder = MediaRecorder().apply {
-                        setAudioSource(MediaRecorder.AudioSource.MIC)
-                        setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-                        setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-                        setOutputFile(audioFile.absolutePath)
-                        prepare()
-                        start()
-                    }
-                    isRecording = true
-                } catch (e: Exception) {
-                    Toast.makeText(context, "Error al iniciar grabación", Toast.LENGTH_SHORT).show()
-                }
-            }
-        },
-        modifier = Modifier.size(48.dp),
-        containerColor = if (isRecording)
-            MaterialTheme.colorScheme.error
-        else
-            MaterialTheme.colorScheme.secondary
-    ) {
-        Icon(
-            if (isRecording) Icons.Default.Stop else Icons.Default.Mic,
-            contentDescription = if (isRecording) "Detener grabación" else "Grabar audio",
-            tint = if (isRecording)
-                MaterialTheme.colorScheme.onError
-            else
-                MaterialTheme.colorScheme.onSecondary
-        )
-    }
-}
-
-@Composable
-fun AudioMessageContent(audioPath: String, isUser: Boolean) {
-    val context = LocalContext.current
-    var isPlaying by remember { mutableStateOf(false) }
-    var mediaPlayer: MediaPlayer? by remember { mutableStateOf(null) }
-
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(8.dp)
-    ) {
-        IconButton(
-            onClick = {
-                if (isPlaying) {
-                    mediaPlayer?.stop()
-                    mediaPlayer?.release()
-                    mediaPlayer = null
-                    isPlaying = false
-                } else {
-                    try {
-                        mediaPlayer = MediaPlayer().apply {
-                            setDataSource(audioPath)
-                            prepare()
-                            start()
-                            setOnCompletionListener {
-                                isPlaying = false
-                                release()
-                                mediaPlayer = null
-                            }
-                        }
-                        isPlaying = true
-                    } catch (e: Exception) {
-                        Toast.makeText(context, "Error al reproducir audio", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-        ) {
-            Icon(
-                if (isPlaying) Icons.Default.Stop else Icons.Default.PlayArrow,
-                contentDescription = if (isPlaying) "Detener" else "Reproducir",
-                tint = if (isUser)
-                    MaterialTheme.colorScheme.onPrimary
-                else
-                    MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
-        Text(
-            text = if (isPlaying) "Reproduciendo..." else "Mensaje de audio",
-            color = if (isUser)
-                MaterialTheme.colorScheme.onPrimary
-            else
-                MaterialTheme.colorScheme.onSurfaceVariant
-        )
     }
 }
 
