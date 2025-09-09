@@ -1,5 +1,6 @@
 package com.example.juka
 
+import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -18,11 +19,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import coil.compose.rememberAsyncImagePainter
 import kotlinx.coroutines.launch
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -32,9 +38,35 @@ fun IdentificarPezScreen() {
     var resultadoIdentificacion by remember { mutableStateOf<String?>(null) }
     var mostrarDetalles by remember { mutableStateOf(false) }
 
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // Lanzador para tomar foto
+    // 🔥 FUNCIÓN SIMPLIFICADA QUE FUNCIONA INMEDIATAMENTE
+    fun crearUriTemporal(): Uri? {
+        return try {
+            val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+            val imageFileName = "JPEG_${timeStamp}_"
+
+            // Usar cache dir en lugar de external files
+            val storageDir = context.cacheDir
+
+            val imageFile = File.createTempFile(
+                imageFileName,
+                ".jpg",
+                storageDir
+            )
+
+            FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                imageFile
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+    // 🎯 LAUNCHER MEJORADO CON MANEJO DE ERRORES
     val cameraLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicture()
     ) { success ->
@@ -45,8 +77,6 @@ fun IdentificarPezScreen() {
                 try {
                     // Simular análisis de IA (en tu caso usarías FishIdentifier)
                     kotlinx.coroutines.delay(3000)
-
-                    // Resultado simulado
                     resultadoIdentificacion = "Pejerrey"
                     mostrarDetalles = true
                 } catch (e: Exception) {
@@ -54,6 +84,23 @@ fun IdentificarPezScreen() {
                 } finally {
                     isAnalyzing = false
                 }
+            }
+        } else {
+            // Si falló la captura, limpiar URI
+            imageUri = null
+        }
+    }
+
+    // 📱 LAUNCHER PARA PERMISOS
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            // Permiso otorgado, abrir cámara
+            val uri = crearUriTemporal()
+            if (uri != null) {
+                imageUri = uri
+                cameraLauncher.launch(uri)
             }
         }
     }
@@ -79,10 +126,27 @@ fun IdentificarPezScreen() {
         }
     }
 
-    // Función para crear URI temporal
-    fun crearUriTemporal(): Uri? {
-        // En implementación real, crearías un URI temporal para la cámara
-        return null
+    // 📸 FUNCIÓN PARA ABRIR CÁMARA CON VERIFICACIÓN DE PERMISOS
+    fun abrirCamara() {
+        // Verificar permiso primero
+        when {
+            context.checkSelfPermission(android.Manifest.permission.CAMERA) ==
+                    android.content.pm.PackageManager.PERMISSION_GRANTED -> {
+                // Permiso ya otorgado, crear URI y abrir cámara
+                val uri = crearUriTemporal()
+                if (uri != null) {
+                    imageUri = uri
+                    cameraLauncher.launch(uri)
+                } else {
+                    // Manejar error de creación de URI
+                    println("Error: No se pudo crear URI temporal")
+                }
+            }
+            else -> {
+                // Solicitar permiso
+                permissionLauncher.launch(android.Manifest.permission.CAMERA)
+            }
+        }
     }
 
     Column(
@@ -152,13 +216,7 @@ fun IdentificarPezScreen() {
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Button(
-                            onClick = {
-                                val uri = crearUriTemporal()
-                                if (uri != null) {
-                                    imageUri = uri
-                                    cameraLauncher.launch(uri)
-                                }
-                            },
+                            onClick = { abrirCamara() }, // 🔥 FUNCIÓN CORREGIDA
                             modifier = Modifier.weight(1f)
                         ) {
                             Icon(Icons.Default.Camera, contentDescription = null)
@@ -276,12 +334,26 @@ fun IdentificarPezScreen() {
 
                 if (resultadoIdentificacion != null && !isAnalyzing) {
                     Button(
-                        onClick = { /* Iniciar nuevo análisis */ },
+                        onClick = {
+                            // Reiniciar análisis con la misma imagen
+                            isAnalyzing = true
+                            scope.launch {
+                                try {
+                                    kotlinx.coroutines.delay(3000)
+                                    resultadoIdentificacion = "Trucha arcoíris"
+                                    mostrarDetalles = true
+                                } catch (e: Exception) {
+                                    resultadoIdentificacion = "Error identificando pez"
+                                } finally {
+                                    isAnalyzing = false
+                                }
+                            }
+                        },
                         modifier = Modifier.weight(1f)
                     ) {
                         Icon(Icons.Default.Search, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Identificar")
+                        Text("Re-identificar")
                     }
                 }
             }
@@ -306,7 +378,7 @@ fun IdentificarPezScreen() {
                     )
 
                     Text(
-                        text = "Odontesthes bonariensis", // Nombre científico ejemplo
+                        text = "Odontesthes bonariensis",
                         fontSize = 14.sp,
                         fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
@@ -315,11 +387,11 @@ fun IdentificarPezScreen() {
                     Spacer(modifier = Modifier.height(16.dp))
 
                     // Información del pez
-                    InfoSection("Hábitat", "Lagunas y embalses de agua dulce")
-                    InfoSection("Carnadas", "Lombriz, cascarudos, artificiales pequeños")
-                    InfoSection("Mejor horario", "Todo el día, especialmente mañana")
-                    InfoSection("Técnica", "Pesca con boya o spinning liviano")
-                    InfoSection("Tamaño promedio", "200g - 1kg")
+                    InfoSection1("Hábitat", "Lagunas y embalses de agua dulce")
+                    InfoSection1("Carnadas", "Lombriz, cascarudos, artificiales pequeños")
+                    InfoSection1("Mejor horario", "Todo el día, especialmente mañana")
+                    InfoSection1("Técnica", "Pesca con boya o spinning liviano")
+                    InfoSection1("Tamaño promedio", "200g - 1kg")
 
                     Spacer(modifier = Modifier.height(20.dp))
 
@@ -339,7 +411,7 @@ fun IdentificarPezScreen() {
 }
 
 @Composable
-fun InfoSection(titulo: String, contenido: String) {
+fun InfoSection1(titulo: String, contenido: String) {
     Column(modifier = Modifier.padding(vertical = 4.dp)) {
         Text(
             text = titulo,

@@ -1,3 +1,5 @@
+// PASO 1: AGREGAR SOLO GOOGLE AUTH A TU build.gradle FUNCIONAL
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -51,16 +53,20 @@ android {
 }
 
 dependencies {
-    // Firebase
+    // Firebase (TUS DEPENDENCIAS ACTUALES)
     implementation("com.google.firebase:firebase-firestore-ktx:24.7.1")
     implementation("com.google.firebase:firebase-analytics-ktx:21.3.0")
 
-    // BÁSICO
+    // ✅ AGREGAR SOLO ESTAS 2 LÍNEAS PARA AUTH:
+    implementation("com.google.firebase:firebase-auth-ktx:22.3.1")
+    implementation("com.google.android.gms:play-services-auth:20.7.0")
+
+    // BÁSICO (SIN CAMBIOS)
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.activity:activity-compose:1.8.2")
 
-    // Compose
+    // Compose (SIN CAMBIOS)
     implementation(platform("androidx.compose:compose-bom:2024.02.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
@@ -68,19 +74,19 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
 
-    // ViewModel
+    // ViewModel (SIN CAMBIOS)
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
 
-    // Navigation - CORREGIDO
+    // Navigation (SIN CAMBIOS)
     implementation("androidx.navigation:navigation-compose:2.7.4")
 
-    // Coil
+    // Coil (SIN CAMBIOS)
     implementation("io.coil-kt:coil-compose:2.5.0")
 
-    // Coroutines
+    // Coroutines (SIN CAMBIOS)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
-    // Testing
+    // Testing (SIN CAMBIOS)
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
