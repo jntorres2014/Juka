@@ -389,11 +389,16 @@ fun JukaAppWithUser(
             startDestination = Screen.Chat.route,
             modifier = Modifier.padding(paddingValues)
         ) {
-            composable(Screen.Chat.route) {
+            /*composable(Screen.Chat.route) {
                 // ✅ TU CHATSCREEN ACTUAL (agregamos usuario)
                 ChatScreenWithUser(user = user)
             }
-
+            composable(Screen.Chat.route) {
+                ChatScreenSimplificado(user = user) // ← Versión fácil
+            }*/
+            composable(Screen.Chat.route) {
+                ChatScreenCompleto(user = user) // ← Versión completa
+            }
             composable(Screen.Identificar.route) {
                 // ✅ TU PANTALLA ACTUAL SIN CAMBIOS
                 IdentificarPezScreen()
@@ -401,7 +406,8 @@ fun JukaAppWithUser(
 
             composable(Screen.Reportes.route) {
                 // ✅ TU PANTALLA ACTUAL SIN CAMBIOS
-                MisReportesScreen()
+                // MisReportesScreen()
+                MisReportesScreenMejorado()
             }
 
             composable(Screen.Profile.route) {

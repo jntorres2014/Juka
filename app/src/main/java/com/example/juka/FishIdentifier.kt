@@ -18,7 +18,7 @@ import java.util.*
 class FishIdentifier(private val application: Application) {
 
     private val httpClient = OkHttpClient()
-    private val fishDatabase = FishDatabase()
+    private val fishDatabase = FishDatabase(application)
 
     // Versión alternativa que simula IA pero es 100% local
     private val speciesLogFile = File(application.filesDir, "identified_species.txt")
