@@ -27,7 +27,7 @@ data class SpeciesCatch(
 
 class FishingStoryAnalyzer(private val application: Application) {
 
-    private val fishDatabase = FishDatabase()
+    private val fishDatabase = FishDatabase(application)
     private val analysisLogFile = File(application.filesDir, "story_analysis_log.txt")
 
     // 🐟 Diccionario de especies con sinónimos y variaciones

@@ -1,13 +1,9 @@
-// ChatViewModel.kt - Versión con Firebase integrado
+// ChatViewModel.kt - Versión corregida con Firebase integrado
 package com.example.juka
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.juka.FishDatabase
-import com.example.juka.FishIdentifier
-import com.example.juka.FishingStoryAnalyzer
-import com.example.juka.IntelligentResponses
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -38,7 +34,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val conversationLogFile = File(getApplication<Application>().filesDir, "conversation_log.txt")
 
     // Instancias de las clases auxiliares
-    private val fishDatabase = FishDatabase()
+    private val fishDatabase = FishDatabase(getApplication())
     private val intelligentResponses = IntelligentResponses(fishDatabase)
     private val fishIdentifier = FishIdentifier(getApplication())
     private val storyAnalyzer = FishingStoryAnalyzer(getApplication())
@@ -48,6 +44,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val firebaseManager = FirebaseManager(getApplication())
 
     init {
+        // ✅ INICIALIZAR BASE DE DATOS PRIMERO
+        viewModelScope.launch {
+            try {
+                fishDatabase.initialize()
+                android.util.Log.i("ChatViewModel", "✅ Base de datos de peces inicializada")
+            } catch (e: Exception) {
+                android.util.Log.e("ChatViewModel", "❌ Error inicializando base de datos: ${e.message}")
+            }
+        }
+
         loadMessagesFromFile()
         addWelcomeMessage()
     }

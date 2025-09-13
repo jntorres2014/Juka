@@ -1,3 +1,4 @@
+// FirebaseManager.kt - VERSIÓN CORREGIDA COMPLETA
 package com.example.juka
 
 import android.content.Context
@@ -5,11 +6,36 @@ import android.os.Build
 import android.provider.Settings
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.*
 
-data class PartePesca(
+// ===== DATA CLASSES CORREGIDAS PARA FIREBASE =====
+
+data class PezCapturado @JvmOverloads constructor(
+    val especie: String = "",
+    val cantidad: Int = 0,
+    val observaciones: String? = null
+)
+
+data class UbicacionPesca @JvmOverloads constructor(
+    val nombre: String? = null,
+    val latitud: Double? = null,
+    val longitud: Double? = null,
+    val zona: String? = null
+)
+
+data class DeviceInfo @JvmOverloads constructor(
+    val modelo: String = "",
+    val marca: String = "",
+    val versionAndroid: String = "",
+    val versionApp: String = "1.0"
+)
+
+data class PartePesca @JvmOverloads constructor(
     val id: String = "",
     val deviceId: String = "",
     val fecha: String = "",
@@ -18,34 +44,14 @@ data class PartePesca(
     val duracionHoras: String? = null,
     val peces: List<PezCapturado> = emptyList(),
     val cantidadTotal: Int = 0,
-    val tipo: String? = null, // "costa" o "embarcado"
+    val tipo: String? = null,
     val canas: Int? = null,
     val ubicacion: UbicacionPesca? = null,
     val fotos: List<String> = emptyList(),
     val transcripcionOriginal: String? = null,
     val deviceInfo: DeviceInfo? = null,
     val timestamp: com.google.firebase.Timestamp? = null,
-    val estado: String = "completado" // "completado", "incompleto", "borrador"
-)
-
-data class PezCapturado(
-    val especie: String,
-    val cantidad: Int,
-    val observaciones: String? = null
-)
-
-data class UbicacionPesca(
-    val nombre: String? = null,
-    val latitud: Double? = null,
-    val longitud: Double? = null,
-    val zona: String? = null // "Río Paraná", "Laguna Chascomús", etc.
-)
-
-data class DeviceInfo(
-    val modelo: String,
-    val marca: String,
-    val versionAndroid: String,
-    val versionApp: String = "1.0"
+    val estado: String = "completado"
 )
 
 sealed class FirebaseResult {
@@ -58,31 +64,19 @@ class FirebaseManager(private val context: Context) {
 
     private val firestore = FirebaseFirestore.getInstance()
     private val deviceId = getDeviceId()
+    private val fishDatabase = FishDatabase(context)
 
     companion object {
         private const val TAG = "🔥 FirebaseManager"
         private const val COLLECTION_PARTES = "partes_pesca"
         private const val SUBCOLLECTION_PARTES = "partes"
+    }
 
-        // Mapeo de especies para Firebase
-        private val ESPECIES_CONOCIDAS = mapOf(
-            "dorado" to "Dorado",
-            "dorados" to "Dorado",
-            "surubí" to "Surubí",
-            "surubi" to "Surubí",
-            "pejerrey" to "Pejerrey",
-            "pejerreyes" to "Pejerrey",
-            "tararira" to "Tararira",
-            "tarariras" to "Tararira",
-            "pacú" to "Pacú",
-            "pacu" to "Pacú",
-            "sábalo" to "Sábalo",
-            "sabalo" to "Sábalo",
-            "boga" to "Boga",
-            "bogas" to "Boga",
-            "bagre" to "Bagre",
-            "bagres" to "Bagre"
-        )
+    init {
+        // Inicializar base de datos al crear el manager
+        CoroutineScope(Dispatchers.IO).launch {
+            fishDatabase.initialize()
+        }
     }
 
     /**
@@ -172,10 +166,9 @@ class FirebaseManager(private val context: Context) {
         }
     }
 
-    // MÉTODOS PRIVADOS
+    // ===== MÉTODOS PRIVADOS =====
 
     private fun esParteValido(data: FishingData): Boolean {
-        // Criterios mínimos para considerar un parte válido
         return data.day != null &&
                 data.fishCount != null &&
                 data.fishCount!! > 0 &&
@@ -183,7 +176,7 @@ class FirebaseManager(private val context: Context) {
     }
 
     private fun convertirAPartePesca(data: FishingData, transcripcion: String): PartePesca {
-        // Extraer especies de la transcripción
+        // Extraer especies de la transcripción usando la nueva base de datos
         val peces = extraerEspeciesDeTranscripcion(transcripcion, data.fishCount ?: 0)
 
         // Calcular duración si tenemos ambas horas
@@ -214,12 +207,20 @@ class FirebaseManager(private val context: Context) {
         val transcripcionLower = transcripcion.lowercase()
         val especiesEncontradas = mutableListOf<PezCapturado>()
 
-        // Buscar especies conocidas en la transcripción
-        ESPECIES_CONOCIDAS.forEach { (clave, especie) ->
-            if (transcripcionLower.contains(clave)) {
-                // Intentar extraer cantidad específica para esta especie
-                val cantidad = extraerCantidadParaEspecie(transcripcionLower, clave) ?: 1
-                especiesEncontradas.add(PezCapturado(especie, cantidad))
+        // Buscar en la base de datos cargada desde JSON
+        fishDatabase.getAllSpecies().forEach { fishInfo ->
+            val nombreLower = fishInfo.name.lowercase()
+            if (transcripcionLower.contains(nombreLower)) {
+                val cantidad = extraerCantidadParaEspecie(transcripcionLower, nombreLower) ?: 1
+                especiesEncontradas.add(PezCapturado(fishInfo.name, cantidad))
+            }
+        }
+
+        // También buscar por sinónimos si la base de datos los soporta
+        fishDatabase.searchSpecies(transcripcionLower).forEach { fishInfo ->
+            if (!especiesEncontradas.any { it.especie == fishInfo.name }) {
+                val cantidad = extraerCantidadParaEspecie(transcripcionLower, fishInfo.name.lowercase()) ?: 1
+                especiesEncontradas.add(PezCapturado(fishInfo.name, cantidad))
             }
         }
 
