@@ -323,3 +323,13 @@ class FishingDataExtractor(private val application: Application) {
 
     private fun getCurrentTimestamp() = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
 }
+// Al final del archivo
+fun FishingData.copy(
+    day: String? = this.day,
+    startTime: String? = this.startTime,
+    endTime: String? = this.endTime,
+    fishCount: Int? = this.fishCount,
+    type: String? = this.type,
+    rodsCount: Int? = this.rodsCount,
+    photoUri: String? = this.photoUri
+) = FishingData(day, startTime, endTime, fishCount, type, rodsCount, photoUri)

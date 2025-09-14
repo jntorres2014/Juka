@@ -328,10 +328,11 @@ fun ChatScreenMejorado(
                 Spacer(modifier = Modifier.width(8.dp))
 
                 // TU AudioRecordButton (sin cambios)
-                AudioRecordButton(
+                WorkingAudioButton(
                     onAudioTranscribed = { transcript ->
                         viewModel.sendAudioTranscript(transcript)
-                    }
+                    },
+                    modifier = Modifier.size(48.dp)
                 )
 
                 Spacer(modifier = Modifier.width(4.dp))

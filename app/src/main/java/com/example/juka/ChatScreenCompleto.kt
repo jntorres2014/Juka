@@ -926,7 +926,7 @@ fun EnhancedMessageInput(
                 // Botones de envío
                 Row {
                     // Botón de audio (usando tu componente existente)
-                    AudioRecordButton(
+                    WorkingAudioButton(
                         onAudioTranscribed = onSendAudio,
                         modifier = Modifier.size(48.dp)
                     )
@@ -1263,10 +1263,12 @@ fun ChatScreenSimplificado(
                 Spacer(modifier = Modifier.width(8.dp))
 
                 // Tu AudioRecordButton existente
-                AudioRecordButton(
+                // REEMPLAZA POR:
+                WorkingAudioButton(
                     onAudioTranscribed = { transcript ->
                         viewModel.sendAudioTranscript(transcript)
-                    }
+                    },
+                    modifier = Modifier.size(48.dp)
                 )
 
                 Spacer(modifier = Modifier.width(4.dp))

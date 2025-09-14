@@ -170,7 +170,20 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         saveMessageToFile(userMessage, "IMAGE: $imagePath")
         saveConversationLog("USER_IMAGE", imagePath)
 
-        val extractedData = dataExtractor.extractFromMessage("", imagePath)
+        // OBTENER CONTEXTO DE MENSAJES ANTERIORES PARA ESPECIES
+        val contextoPrevio = obtenerContextoPescaReciente()
+
+        // Extraer datos usando el contexto si existe
+        val extractedData = if (contextoPrevio.isNotBlank()) {
+            // Si hay contexto previo con especies, usarlo
+            val dataFromContext = dataExtractor.extractFromMessage(contextoPrevio)
+            // Agregar la foto al resultado
+            dataFromContext.copy(photoUri = imagePath)
+        } else {
+            // Si no hay contexto, crear datos básicos con la foto
+            dataExtractor.extractFromMessage("").copy(photoUri = imagePath)
+        }
+
         val missingFields = dataExtractor.getMissingFields(extractedData)
 
         _isTyping.value = true
@@ -178,18 +191,30 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             delay(Random.nextLong(1500, 2500))
 
-            var response = "Excelente foto! Agregada al reporte de pesca."
+            var response = if (contextoPrevio.isNotBlank()) {
+                "📸 Excelente foto! La agregué a tu reporte de pesca."
+            } else {
+                "📸 Foto recibida! Para incluirla en un reporte, contame qué pescaste."
+            }
 
+            // Solo guardar si hay datos completos
             if (missingFields.isEmpty() && extractedData.fishCount != null && extractedData.fishCount!! > 0) {
                 _firebaseStatus.value = "Guardando en Firebase..."
 
-                val firebaseResult = firebaseManager.guardarParteAutomatico(extractedData, "Foto de pesca")
+                // Usar el contexto previo como transcripción para análisis de especies
+                val transcripcionParaAnalisis = if (contextoPrevio.isNotBlank()) {
+                    "$contextoPrevio (con foto adjunta)"
+                } else {
+                    "Foto de pesca sin especificar especies"
+                }
+
+                val firebaseResult = firebaseManager.guardarParteAutomatico(extractedData, transcripcionParaAnalisis)
 
                 response += when (firebaseResult) {
                     is FirebaseResult.Success -> {
                         _firebaseStatus.value = "Guardado en Firebase"
                         dataExtractor.resetSession()
-                        "\n\n✅ **Parte con foto guardado en Firebase!**"
+                        "\n\n✅ **Reporte con foto guardado en Firebase!**\n📊 ${extractedData.fishCount} peces registrados con imagen"
                     }
                     is FirebaseResult.Error -> {
                         _firebaseStatus.value = "Error Firebase"
@@ -197,8 +222,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     else -> ""
                 }
-            } else if (missingFields.isNotEmpty()) {
-                response += "\n\nPara completar el registro: ${missingFields.joinToString(" ")}"
+            } else {
+                if (extractedData.fishCount == null || extractedData.fishCount!! == 0) {
+                    response += "\n\n💡 **Tip:** Contame qué especies pescaste para crear un reporte completo con tu foto."
+                } else if (missingFields.isNotEmpty()) {
+                    response += "\n\n📝 Para completar el reporte con foto: ${missingFields.joinToString(" ")}"
+                }
             }
 
             if (_firebaseStatus.value != null) {
@@ -217,6 +246,28 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             addMessage(botMessage)
             saveMessageToFile(botMessage)
             saveConversationLog("BOT_IMAGE", response)
+        }
+    }
+
+    // NUEVA FUNCIÓN AUXILIAR - Agregar al ChatViewModel
+    private fun obtenerContextoPescaReciente(): String {
+        // Buscar en los últimos 5 mensajes del usuario por especies o datos de pesca
+        val mensajesRecientes = _messages.value
+            .filter { it.isFromUser && it.type != MessageType.IMAGE }
+            .takeLast(5)
+            .map { it.content }
+            .joinToString(" ")
+
+        // Buscar indicadores de especies en el contexto
+        val especiesIndicadores = listOf(
+            "dorado", "dorados", "surubí", "surubís", "pacú", "pacús",
+            "pejerrey", "pejerreyes", "tararira", "bagre", "corvina"
+        )
+
+        return if (especiesIndicadores.any { mensajesRecientes.lowercase().contains(it) }) {
+            mensajesRecientes
+        } else {
+            ""
         }
     }
 

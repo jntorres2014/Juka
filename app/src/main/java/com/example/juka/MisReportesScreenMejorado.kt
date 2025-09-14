@@ -12,7 +12,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -439,7 +442,6 @@ fun EstadisticasDetalladas(reportes: List<PartePesca>) {
         }
     }
 }
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReporteCardMejorado(
@@ -507,6 +509,61 @@ fun ReporteCardMejorado(
 
             Spacer(modifier = Modifier.height(12.dp))
 
+            // NUEVA SECCIÓN: Mostrar fotos si existen
+            if (reporte.fotos.isNotEmpty()) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(vertical = 8.dp)
+                ) {
+                    items(reporte.fotos) { fotoUri ->
+                        Card(
+                            modifier = Modifier.size(80.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                        ) {
+                            coil.compose.AsyncImage(
+                                model = fotoUri,
+                                contentDescription = "Foto de pesca",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop,
+                                error = painterResource(id = android.R.drawable.ic_menu_gallery),
+                                placeholder = painterResource(id = android.R.drawable.ic_menu_gallery)
+                            )
+                        }
+                    }
+
+                    // Indicador de cantidad de fotos si hay más de una
+                    if (reporte.fotos.size > 1) {
+                        item {
+                            Surface(
+                                modifier = Modifier.size(80.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier.fillMaxSize(),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        Icons.Default.PhotoLibrary,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(24.dp),
+                                        tint = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                    Text(
+                                        text = "+${reporte.fotos.size - 1}",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Información principal
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -541,6 +598,17 @@ fun ReporteCardMejorado(
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
+
+                    // Indicador visual de foto
+                    if (reporte.fotos.isNotEmpty()) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Icon(
+                            Icons.Default.PhotoCamera,
+                            contentDescription = "Con foto",
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.tertiary
+                        )
+                    }
                 }
             }
 
@@ -559,8 +627,21 @@ fun ReporteCardMejorado(
             // Botones de acción
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
+                // Mostrar transcripción original si existe (útil para debug)
+                if (!reporte.transcripcionOriginal.isNullOrBlank() && reporte.transcripcionOriginal!!.length > 10) {
+                    Text(
+                        text = "\"${reporte.transcripcionOriginal!!.take(30)}...\"",
+                        fontSize = 10.sp,
+                        fontStyle = FontStyle.Italic,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+
                 TextButton(onClick = { onCompartir(reporte) }) {
                     Icon(
                         Icons.Default.Share,

@@ -4,6 +4,7 @@ package com.example.juka
 import android.content.Context
 import android.os.Build
 import android.provider.Settings
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.CoroutineScope
@@ -37,7 +38,8 @@ data class DeviceInfo @JvmOverloads constructor(
 
 data class PartePesca @JvmOverloads constructor(
     val id: String = "",
-    val deviceId: String = "",
+    val userId: String = "", // NUEVO: ID del usuario logueado
+    val deviceId: String = "", // Mantener como referencia adicional
     val fecha: String = "",
     val horaInicio: String? = null,
     val horaFin: String? = null,
@@ -50,6 +52,7 @@ data class PartePesca @JvmOverloads constructor(
     val fotos: List<String> = emptyList(),
     val transcripcionOriginal: String? = null,
     val deviceInfo: DeviceInfo? = null,
+    val userInfo: Map<String, Any> = emptyMap(), // NUEVO: Info del usuario
     val timestamp: com.google.firebase.Timestamp? = null,
     val estado: String = "completado"
 )
@@ -63,7 +66,7 @@ sealed class FirebaseResult {
 class FirebaseManager(private val context: Context) {
 
     private val firestore = FirebaseFirestore.getInstance()
-    private val deviceId = getDeviceId()
+    private val auth = FirebaseAuth.getInstance()
     private val fishDatabase = FishDatabase(context)
 
     companion object {
@@ -76,7 +79,29 @@ class FirebaseManager(private val context: Context) {
         // Inicializar base de datos al crear el manager
         CoroutineScope(Dispatchers.IO).launch {
             fishDatabase.initialize()
+            android.util.Log.d(TAG, "🐟 Base de datos inicializada: ${fishDatabase.getStats()}")
         }
+    }
+
+    /**
+     * Obtiene el ID del usuario actual
+     */
+    private fun getCurrentUserId(): String? {
+        return auth.currentUser?.uid
+    }
+
+    /**
+     * Obtiene información del usuario actual
+     */
+    private fun getCurrentUserInfo(): Map<String, Any> {
+        val user = auth.currentUser
+        return mapOf(
+            "userId" to (user?.uid ?: "anonymous"),
+            "email" to (user?.email ?: "no-email"),
+            "displayName" to (user?.displayName ?: "Usuario sin nombre"),
+            "photoUrl" to (user?.photoUrl?.toString() ?: ""),
+            "lastLogin" to com.google.firebase.Timestamp.now()
+        )
     }
 
     /**
@@ -84,7 +109,14 @@ class FirebaseManager(private val context: Context) {
      */
     suspend fun guardarParteAutomatico(fishingData: FishingData, transcripcion: String): FirebaseResult {
         return try {
-            android.util.Log.d(TAG, "💾 Guardando parte automático...")
+            val userId = getCurrentUserId()
+            if (userId == null) {
+                android.util.Log.e(TAG, "❌ Usuario no autenticado")
+                return FirebaseResult.Error("Usuario no autenticado. Por favor, inicia sesión.")
+            }
+
+            android.util.Log.d(TAG, "💾 Guardando parte automático para usuario: $userId")
+            android.util.Log.d(TAG, "📝 Transcripción: '$transcripcion'")
 
             // Validar que tiene datos mínimos necesarios
             if (!esParteValido(fishingData)) {
@@ -92,11 +124,16 @@ class FirebaseManager(private val context: Context) {
                 return FirebaseResult.Error("Parte incompleto - faltan datos esenciales")
             }
 
-            val parte = convertirAPartePesca(fishingData, transcripcion)
+            val parte = convertirAPartePesca(fishingData, transcripcion, userId)
             val parteId = generarIdParte()
 
-            // Guardar en Firestore
-            val documentPath = "$COLLECTION_PARTES/$deviceId/$SUBCOLLECTION_PARTES/$parteId"
+            android.util.Log.d(TAG, "🐟 Especies detectadas: ${parte.peces.size}")
+            parte.peces.forEach { pez ->
+                android.util.Log.d(TAG, "  - ${pez.especie}: ${pez.cantidad}")
+            }
+
+            // Guardar en Firestore con estructura basada en usuario
+            val documentPath = "$COLLECTION_PARTES/$userId/$SUBCOLLECTION_PARTES/$parteId"
 
             firestore.document(documentPath)
                 .set(parte, SetOptions.merge())
@@ -115,14 +152,20 @@ class FirebaseManager(private val context: Context) {
     }
 
     /**
-     * Obtiene todos los partes del dispositivo actual
+     * Obtiene todos los partes del usuario actual
      */
     suspend fun obtenerMisPartes(limite: Int = 50): List<PartePesca> {
         return try {
-            android.util.Log.d(TAG, "📋 Obteniendo mis partes...")
+            val userId = getCurrentUserId()
+            if (userId == null) {
+                android.util.Log.e(TAG, "❌ Usuario no autenticado para obtener partes")
+                return emptyList()
+            }
+
+            android.util.Log.d(TAG, "📋 Obteniendo partes para usuario: $userId")
 
             val query = firestore
-                .collection("$COLLECTION_PARTES/$deviceId/$SUBCOLLECTION_PARTES")
+                .collection("$COLLECTION_PARTES/$userId/$SUBCOLLECTION_PARTES")
                 .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.DESCENDING)
                 .limit(limite.toLong())
 
@@ -136,7 +179,7 @@ class FirebaseManager(private val context: Context) {
                 }
             }
 
-            android.util.Log.i(TAG, "📊 Encontrados ${partes.size} partes")
+            android.util.Log.i(TAG, "📊 Encontrados ${partes.size} partes para usuario $userId")
             partes
 
         } catch (e: Exception) {
@@ -146,27 +189,63 @@ class FirebaseManager(private val context: Context) {
     }
 
     /**
-     * Obtiene estadísticas básicas
+     * Obtiene estadísticas del usuario actual
      */
     suspend fun obtenerEstadisticas(): Map<String, Any> {
         return try {
+            val userId = getCurrentUserId()
+            if (userId == null) {
+                return mapOf("error" to "Usuario no autenticado")
+            }
+
             val partes = obtenerMisPartes(100) // Últimos 100 partes
 
             mapOf(
+                "userId" to userId,
                 "total_partes" to partes.size,
                 "total_peces" to partes.sumOf { it.cantidadTotal },
                 "especie_favorita" to obtenerEspecieFavorita(partes),
                 "mejor_dia" to obtenerMejorDia(partes),
-                "tipo_preferido" to obtenerTipoPreferido(partes)
+                "tipo_preferido" to obtenerTipoPreferido(partes),
+                "user_info" to getCurrentUserInfo()
             )
 
         } catch (e: Exception) {
             android.util.Log.e(TAG, "Error obteniendo estadísticas: ${e.message}")
+            mapOf("error" to e.localizedMessage)
+        }
+    }
+
+    /**
+     * Obtiene estadísticas globales (opcional - para rankings)
+     */
+    suspend fun obtenerEstadisticasGlobales(): Map<String, Any> {
+        return try {
+            // Esta función podría ser útil para rankings entre usuarios
+            val globalQuery = firestore.collectionGroup(SUBCOLLECTION_PARTES)
+                .limit(1000)
+
+            val snapshot = globalQuery.get().await()
+            val totalPartes = snapshot.size()
+            val totalPeces = snapshot.documents.mapNotNull { doc ->
+                doc.getLong("cantidadTotal")?.toInt()
+            }.sum()
+
+            mapOf(
+                "total_usuarios_activos" to snapshot.documents
+                    .mapNotNull { it.getString("userId") }
+                    .distinct().size,
+                "total_partes_globales" to totalPartes,
+                "total_peces_globales" to totalPeces
+            )
+
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Error obteniendo estadísticas globales: ${e.message}")
             emptyMap()
         }
     }
 
-    // ===== MÉTODOS PRIVADOS =====
+    // ===== MÉTODOS PRIVADOS ACTUALIZADOS =====
 
     private fun esParteValido(data: FishingData): Boolean {
         return data.day != null &&
@@ -175,9 +254,11 @@ class FirebaseManager(private val context: Context) {
                 (data.startTime != null || data.endTime != null)
     }
 
-    private fun convertirAPartePesca(data: FishingData, transcripcion: String): PartePesca {
-        // Extraer especies de la transcripción usando la nueva base de datos
-        val peces = extraerEspeciesDeTranscripcion(transcripcion, data.fishCount ?: 0)
+    private fun convertirAPartePesca(data: FishingData, transcripcion: String, userId: String): PartePesca {
+        android.util.Log.d(TAG, "🔄 Convirtiendo transcripción a parte de pesca para usuario: $userId")
+
+        // Extraer especies usando la función mejorada
+        val peces = extraerEspeciesDeTranscripcionMejorado(transcripcion, data.fishCount ?: 0)
 
         // Calcular duración si tenemos ambas horas
         val duracion = if (data.startTime != null && data.endTime != null) {
@@ -185,7 +266,8 @@ class FirebaseManager(private val context: Context) {
         } else null
 
         return PartePesca(
-            deviceId = deviceId,
+            userId = userId, // CAMBIO PRINCIPAL: usar userId en lugar de deviceId
+            deviceId = getDeviceId(), // Mantener como referencia adicional
             fecha = data.day ?: getCurrentDate(),
             horaInicio = data.startTime,
             horaFin = data.endTime,
@@ -194,64 +276,129 @@ class FirebaseManager(private val context: Context) {
             cantidadTotal = data.fishCount ?: 0,
             tipo = data.type,
             canas = data.rodsCount,
-            ubicacion = null, // TODO: Implementar detección de ubicación
+            ubicacion = null,
             fotos = if (data.photoUri != null) listOf(data.photoUri!!) else emptyList(),
             transcripcionOriginal = transcripcion,
             deviceInfo = getDeviceInfo(),
+            userInfo = getCurrentUserInfo(), // NUEVO: info del usuario
             timestamp = com.google.firebase.Timestamp.now(),
             estado = "completado"
         )
     }
 
-    private fun extraerEspeciesDeTranscripcion(transcripcion: String, cantidadTotal: Int): List<PezCapturado> {
-        val transcripcionLower = transcripcion.lowercase()
+    /**
+     * Función mejorada para detectar especies (sin cambios)
+     */
+    private fun extraerEspeciesDeTranscripcionMejorado(transcripcion: String, cantidadTotal: Int): List<PezCapturado> {
+        android.util.Log.d(TAG, "🐟 Analizando transcripción para especies...")
+        android.util.Log.d(TAG, "📝 Texto: '$transcripcion'")
+
+        val transcripcionLower = transcripcion.lowercase().trim()
         val especiesEncontradas = mutableListOf<PezCapturado>()
 
-        // Buscar en la base de datos cargada desde JSON
-        fishDatabase.getAllSpecies().forEach { fishInfo ->
-            val nombreLower = fishInfo.name.lowercase()
-            if (transcripcionLower.contains(nombreLower)) {
-                val cantidad = extraerCantidadParaEspecie(transcripcionLower, nombreLower) ?: 1
-                especiesEncontradas.add(PezCapturado(fishInfo.name, cantidad))
+        // Patrones mejorados para especies argentinas
+        val patronesEspecies = mapOf(
+            "dorado" to listOf("dorado", "dorados", "doradito", "doraditos"),
+            "surubí" to listOf("surubí", "surubís", "surubi", "surubis", "pintado", "pintados"),
+            "pacú" to listOf("pacú", "pacús", "pacu", "pacus", "piraña vegetariana"),
+            "pejerrey" to listOf("pejerrey", "pejerreyes", "pejerrei"),
+            "tararira" to listOf("tararira", "tarariras", "tarira", "tariras"),
+            "sábalo" to listOf("sábalo", "sábalos", "sabalo", "sabalos"),
+            "boga" to listOf("boga", "bogas"),
+            "bagre" to listOf("bagre", "bagres", "gato", "gatos"),
+            "corvina" to listOf("corvina", "corvinas"),
+            "lisa" to listOf("lisa", "lisas"),
+            "lenguado" to listOf("lenguado", "lenguados"),
+            "trucha" to listOf("trucha", "truchas"),
+            "carpa" to listOf("carpa", "carpas")
+        )
+
+        // Buscar cada especie en el texto
+        patronesEspecies.forEach { (especieNormalizada, variantes) ->
+            variantes.forEach { variante ->
+                if (transcripcionLower.contains(variante)) {
+                    android.util.Log.d(TAG, "✅ Encontrada especie: '$variante' → $especieNormalizada")
+
+                    val cantidad = extraerCantidadParaEspecieConPatrones(transcripcionLower, variante)
+
+                    if (!especiesEncontradas.any { it.especie.equals(especieNormalizada, true) }) {
+                        especiesEncontradas.add(
+                            PezCapturado(
+                                especie = especieNormalizada.replaceFirstChar { it.uppercase() },
+                                cantidad = cantidad,
+                                observaciones = "Detectado en: '$variante'"
+                            )
+                        )
+                        android.util.Log.d(TAG, "➕ Agregada: $especieNormalizada ($cantidad unidades)")
+                    }
+                }
             }
         }
 
-        // También buscar por sinónimos si la base de datos los soporta
-        fishDatabase.searchSpecies(transcripcionLower).forEach { fishInfo ->
-            if (!especiesEncontradas.any { it.especie == fishInfo.name }) {
-                val cantidad = extraerCantidadParaEspecie(transcripcionLower, fishInfo.name.lowercase()) ?: 1
-                especiesEncontradas.add(PezCapturado(fishInfo.name, cantidad))
-            }
-        }
-
-        // Si no encontramos especies específicas, crear una genérica
+        // Si no encontramos especies específicas
         if (especiesEncontradas.isEmpty()) {
-            especiesEncontradas.add(PezCapturado("Pez (especie no especificada)", cantidadTotal))
+            android.util.Log.w(TAG, "⚠️ No se detectaron especies específicas, usando genérico")
+
+            val esGenerico = transcripcionLower.contains("pez") ||
+                    transcripcionLower.contains("pescado") ||
+                    transcripcionLower.contains("captura")
+
+            especiesEncontradas.add(
+                PezCapturado(
+                    especie = if (esGenerico) "Peces varios" else "Especies sin identificar",
+                    cantidad = cantidadTotal,
+                    observaciones = "Detectado automáticamente - especificar especie para mejores reportes"
+                )
+            )
+        }
+
+        // Ajustar cantidades si es necesario
+        val totalDetectado = especiesEncontradas.sumOf { it.cantidad }
+        if (totalDetectado != cantidadTotal && cantidadTotal > 0) {
+            android.util.Log.d(TAG, "⚖️ Ajustando cantidades: detectado $totalDetectado vs total $cantidadTotal")
+
+            if (especiesEncontradas.size == 1) {
+                especiesEncontradas[0] = especiesEncontradas[0].copy(cantidad = cantidadTotal)
+            }
+        }
+
+        android.util.Log.i(TAG, "🏆 ESPECIES FINALES: ${especiesEncontradas.size}")
+        especiesEncontradas.forEach { pez ->
+            android.util.Log.i(TAG, "  🐟 ${pez.especie}: ${pez.cantidad} unidades")
         }
 
         return especiesEncontradas
     }
 
-    private fun extraerCantidadParaEspecie(texto: String, especie: String): Int? {
-        // Buscar patrones como "2 pejerreyes", "tres dorados"
-        val patron1 = Regex("""(\d+)\s+$especie""")
-        val patron2 = Regex("""(un|una|dos|tres|cuatro|cinco)\s+$especie""")
+    private fun extraerCantidadParaEspecieConPatrones(texto: String, especie: String): Int {
+        val patronesCantidad = listOf(
+            Regex("""(\d+|un|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+${Regex.escape(especie)}"""),
+            Regex("""${Regex.escape(especie)}\s*:?\s*(\d+)"""),
+            Regex("""(?:pesqu[éeí]|saq[uéí]|captur[éeí])\s+(\d+|un|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+${Regex.escape(especie)}""")
+        )
 
-        patron1.find(texto)?.let {
-            return it.groupValues[1].toIntOrNull()
+        val numerosEscritos = mapOf(
+            "un" to 1, "una" to 1, "dos" to 2, "tres" to 3, "cuatro" to 4,
+            "cinco" to 5, "seis" to 6, "siete" to 7, "ocho" to 8, "nueve" to 9, "diez" to 10
+        )
+
+        patronesCantidad.forEach { patron ->
+            val match = patron.find(texto)
+            if (match != null) {
+                val cantidadStr = match.groupValues[1].lowercase()
+                val cantidad = numerosEscritos[cantidadStr] ?: cantidadStr.toIntOrNull()
+
+                if (cantidad != null && cantidad > 0) {
+                    android.util.Log.d(TAG, "🔢 Cantidad encontrada para '$especie': $cantidad")
+                    return cantidad
+                }
+            }
         }
 
-        patron2.find(texto)?.let { match ->
-            val palabra = match.groupValues[1]
-            return mapOf(
-                "un" to 1, "una" to 1, "dos" to 2, "tres" to 3,
-                "cuatro" to 4, "cinco" to 5
-            )[palabra]
-        }
-
-        return null
+        return 1
     }
 
+    // Resto de métodos helper sin cambios significativos
     private fun calcularDuracion(inicio: String, fin: String): String {
         return try {
             val formato = SimpleDateFormat("HH:mm", Locale.getDefault())
@@ -297,7 +444,7 @@ class FirebaseManager(private val context: Context) {
 
     private fun getDeviceId(): String {
         return try {
-            Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+            android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
                 ?: "unknown_device_${System.currentTimeMillis()}"
         } catch (e: Exception) {
             "fallback_device_${System.currentTimeMillis()}"
