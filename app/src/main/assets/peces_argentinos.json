@@ -1,0 +1,145 @@
+[
+  {
+    "nombre": "Dorado",
+    "cientifico": "Salminus brasiliensis",
+    "habitat": "Ríos de corriente fuerte del Paraná y Uruguay",
+    "carnadas": ["carnada viva", "señuelos plateados", "mojarritas", "cucharitas"],
+    "mejor_horario": "Amanecer y atardecer",
+    "tecnica": "Spinning con recuperación irregular",
+    "tamaño": "3-8 kg",
+    "temporada": "Octubre a abril",
+    "sinonimos": ["dorado", "dorados", "doradito", "doraditos", "tigre del río"]
+  },
+  {
+    "nombre": "Surubí",
+    "cientifico": "Pseudoplatystoma corruscans",
+    "habitat": "Pozones profundos del río Paraná",
+    "carnadas": ["lombrices grandes", "bagre cortado", "tararira cortada", "hígado"],
+    "mejor_horario": "Noche",
+    "tecnica": "Pesca de fondo con plomada pesada",
+    "tamaño": "5-25 kg",
+    "temporada": "Todo el año",
+    "sinonimos": ["surubí", "surubís", "surubi", "surubis", "pintado", "pintados"]
+  },
+  {
+    "nombre": "Pacú",
+    "cientifico": "Piaractus mesopotamicus",
+    "habitat": "Remansos y lagunas del río Paraná",
+    "carnadas": ["frutas", "maíz", "pellets", "semillas", "durazno"],
+    "mejor_horario": "Mañana temprano",
+    "tecnica": "Pesca con boya a media agua",
+    "tamaño": "2-10 kg",
+    "temporada": "Noviembre a marzo",
+    "sinonimos": ["pacú", "pacús", "pacu", "pacus", "piraña vegetariana"]
+  },
+  {
+    "nombre": "Pejerrey",
+    "cientifico": "Odontesthes bonariensis",
+    "habitat": "Lagunas pampeanas y embalses",
+    "carnadas": ["lombriz", "cascarudos", "artificiales pequeños", "masa"],
+    "mejor_horario": "Todo el día",
+    "tecnica": "Pesca con boya o spinning liviano",
+    "tamaño": "200g-1.5kg",
+    "temporada": "Marzo a noviembre",
+    "sinonimos": ["pejerrey", "pejerreyes", "pejerrei", "pejerrey bonaerense"]
+  },
+  {
+    "nombre": "Tararira",
+    "cientifico": "Hoplias malabaricus",
+    "habitat": "Juncales y vegetación acuática",
+    "carnadas": ["carnada viva", "spinnerbaits", "poppers", "mojarras"],
+    "mejor_horario": "Amanecer y anochecer",
+    "tecnica": "Casting entre la vegetación",
+    "tamaño": "1-5 kg",
+    "temporada": "Septiembre a abril",
+    "sinonimos": ["tararira", "tarariras", "tarira", "tariras", "dientudo"]
+  },
+  {
+    "nombre": "Sábalo",
+    "cientifico": "Prochilodus lineatus",
+    "habitat": "Ríos y arroyos de todo el país",
+    "carnadas": ["masa", "pan", "lombriz", "maíz"],
+    "mejor_horario": "Mañana y tarde",
+    "tecnica": "Pesca de fondo liviana",
+    "tamaño": "1-4 kg",
+    "temporada": "Todo el año",
+    "sinonimos": ["sábalo", "sábalos", "sabalo", "sabalos"]
+  },
+  {
+    "nombre": "Boga",
+    "cientifico": "Leporinus obtusidens",
+    "habitat": "Correderas y pozones del río Paraná",
+    "carnadas": ["masa", "maíz", "lombrices", "pan"],
+    "mejor_horario": "Día completo",
+    "tecnica": "Pesca al correntino",
+    "tamaño": "500g-2.5kg",
+    "temporada": "Octubre a marzo",
+    "sinonimos": ["boga", "bogas"]
+  },
+  {
+    "nombre": "Bagre",
+    "cientifico": "Pimelodus maculatus",
+    "habitat": "Fondos fangosos de ríos y arroyos",
+    "carnadas": ["lombrices", "hígado", "mojarras", "vísceras"],
+    "mejor_horario": "Noche",
+    "tecnica": "Pesca de fondo",
+    "tamaño": "300g-2kg",
+    "temporada": "Todo el año",
+    "sinonimos": ["bagre", "bagres", "gato", "gatos", "bagre amarillo"]
+  },
+  {
+    "nombre": "Corvina",
+    "cientifico": "Micropogonias furnieri",
+    "habitat": "Aguas costeras del Río de la Plata",
+    "carnadas": ["camarones", "lombriz de mar", "mejillones", "cangrejos"],
+    "mejor_horario": "Mañana y tarde",
+    "tecnica": "Surf casting",
+    "tamaño": "30-80 cm",
+    "temporada": "Verano",
+    "sinonimos": ["corvina", "corvinas", "corvina rubia", "corvina dorada"]
+  },
+  {
+    "nombre": "Lisa",
+    "cientifico": "Mugil liza",
+    "habitat": "Estuarios y aguas costeras",
+    "carnadas": ["pan", "masa", "algas", "mejillones"],
+    "mejor_horario": "Mañana",
+    "tecnica": "Pesca con boya liviana",
+    "tamaño": "30-60 cm",
+    "temporada": "Verano",
+    "sinonimos": ["lisa", "lisas", "lisa común"]
+  },
+  {
+    "nombre": "Lenguado",
+    "cientifico": "Paralichthys orbignyanus",
+    "habitat": "Fondos arenosos y fangosos",
+    "carnadas": ["lombrices marinas", "camarones", "pescaditos"],
+    "mejor_horario": "Mañana y tarde",
+    "tecnica": "Pesca de fondo con deriva",
+    "tamaño": "30-80 cm",
+    "temporada": "Otoño e invierno",
+    "sinonimos": ["lenguado", "lenguados", "platija"]
+  },
+  {
+    "nombre": "Trucha",
+    "cientifico": "Salmo trutta",
+    "habitat": "Ríos y lagos patagónicos (introducida)",
+    "carnadas": ["lombrices", "insectos", "señuelos", "mosca"],
+    "mejor_horario": "Mañana temprano y atardecer",
+    "tecnica": "Fly fishing, spinning, pesca con carnada",
+    "tamaño": "30-80 cm",
+    "temporada": "Noviembre a abril",
+    "sinonimos": ["trucha", "truchas", "trucha común", "trucha marrón"]
+  },
+  {
+    "nombre": "Carpa",
+    "cientifico": "Cyprinus carpio",
+    "habitat": "Lagunas, embalses y ríos de llanura",
+    "carnadas": ["maíz", "pan", "pellets", "lombrices"],
+    "mejor_horario": "Mañana y tarde",
+    "tecnica": "Pesca de fondo con boya",
+    "tamaño": "30-80 cm",
+    "temporada": "Primavera y verano",
+    "sinonimos": ["carpa", "carpas", "carpa común"]
+  }
+]

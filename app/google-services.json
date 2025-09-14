@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "976766461144",
+    "project_id": "pesca-huka",
+    "storage_bucket": "pesca-huka.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:976766461144:android:11ddfa087efaec2aa1e3ad",
+        "android_client_info": {
+          "package_name": "com.example.juka"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "976766461144-ogn3d3dde2vg21scb7atb672pf88ths5.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.juka",
+            "certificate_hash": "63ab0087f18eb6bac6287ca5584152e838e5225b"
+          }
+        },
+        {
+          "client_id": "976766461144-s5kbfljvrii2nik3rvkdcjerat64cpr0.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB3r0-gFEZE29ipb2nUZmI4FSW23sxtABQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "976766461144-s5kbfljvrii2nik3rvkdcjerat64cpr0.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
