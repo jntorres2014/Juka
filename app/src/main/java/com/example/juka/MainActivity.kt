@@ -397,7 +397,7 @@ fun JukaAppWithUser(
                 ChatScreenSimplificado(user = user) // ← Versión fácil
             }*/
             composable(Screen.Chat.route) {
-                ChatScreenCompleto(user = user) // ← Versión completa
+                EnhancedChatScreen(user = user) // ← Versión completa
             }
             composable(Screen.Identificar.route) {
                 // ✅ TU PANTALLA ACTUAL SIN CAMBIOS

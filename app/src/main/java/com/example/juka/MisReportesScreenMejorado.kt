@@ -585,11 +585,17 @@ fun ReporteCardMejorado(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.Pets,
+                    /*Icon(
+                        Icons.Default.BookmarkBorder,
                         contentDescription = null,
                         modifier = Modifier.size(16.dp),
                         tint = MaterialTheme.colorScheme.secondary
+                    )*/
+                    Text(
+                        text = "🐠",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(

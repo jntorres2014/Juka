@@ -574,53 +574,6 @@ fun MessageBubbleEnhanced(message: ChatMessage) {
     }
 }
 
-@Composable
-fun FormattedText(
-    text: String,
-    color: Color,
-    modifier: Modifier = Modifier
-) {
-    val formattedText = remember(text) {
-        buildAnnotatedString {
-            var currentIndex = 0
-
-            // Procesar **texto en negrita**
-            val boldRegex = """\*\*(.*?)\*\*""".toRegex()
-            val boldMatches = boldRegex.findAll(text).toList()
-
-            if (boldMatches.isEmpty()) {
-                append(text)
-            } else {
-                boldMatches.forEach { match ->
-                    // Texto antes del bold
-                    if (match.range.first > currentIndex) {
-                        append(text.substring(currentIndex, match.range.first))
-                    }
-
-                    // Texto en bold
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(match.groupValues[1])
-                    }
-
-                    currentIndex = match.range.last + 1
-                }
-
-                // Texto restante
-                if (currentIndex < text.length) {
-                    append(text.substring(currentIndex))
-                }
-            }
-        }
-    }
-
-    Text(
-        text = formattedText,
-        color = color,
-        fontSize = 16.sp,
-        lineHeight = 22.sp,
-        modifier = modifier
-    )
-}
 
 @Composable
 fun AudioMessageContent(
