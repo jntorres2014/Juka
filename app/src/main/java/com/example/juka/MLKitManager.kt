@@ -4,7 +4,6 @@ package com.example.juka
 import android.content.Context
 import android.util.Log
 import com.google.mlkit.nl.entityextraction.*
-import com.google.mlkit.nl.translate.TranslateLanguage
 import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.*
@@ -97,8 +96,8 @@ class MLKitManager(private val context: Context) {
             // Agregar entidades específicas de pesca
             val entidadesPesca = extraerEntidadesPesca(texto)
 
-            // Combinar resultados
-            val todasEntidades = entitiesMLKit + entidadesPesca
+            // Combinar y ordenar por posición en el texto (clave para asociaciones)
+            val todasEntidades = (entitiesMLKit + entidadesPesca).sortedBy { it.posicionInicio }
 
             val resultado = MLKitExtractionResult(
                 textoExtraido = texto,
@@ -183,14 +182,19 @@ class MLKitManager(private val context: Context) {
         // Extraer modalidades de pesca
         entidades.addAll(extraerModalidades(texto, textoLower))
 
-        // Extraer especies
-        entidades.addAll(extraerEspecies(texto, textoLower))
-
         // Extraer números de cañas
         entidades.addAll(extraerNumeroCanas(texto, textoLower))
 
-        // Extraer cantidad de peces
-        entidades.addAll(extraerCantidadPeces(texto, textoLower))
+        // Nueva: Extraer capturas (pares cantidad-especie)
+        val capturas = extraerCapturas(texto, textoLower)
+        entidades.addAll(capturas)
+
+        // Extraer especies solitarias, evitando duplicados con capturas
+        val coveredEspecieStarts = capturas.filter { it.tipo == "ESPECIE" }.map { it.posicionInicio }.toSet()
+        val especiesLone = extraerEspecies(texto, textoLower).filter { !coveredEspecieStarts.contains(it.posicionInicio) }
+        entidades.addAll(especiesLone)
+
+        // Nota: Eliminamos extraerCantidadPeces, ya que lo maneja extraerCapturas
 
         return entidades
     }
@@ -221,7 +225,59 @@ class MLKitManager(private val context: Context) {
     private fun extraerHoras(texto: String, textoLower: String): List<MLKitEntity> {
         return extraerHorasConNuevoExtractor(texto)
     }
+    private suspend fun extraerCapturas(texto: String, textoLower: String): List<MLKitEntity> {
+        val entidades = mutableListOf<MLKitEntity>()
 
+        // Inicializar base de datos si no está lista
+        if (!fishDatabase.isInitialized()) {
+            fishDatabase.initialize()
+        }
+
+        // Construir regex dinámico con nombres de especies (escapa caracteres especiales)
+        val speciesNames = fishDatabase.getAllSpecies().map { Pattern.quote(it.name.lowercase()) }.joinToString("|")
+        Log.d("Peces",speciesNames)
+        if (speciesNames.isEmpty()) return entidades  // Si no hay especies, salir
+
+        val patron = Pattern.compile(
+            """(\d+|un|una|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s*($speciesNames)""",
+            Pattern.CASE_INSENSITIVE
+        )
+
+        val matcher = patron.matcher(textoLower)
+        while (matcher.find()) {
+            val cantidadStr = matcher.group(1)
+            val especieLower = matcher.group(2)
+
+            val cantidad = convertirNumeroTextoAEntero(cantidadStr) ?: continue
+
+            // Obtener el nombre original con mayúsculas del texto
+            val especieOriginal = texto.substring(matcher.start(2), matcher.end(2))
+
+            // Añadir CANTIDAD_PECES (posición del número)
+            entidades.add(
+                MLKitEntity(
+                    tipo = "CANTIDAD_PECES",
+                    valor = cantidad.toString(),
+                    confianza = 0.9f,
+                    posicionInicio = matcher.start(1),
+                    posicionFin = matcher.end(1)
+                )
+            )
+
+            // Añadir ESPECIE (posición del nombre)
+            entidades.add(
+                MLKitEntity(
+                    tipo = "ESPECIE",
+                    valor = especieOriginal,
+                    confianza = 0.9f,
+                    posicionInicio = matcher.start(2),
+                    posicionFin = matcher.end(2)
+                )
+            )
+        }
+
+        return entidades
+    }
     private fun extraerLugares(texto: String, textoLower: String): List<MLKitEntity> {
         val entidades = mutableListOf<MLKitEntity>()
 
@@ -298,11 +354,18 @@ class MLKitManager(private val context: Context) {
             fishDatabase.initialize()
         }
 
-        // Buscar especies conocidas en el texto
+        // Obtener capturas para saber posiciones cubiertas (llama a extraerCapturas si no lo has hecho, pero para evitar ciclo, asume se llama después)
+        // Nota: Para evitar duplicación, pasaremos coveredStarts desde extraerEntidadesPesca
+
+        // Por ahora, buscaremos todas las ocurrencias múltiples
         fishDatabase.getAllSpecies().forEach { especie ->
             val nombreLower = especie.name.lowercase()
-            if (textoLower.contains(nombreLower)) {
-                val inicio = textoLower.indexOf(nombreLower)
+            var start = 0
+            while (true) {
+                val inicio = textoLower.indexOf(nombreLower, start)
+                if (inicio == -1) break
+
+                // Aquí, en extraerEntidadesPesca filtraremos duplicados, pero por ahora añade todas
                 entidades.add(
                     MLKitEntity(
                         tipo = "ESPECIE",
@@ -312,6 +375,8 @@ class MLKitManager(private val context: Context) {
                         posicionFin = inicio + nombreLower.length
                     )
                 )
+
+                start = inicio + nombreLower.length  // Avanza para evitar overlap
             }
         }
 
@@ -415,9 +480,38 @@ class MLKitManager(private val context: Context) {
      */
     fun convertirEntidadesAParteDatos(entidades: List<MLKitEntity>): ParteEnProgreso {
         var parteData = ParteEnProgreso()
+        var pendingCantidad: Int? = null
 
-        entidades.forEach { entity ->
+        // Ordenar por posición (por si no viene ordenado)
+        val entidadesOrdenadas = entidades.sortedBy { it.posicionInicio }
+
+        entidadesOrdenadas.forEach { entity ->
             when (entity.tipo) {
+                "CANTIDAD_PECES" -> {
+                    pendingCantidad = entity.valor.toIntOrNull()
+                    // No actualizamos aquí, solo pendemos
+                }
+                "ESPECIE" -> {
+                    val cantidad = pendingCantidad ?: 1
+                    val especieExistente = parteData.especiesCapturadas.find { it.nombre == entity.valor }
+                    if (especieExistente != null) {
+                        // Sumar si ya existe (por si duplicados)
+                        val updated = especieExistente.copy(
+                            numeroEjemplares = especieExistente.numeroEjemplares + cantidad
+                        )
+                        val newList = parteData.especiesCapturadas.map {
+                            if (it.nombre == entity.valor) updated else it
+                        }
+                        parteData = parteData.copy(especiesCapturadas = newList)
+                    } else {
+                        val nuevaEspecie = EspecieCapturada(nombre = entity.valor, numeroEjemplares = cantidad)
+                        parteData = parteData.copy(
+                            especiesCapturadas = parteData.especiesCapturadas + nuevaEspecie
+                        )
+                    }
+                    pendingCantidad = null  // Resetear
+                }
+                // Mantén los otros cases iguales
                 "FECHA" -> parteData = parteData.copy(fecha = entity.valor)
                 "HORA_INICIO" -> parteData = parteData.copy(horaInicio = entity.valor)
                 "HORA_FIN" -> parteData = parteData.copy(horaFin = entity.valor)
@@ -434,26 +528,7 @@ class MLKitManager(private val context: Context) {
                     val numero = entity.valor.toIntOrNull()
                     parteData = parteData.copy(numeroCanas = numero)
                 }
-                "ESPECIE" -> {
-                    val especieExistente = parteData.especiesCapturadas.find { it.nombre == entity.valor }
-                    if (especieExistente == null) {
-                        val nuevaEspecie = EspecieCapturada(nombre = entity.valor, numeroEjemplares = 1)
-                        parteData = parteData.copy(
-                            especiesCapturadas = parteData.especiesCapturadas + nuevaEspecie
-                        )
-                    }
-                }
-                "CANTIDAD_PECES" -> {
-                    // Esta lógica puede mejorarse para asociar cantidades con especies específicas
-                    val cantidad = entity.valor.toIntOrNull() ?: 1
-                    if (parteData.especiesCapturadas.isNotEmpty()) {
-                        val especieActualizada = parteData.especiesCapturadas.last().copy(
-                            numeroEjemplares = cantidad
-                        )
-                        val especiesActualizadas = parteData.especiesCapturadas.dropLast(1) + especieActualizada
-                        parteData = parteData.copy(especiesCapturadas = especiesActualizadas)
-                    }
-                }
+                // Ignora otros como FECHA_HORA si no los usas
             }
         }
 

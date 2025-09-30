@@ -1,6 +1,7 @@
-package com.example.juka
+package com.example.juka.identificar
 
-import android.content.Context
+import android.Manifest
+import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,11 +21,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import coil.compose.rememberAsyncImagePainter
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
@@ -76,7 +79,7 @@ fun IdentificarPezScreen() {
             scope.launch {
                 try {
                     // Simular análisis de IA (en tu caso usarías FishIdentifier)
-                    kotlinx.coroutines.delay(3000)
+                    delay(3000)
                     resultadoIdentificacion = "Pejerrey"
                     mostrarDetalles = true
                 } catch (e: Exception) {
@@ -114,7 +117,7 @@ fun IdentificarPezScreen() {
             isAnalyzing = true
             scope.launch {
                 try {
-                    kotlinx.coroutines.delay(3000)
+                    delay(3000)
                     resultadoIdentificacion = "Dorado"
                     mostrarDetalles = true
                 } catch (e: Exception) {
@@ -130,8 +133,8 @@ fun IdentificarPezScreen() {
     fun abrirCamara() {
         // Verificar permiso primero
         when {
-            context.checkSelfPermission(android.Manifest.permission.CAMERA) ==
-                    android.content.pm.PackageManager.PERMISSION_GRANTED -> {
+            context.checkSelfPermission(Manifest.permission.CAMERA) ==
+                    PackageManager.PERMISSION_GRANTED -> {
                 // Permiso ya otorgado, crear URI y abrir cámara
                 val uri = crearUriTemporal()
                 if (uri != null) {
@@ -144,7 +147,7 @@ fun IdentificarPezScreen() {
             }
             else -> {
                 // Solicitar permiso
-                permissionLauncher.launch(android.Manifest.permission.CAMERA)
+                permissionLauncher.launch(Manifest.permission.CAMERA)
             }
         }
     }
@@ -339,7 +342,7 @@ fun IdentificarPezScreen() {
                             isAnalyzing = true
                             scope.launch {
                                 try {
-                                    kotlinx.coroutines.delay(3000)
+                                    delay(3000)
                                     resultadoIdentificacion = "Trucha arcoíris"
                                     mostrarDetalles = true
                                 } catch (e: Exception) {
@@ -380,7 +383,7 @@ fun IdentificarPezScreen() {
                     Text(
                         text = "Odontesthes bonariensis",
                         fontSize = 14.sp,
-                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                        fontStyle = FontStyle.Italic,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                     )
 

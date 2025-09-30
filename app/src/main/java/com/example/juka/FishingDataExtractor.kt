@@ -71,9 +71,21 @@ class FishingDataExtractor(private val application: Application) {
     // 🐟 PATRONES DE CANTIDAD CON ESPECIES
     private val fishCountPatterns = listOf(
         // "2 pejerreyes", "tres dorados", "un surubí"
-        Regex("""(\d+|un|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+(${fishSpecies.joinToString("|")})"""),
+        Regex(
+            """(\d+|un|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+(${
+                fishSpecies.joinToString(
+                    "|"
+                )
+            })"""
+        ),
         // "saqué 3 dorados", "pesqué dos bagres"
-        Regex("""(?:saqu[éeí]|pesqu[éeí]|captur[éeí])\s+(\d+|un|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+(${fishSpecies.joinToString("|")})"""),
+        Regex(
+            """(?:saqu[éeí]|pesqu[éeí]|captur[éeí])\s+(\d+|un|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+(${
+                fishSpecies.joinToString(
+                    "|"
+                )
+            })"""
+        ),
         // "dorados: 2", "pejerreyes 3"
         Regex("""(${fishSpecies.joinToString("|")})\s*:?\s*(\d+)"""),
         // Patrones generales con "piezas"
@@ -178,6 +190,7 @@ class FishingDataExtractor(private val application: Application) {
                         currentSession.startTime = String.format("%02d:%02d", startHour, startMin)
                         currentSession.endTime = String.format("%02d:%02d", endHour, endMin)
                     }
+
                     groups.size >= 3 -> {
                         // Formato simple: "de 7 a 11"
                         val startHour = groups[1].toIntOrNull() ?: return@let
@@ -200,9 +213,12 @@ class FishingDataExtractor(private val application: Application) {
                 val timeStr = String.format("%02d:%02d", hour, minute)
 
                 when {
-                    match.value.contains("empec") || match.value.contains("comenc") || match.value.contains("arranqu") -> {
+                    match.value.contains("empec") || match.value.contains("comenc") || match.value.contains(
+                        "arranqu"
+                    ) -> {
                         currentSession.startTime = timeStr
                     }
+
                     match.value.contains("termin") || match.value.contains("acab") -> {
                         currentSession.endTime = timeStr
                     }
@@ -314,15 +330,18 @@ class FishingDataExtractor(private val application: Application) {
     private fun saveToLog(data: FishingData) {
         try {
             val timestamp = getCurrentTimestamp()
-            val entry = "$timestamp | Día: ${data.day} | Inicio: ${data.startTime} | Fin: ${data.endTime} | Piezas: ${data.fishCount} | Tipo: ${data.type} | Cañas: ${data.rodsCount} | Foto: ${data.photoUri}\n"
+            val entry =
+                "$timestamp | Día: ${data.day} | Inicio: ${data.startTime} | Fin: ${data.endTime} | Piezas: ${data.fishCount} | Tipo: ${data.type} | Cañas: ${data.rodsCount} | Foto: ${data.photoUri}\n"
             dataLogFile.appendText(entry)
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 
-    private fun getCurrentTimestamp() = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
+    private fun getCurrentTimestamp() =
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
 }
+
 // Al final del archivo
 fun FishingData.copy(
     day: String? = this.day,

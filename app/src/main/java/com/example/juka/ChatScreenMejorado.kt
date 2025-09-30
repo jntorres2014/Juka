@@ -4,7 +4,6 @@ package com.example.juka
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
@@ -29,8 +28,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.rememberAsyncImagePainter
+import com.example.juka.viewmodel.ChatMessage
+import com.example.juka.viewmodel.ChatViewModel
+import com.example.juka.viewmodel.MessageType
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 // ===== VERSIÓN SIMPLIFICADA COMPATIBLE CON TU CÓDIGO =====
 

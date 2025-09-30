@@ -2,8 +2,13 @@
 package com.example.juka
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.juka.data.firebase.FirebaseManager
+import com.example.juka.data.firebase.FirebaseResult
+import com.example.juka.viewmodel.ChatMessage
+import com.example.juka.viewmodel.MessageType
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -61,9 +66,23 @@ class EnhancedChatViewModel(application: Application) : AndroidViewModel(applica
             try {
                 fishDatabase.initialize()
                 android.util.Log.i(TAG, "✅ Base de datos de peces inicializada")
+                val resultadoEncuesta = firebaseManager.verificarEncuestaCompletada()
+                val encuestaCompleta = when (resultadoEncuesta) {
+                    is FirebaseResult.Success -> true
+                    is FirebaseResult.Error -> false
+                    is FirebaseResult.Loading -> false
+                }
+                if (encuestaCompleta) {
+                    // Agregar mensaje sugiriendo completar encuesta
+                    //addWelcomeMessageWithSurvey()
+                    Log.i(TAG, "✅ Mensaje de bienvenida con encuesta")
+                } else {
+                    addWelcomeMessage() // Tu mensaje actual
+                }
             } catch (e: Exception) {
                 android.util.Log.e(TAG, "❌ Error inicializando base de datos: ${e.message}")
             }
+
         }
 
         // Cargar historial del chat general
@@ -113,7 +132,7 @@ Contame todo sobre tu pesca - yo me encargo de extraer automáticamente:
 
         addMessageToParteSession(mensajeBienvenida)
 
-        android.util.Log.i(TAG, "✅ Sesión de parte creada: ${nuevaSession.sessionId}")
+        //android.util.Log.i(TAG, "✅ Sesión de parte creada: ${nuevaSession.sessionId}")
     }
 
     /**
@@ -632,7 +651,7 @@ ${generarResumenProgreso(_parteSession.value?.parteData)}
     private fun addMessageToParteSession(message: ChatMessageWithMode) {
         _parteSession.value?.let { session ->
             val updatedMessages = session.messages + message
-            _parteSession.value = session.copy(messages = updatedMessages)
+            _parteSession.value = session.copy(messages = updatedMessages as List<ChatMessage>)
         }
     }
 
@@ -754,29 +773,70 @@ ${generarResumenProgreso(_parteSession.value?.parteData)}
         addMessageToGeneralChat(welcomeMessage)
     }
 
-    private fun guardarParteSession(session: ParteSessionChat) {
-        // Implementar guardado de sesiones en archivo local/Firebase
-        // Por ahora solo log
-        android.util.Log.d(
-            TAG,
-            "💾 Guardando sesión: ${session.sessionId} - Estado: ${session.estado}"
-        )
-    }
+    // Reemplazar las funciones existentes en tu EnhancedChatViewModel
 
-    // ================== FUNCIONES PÚBLICAS PARA PARTES ==================
+    private fun guardarParteSession(session: ParteSessionChat) {
+        viewModelScope.launch {
+            try {
+                val resultado = firebaseManager.guardarParteSession(session)
+                when (resultado) {
+                    is FirebaseResult.Success -> {
+                        android.util.Log.i(TAG, "✅ Sesión guardada exitosamente")
+                    }
+                    is FirebaseResult.Error -> {
+                        android.util.Log.e(TAG, "❌ Error guardando sesión: ${resultado.message}")
+                    }
+                    else -> {}
+                }
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "💥 Error en guardarParteSession: ${e.message}")
+            }
+        }
+    }
 
     fun guardarParteBorrador() {
         _parteSession.value?.let { session ->
-            val sessionBorrador = session.copy(estado = EstadoParte.BORRADOR)
-            guardarParteSession(sessionBorrador)
+            val sessionBorrador = session.copy()
 
             _firebaseStatus.value = "Guardando borrador..."
 
             viewModelScope.launch {
-                delay(1000)
-                _firebaseStatus.value = "Borrador guardado"
-                delay(2000)
-                _firebaseStatus.value = null
+                try {
+                    val resultado = firebaseManager.guardarParteSession(sessionBorrador)
+
+                    when (resultado) {
+                        is FirebaseResult.Success -> {
+                            _parteSession.value = sessionBorrador
+                            _firebaseStatus.value = "Borrador guardado en Firebase"
+
+                            // Mensaje en el chat
+                            val mensajeBorrador = ChatMessageWithMode(
+                                content = "💾 **Borrador guardado automáticamente**\n\nTu progreso está seguro en Firebase. Podés continuar después desde donde lo dejaste.",
+                                isFromUser = false,
+                                type = MessageType.TEXT,
+                                timestamp = getCurrentTimestamp(),
+                                mode = ChatMode.CREAR_PARTE
+                            )
+                            addMessageToParteSession(mensajeBorrador)
+
+                            delay(3000)
+                            _firebaseStatus.value = null
+                        }
+                        is FirebaseResult.Error -> {
+                            _firebaseStatus.value = "Error guardando borrador"
+                            android.util.Log.e(TAG, "Error: ${resultado.message}")
+                            delay(3000)
+                            _firebaseStatus.value = null
+                        }
+                        else -> {}
+                    }
+
+                } catch (e: Exception) {
+                    _firebaseStatus.value = "Error guardando borrador"
+                    android.util.Log.e(TAG, "Error en guardarParteBorrador: ${e.message}")
+                    delay(3000)
+                    _firebaseStatus.value = null
+                }
             }
         }
     }
@@ -784,33 +844,132 @@ ${generarResumenProgreso(_parteSession.value?.parteData)}
     fun completarYEnviarParte() {
         _parteSession.value?.let { session ->
             if (session.parteData.porcentajeCompletado >= 70) {
-                val sessionCompleta = session.copy(estado = EstadoParte.COMPLETADO)
-                guardarParteSession(sessionCompleta)
-
-                _firebaseStatus.value = "Enviando parte..."
+                _firebaseStatus.value = "Completando parte..."
 
                 viewModelScope.launch {
                     try {
-                        // Aquí integrarías con tu Firebase actual
-                        delay(2000)
-                        _firebaseStatus.value = "Parte enviado exitosamente"
+                        // 1. Convertir sesión a parte completo
 
-                        // Volver al chat general
-                        volverAChatGeneral()
-                        _parteSession.value = null
+                        val resultadoConversion = firebaseManager.convertirSessionAParte(session)
 
-                        delay(3000)
-                        _firebaseStatus.value = null
+                        when (resultadoConversion) {
+                            is FirebaseResult.Success -> {
+                                _firebaseStatus.value = "Parte completado y guardado"
+
+                                // Mensaje de éxito en el chat
+                                val mensajeExito = ChatMessageWithMode(
+                                    content = """
+                                🎉 **¡Parte de pesca completado exitosamente!**
+                                
+                                ✅ **Datos guardados en Firebase:**
+                                - Fecha: ${session.parteData.fecha ?: "No especificada"}
+                                - Especies: ${session.parteData.especiesCapturadas.size} registradas
+                                - Total capturas: ${session.parteData.especiesCapturadas.sumOf { it.numeroEjemplares }}
+                                - Modalidad: ${session.parteData.modalidad?.displayName ?: "No especificada"}
+                                
+                                Tu reporte ya está disponible en **"Mis Reportes"** 📊
+                                
+                                ¿Querés crear otro parte o volver al chat general?
+                                """.trimIndent(),
+                                    isFromUser = false,
+                                    type = MessageType.TEXT,
+                                    timestamp = getCurrentTimestamp(),
+                                    mode = ChatMode.CREAR_PARTE
+                                )
+                                addMessageToParteSession(mensajeExito)
+
+                                // Volver al chat general después de un delay
+                                delay(2000)
+                                volverAChatGeneral()
+                                _parteSession.value = null
+
+                                delay(2000)
+                                _firebaseStatus.value = null
+
+                            }
+                            is FirebaseResult.Error -> {
+                                _firebaseStatus.value = "Error completando parte"
+
+                                val mensajeError = ChatMessageWithMode(
+                                    content = "❌ **Error guardando el parte:** ${resultadoConversion.message}\n\nTus datos están guardados como borrador. Intentá de nuevo más tarde.",
+                                    isFromUser = false,
+                                    type = MessageType.TEXT,
+                                    timestamp = getCurrentTimestamp(),
+                                    mode = ChatMode.CREAR_PARTE
+                                )
+                                addMessageToParteSession(mensajeError)
+
+                                android.util.Log.e(TAG, "Error completando parte: ${resultadoConversion.message}")
+                                delay(3000)
+                                _firebaseStatus.value = null
+                            }
+                            else -> {}
+                        }
 
                     } catch (e: Exception) {
-                        _firebaseStatus.value = "Error enviando parte"
-                        android.util.Log.e(TAG, "Error enviando parte: ${e.message}")
+                        _firebaseStatus.value = "Error completando parte"
+                        android.util.Log.e(TAG, "Error en completarYEnviarParte: ${e.message}")
+                        delay(3000)
+                        _firebaseStatus.value = null
                     }
                 }
+            } else {
+                // Mensaje si no está suficientemente completo
+                val mensajeIncompleto = ChatMessageWithMode(
+                    content = """
+⚠️ **Parte incompleto**
+
+Para enviar el parte necesitas al menos 70% completado.
+
+**Progreso actual:** ${session.parteData.porcentajeCompletado}%
+
+**Falta agregar:**
+${session.parteData.camposFaltantes.joinToString("\n") { "• $it" }}
+
+¿Querés continuar completando o guardarlo como borrador?
+                """.trimIndent(),
+                    isFromUser = false,
+                    type = MessageType.TEXT,
+                    timestamp = getCurrentTimestamp(),
+                    mode = ChatMode.CREAR_PARTE
+                )
+                addMessageToParteSession(mensajeIncompleto)
             }
         }
     }
 
+/*    // Nueva función para cargar borradores
+    suspend fun cargarBorradores(): List<ParteSessionChat> {
+        return try {
+            firebaseManager.obtenerSesionesUsuario(EstadoParte.BORRADOR)
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Error cargando borradores: ${e.message}")
+            emptyList()
+        }
+    }*/
+
+    // Nueva función para retomar borrador
+    fun retomarBorrador(session: ParteSessionChat) {
+        _currentMode.value = ChatMode.CREAR_PARTE
+        _parteSession.value = session.copy(estado = EstadoParte.EN_PROGRESO)
+
+        val mensajeRetomar = ChatMessageWithMode(
+            content = """
+🔄 **Borrador retomado**
+
+Continuando desde donde lo dejaste:
+- Progreso: ${session.parteData.porcentajeCompletado}%
+- Especies registradas: ${session.parteData.especiesCapturadas.size}
+
+¡Sigamos completando tu parte de pesca!
+        """.trimIndent(),
+            isFromUser = false,
+            type = MessageType.TEXT,
+            timestamp = getCurrentTimestamp(),
+            mode = ChatMode.CREAR_PARTE
+        )
+        addMessageToParteSession(mensajeRetomar)
+    }
     fun getConversationStats(): String {
         val generalCount = _generalMessages.value.size
         val parteCount = _parteSession.value?.messages?.size ?: 0

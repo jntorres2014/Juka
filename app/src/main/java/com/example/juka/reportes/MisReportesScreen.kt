@@ -1,5 +1,6 @@
-package com.example.juka
+package com.example.juka.reportes
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -16,11 +17,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.juka.viewmodel.ChatViewModel
+import com.example.juka.data.firebase.PartePesca
 import kotlinx.coroutines.launch
 
 // Función para formatear fecha (fuera de cualquier composable)
@@ -46,7 +50,7 @@ fun formatearFecha(fecha: String): String {
 }
 
 // Función para generar imagen compartible del reporte (fuera de cualquier composable)
-fun generarImagenReporte(reporte: PartePesca, context: android.content.Context): Bitmap {
+fun generarImagenReporte(reporte: PartePesca, context: Context): Bitmap {
     val width = 800
     val height = 1000
 
@@ -121,7 +125,7 @@ fun generarImagenReporte(reporte: PartePesca, context: android.content.Context):
 // Composable para las tarjetas de estadísticas
 @Composable
 fun StatMiniCard(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     titulo: String,
     valor: String,
     color: Color,

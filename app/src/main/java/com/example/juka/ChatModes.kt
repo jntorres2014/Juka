@@ -1,6 +1,8 @@
 // ChatModes.kt - Estructura para manejar dos tipos de chat
 package com.example.juka
 
+import com.example.juka.viewmodel.ChatMessage
+import com.example.juka.viewmodel.MessageType
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -17,17 +19,18 @@ data class ChatMessageWithMode(
     val type: MessageType,
     val timestamp: String,
     val mode: ChatMode,
-    val messageId: String = UUID.randomUUID().toString()
+    //val messageId: String = UUID.randomUUID().toString()
 )
 
 // Data class para sesiones de chat de partes
 data class ParteSessionChat(
-    val sessionId: String = UUID.randomUUID().toString(),
+    //val sessionId: String = "",
+    val messages: List<ChatMessage> = emptyList(),
+    val estado: EstadoParte = EstadoParte.BORRADOR,
     val fechaCreacion: String = getCurrentTimestamp(),
-    val messages: List<ChatMessageWithMode> = emptyList(),
     val parteData: ParteEnProgreso = ParteEnProgreso(),
-    val estado: EstadoParte = EstadoParte.EN_PROGRESO
-)
+
+    )
 
 // Estados posibles de un parte
 enum class EstadoParte {
@@ -150,3 +153,25 @@ data class MLKitEntity(
 private fun getCurrentTimestamp(): String {
     return SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
 }
+// Agregar esta función helper al final del archivo ChatModes.kt
+
+fun ParteEnProgreso.copy(
+    fecha: String? = this.fecha,
+    horaInicio: String? = this.horaInicio,
+    horaFin: String? = this.horaFin,
+    lugar: String? = this.lugar,
+    provincia: Provincia? = this.provincia,
+    modalidad: ModalidadPesca? = this.modalidad,
+    numeroCanas: Int? = this.numeroCanas,
+    tipoEmbarcacion: TipoEmbarcacion? = this.tipoEmbarcacion,
+    especiesCapturadas: List<EspecieCapturada> = this.especiesCapturadas,
+    imagenes: List<String> = this.imagenes,
+    observaciones: String? = this.observaciones,
+    noIdentificoEspecie: Boolean = this.noIdentificoEspecie,
+    porcentajeCompletado: Int = this.porcentajeCompletado,
+    camposFaltantes: List<String> = this.camposFaltantes
+): ParteEnProgreso = ParteEnProgreso(
+    fecha, horaInicio, horaFin, lugar, provincia, modalidad, numeroCanas,
+    tipoEmbarcacion, especiesCapturadas, imagenes, observaciones,
+    noIdentificoEspecie, porcentajeCompletado, camposFaltantes
+)

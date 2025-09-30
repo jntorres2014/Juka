@@ -1,6 +1,7 @@
 // MisReportesScreen.kt - VERSIÓN MEJORADA CON FILTROS Y ESTADÍSTICAS
-package com.example.juka
+package com.example.juka.reportes
 
+import android.R
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
@@ -20,6 +21,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
+import com.example.juka.viewmodel.ChatViewModel
+import com.example.juka.data.firebase.PartePesca
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
@@ -521,13 +525,13 @@ fun ReporteCardMejorado(
                             shape = RoundedCornerShape(8.dp),
                             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                         ) {
-                            coil.compose.AsyncImage(
+                            AsyncImage(
                                 model = fotoUri,
                                 contentDescription = "Foto de pesca",
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Crop,
-                                error = painterResource(id = android.R.drawable.ic_menu_gallery),
-                                placeholder = painterResource(id = android.R.drawable.ic_menu_gallery)
+                                error = painterResource(id = R.drawable.ic_menu_gallery),
+                                placeholder = painterResource(id = R.drawable.ic_menu_gallery)
                             )
                         }
                     }

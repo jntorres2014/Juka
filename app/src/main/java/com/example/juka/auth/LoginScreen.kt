@@ -1,6 +1,6 @@
-// LoginScreen.kt - VERSIÓN CORREGIDA SIN CONFLICTOS
-package com.example.juka
+package com.example.juka.auth
 
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.*
@@ -18,45 +18,55 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.juka.R
+import com.example.juka.data.AuthManager
+import com.example.juka.data.AuthState
+import androidx.navigation.NavController
+import com.example.juka.Screen
 import kotlinx.coroutines.launch
 
+// 2. CORRIGE LoginScreen.kt
 @Composable
 fun LoginScreen(
     authManager: AuthManager,
-    onLoginSuccess: () -> Unit
+    navController: NavController
 ) {
     val scope = rememberCoroutineScope()
     val authState by authManager.authState.collectAsState()
-
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    // ✅ LAUNCHER PARA GOOGLE SIGN-IN (SIN MANEJAR ESTADOS AQUÍ)
     val signInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
         scope.launch {
-            authManager.handleSignInResult(result.data)
-            // No manejar estados aquí - dejar que LaunchedEffect lo haga
+            try {
+                authManager.handleSignInResult(result.data)
+            } catch (e: Exception) {
+                Log.e("LOGIN", "Error handling sign in result", e)
+                isLoading = false
+                errorMessage = "Error procesando login: ${e.message}"
+            }
         }
     }
 
-    // ✅ MANEJAR ESTADOS SOLO AQUÍ
     LaunchedEffect(authState) {
+        Log.d("LOGIN_DEBUG", "AuthState: ${authState::class.simpleName}")
         when (authState) {
             is AuthState.Authenticated -> {
                 isLoading = false
                 errorMessage = null
-                // Delay corto para evitar el error de corrutinas
-                kotlinx.coroutines.delay(500)
-                onLoginSuccess()
+
+                // ✅ SIEMPRE ir a "home" ya que no hay survey
+                Log.d("LOGIN_DEBUG", "Navegando a home")
+                navController.navigate(route = "chat") {
+                    popUpTo("login") { inclusive = true }
+                }
             }
             is AuthState.Error -> {
                 isLoading = false
                 errorMessage = (authState as AuthState.Error).message
-                // Limpiar el error después de mostrarlo
-                kotlinx.coroutines.delay(5000)
-                errorMessage = null
+                Log.e("LOGIN_DEBUG", "Auth error: ${(authState as AuthState.Error).message}")
             }
             is AuthState.Loading -> {
                 isLoading = true
@@ -64,16 +74,14 @@ fun LoginScreen(
             }
             is AuthState.Unauthenticated -> {
                 isLoading = false
-                // No limpiar errorMessage aquí para que se mantenga visible
             }
         }
     }
 
-    // ✅ UI SÚPER SIMPLE
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF1E3A8A)), // Azul
+            .background(Color(0xFF1E3A8A)),
         contentAlignment = Alignment.Center
     ) {
         Card(
@@ -89,17 +97,14 @@ fun LoginScreen(
                 Image(
                     painter = painterResource(id = R.drawable.logohuka1),
                     contentDescription = "Logo Huka",
-                    modifier = Modifier.size(200.dp)
+                    modifier = Modifier.size(120.dp) // Reducido para mejor rendimiento
                 )
-
-                // Título
                 Text(
                     text = "Huka",
                     fontSize = 32.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFF1E3A8A)
                 )
-
                 Text(
                     text = "HukaApp",
                     fontSize = 16.sp,
@@ -109,7 +114,6 @@ fun LoginScreen(
 
                 Spacer(modifier = Modifier.height(32.dp))
 
-                // ✅ ERROR MESSAGE CON AUTO-DISMISS
                 errorMessage?.let { error ->
                     Card(
                         colors = CardDefaults.cardColors(
@@ -147,17 +151,25 @@ fun LoginScreen(
                     }
                 }
 
-                // ✅ BOTÓN DE LOGIN
                 Button(
                     onClick = {
-                        isLoading = true
-                        errorMessage = null
-                        val intent = authManager.getSignInIntent()
-                        if (intent != null) {
-                            signInLauncher.launch(intent)
-                        } else {
-                            isLoading = false
-                            errorMessage = "Error configurando login"
+                        Log.d("LOGIN_DEBUG", "Botón presionado")
+                        scope.launch {
+                            try {
+                                isLoading = true
+                                errorMessage = null
+
+                                val intent = authManager.getSignInIntent()
+                                if (intent != null) {
+                                    signInLauncher.launch(intent)
+                                } else {
+                                    isLoading = false
+                                    errorMessage = "Error configurando login"
+                                }
+                            } catch (e: Exception) {
+                                isLoading = false
+                                errorMessage = "Error: ${e.message}"
+                            }
                         }
                     },
                     modifier = Modifier
@@ -195,19 +207,6 @@ fun LoginScreen(
                     color = Color.Gray,
                     textAlign = TextAlign.Center
                 )
-
-                // ✅ BOTÓN DE REINTENTAR SI HAY ERROR
-                if (errorMessage != null && !isLoading) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    TextButton(
-                        onClick = { errorMessage = null }
-                    ) {
-                        Text(
-                            "Reintentar",
-                            color = Color(0xFF1E3A8A)
-                        )
-                    }
-                }
             }
         }
     }

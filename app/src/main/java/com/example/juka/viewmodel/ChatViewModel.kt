@@ -1,11 +1,20 @@
 // ChatViewModel.kt - Versión corregida con Firebase integrado
-package com.example.juka
+package com.example.juka.viewmodel
 
 import android.R.attr.content
 import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.juka.data.firebase.FirebaseManager
+import com.example.juka.data.firebase.FirebaseResult
+import com.example.juka.FishDatabase
+import com.example.juka.FishIdentifier
+import com.example.juka.FishingDataExtractor
+import com.example.juka.FishingStoryAnalyzer
+import com.example.juka.IntelligentResponses
+import com.example.juka.OpenAiApiService
+import com.example.juka.data.firebase.PartePesca
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -46,25 +55,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val firebaseManager = FirebaseManager(getApplication())
     val openAiService = OpenAiApiService()
 
-    init {
-        // ✅ INICIALIZAR BASE DE DATOS PRIMERO
-        viewModelScope.launch {
-            try {
-                //val response = xaiApiService.generateResponse("Hola, prueba de IA")
-                //Log.d("XAI_TEST", response)
-                val prompt = "Eres Juka, asistente de pesca en español. Responde amigablemente a: '$content'. Usa emojis."
-                val aiResponse = openAiService.generateResponse(prompt)
-                Log.d("Respuesta", aiResponse)
-                fishDatabase.initialize()
-                android.util.Log.i("ChatViewModel", "✅ Base de datos de peces inicializada")
-            } catch (e: Exception) {
-                android.util.Log.e("ChatViewModel", "❌ Error inicializando base de datos: ${e.message}")
-            }
-        }
 
-        loadMessagesFromFile()
-        addWelcomeMessage()
-    }
 
     private fun addWelcomeMessage() {
         if (_messages.value.isEmpty()) {
