@@ -1,4 +1,5 @@
-package com.example.juka.features.identifier
+
+package com.example.juka.features.auth
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -9,17 +10,28 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavController
+import com.example.juka.data.AuthManager
 
 @Composable
-fun IdentificarPezScreen(navController: NavController) {
+fun LoginScreen(navController: NavController) {
+    val authManager = AuthManager()
+
     Column(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("Identificar Pez Screen")
-        Button(onClick = { navController.navigate("mis_reportes") }) {
-            Text("Go to My Reports")
+        Button(onClick = {
+            // TODO: Implement Google Sign In
+            val user = authManager.getCurrentUser()
+            if (user != null) {
+                navController.navigate("profile")
+            } else {
+                // Simulate a successful login for now
+                navController.navigate("profile")
+            }
+        }) {
+            Text("Sign in with Google")
         }
     }
 }
