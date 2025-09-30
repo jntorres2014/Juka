@@ -29,7 +29,9 @@ fun AppNavigation() {
     val viewModelFactory = ViewModelFactory(context, firebaseManager, mlKitManager)
     val user = Firebase.auth.currentUser
 
-    NavHost(navController = navController, startDestination = Screen.Login.route) {
+    val startDestination = if (user != null) Screen.Profile.route else Screen.Login.route
+
+    NavHost(navController = navController, startDestination = startDestination) {
         composable(Screen.Login.route) {
             LoginScreen(navController = navController)
         }
