@@ -23,9 +23,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.juka.data.AuthManager
 import com.example.juka.data.AuthState
-import com.example.juka.navigation.ChatScreenWithUser
 import com.example.juka.navigation.JukaAppWithUser
-
 
 @Composable
 fun AppWithAuth(authManager: AuthManager = AuthManager(LocalContext.current)) {
@@ -36,7 +34,7 @@ fun AppWithAuth(authManager: AuthManager = AuthManager(LocalContext.current)) {
         composable("login") {
             LoginScreen(authManager, navController)
         }
-        composable("chat") { EncuestaScreen(authManager, navController) } // Asegúrate de que esto exista
+
         composable("encuesta") {
             EncuestaScreen(authManager, navController)
         }
@@ -59,11 +57,35 @@ fun AppWithAuth(authManager: AuthManager = AuthManager(LocalContext.current)) {
                 }
 
                 is AuthState.Authenticated -> {
-                    // ✅ USAR JukaAppWithUser en lugar de EnhancedChatScreen directo
-                    JukaAppWithUser(
-                        user = (authState as AuthState.Authenticated).user,
-                        authManager = authManager
-                    )
+                    val estado = authState as AuthState.Authenticated
+
+                    // ✅ VERIFICAR SI COMPLETÓ LA ENCUESTA
+                    if (!estado.surveyCompleted) {
+                        // Redirigir a encuesta si no la completó
+                        LaunchedEffect(Unit) {
+                            navController.navigate("encuesta") {
+                                popUpTo("home") { inclusive = false }
+                            }
+                        }
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                CircularProgressIndicator()
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text("Cargando encuesta...")
+                            }
+                        }
+                    } else {
+                        // ✅ Encuesta completada - mostrar la app normal
+                        JukaAppWithUser(
+                            user = estado.user,
+                            authManager = authManager
+                        )
+                    }
                 }
 
                 is AuthState.Unauthenticated -> {
@@ -108,11 +130,5 @@ fun AppWithAuth(authManager: AuthManager = AuthManager(LocalContext.current)) {
                 }
             }
         }
-
-        // ✅ ELIMINAR estas rutas ya que ahora están dentro de JukaAppWithUser
-        // composable(Screen.Chat.route) { ... }
-        // composable(Screen.Identificar.route) { ... }
-        // composable(Screen.Reportes.route) { ... }
-        // composable(Screen.Profile.route) { ... }
     }
 }

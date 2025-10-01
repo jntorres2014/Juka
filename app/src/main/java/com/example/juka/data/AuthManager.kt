@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.example.juka.R
+import com.example.juka.data.encuesta.RespuestaPregunta
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.android.gms.auth.api.signin.GoogleSignInClient
@@ -13,6 +14,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.ktx.auth
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -218,13 +220,17 @@ class AuthManager(private val context: Context) {
         val user = auth.currentUser ?: return
         try {
             db.collection("users").document(user.uid)
-                .update("surveyCompleted", true).await()
+                .update(
+                    "encuestaCompleta", true,
+                    "fechaEncuesta", FieldValue.serverTimestamp()
+                ).await()
             _authState.value = AuthState.Authenticated(user, true)
-            Log.d(TAG, "✅ Usuario marcado como survey completado: ${user.displayName}")
+            Log.d(TAG, "✅ Usuario marcado como encuesta completada: ${user.displayName}")
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error marcando survey: ${e.message}")
         }
     }
+
 
     fun signOut() {
         try {
@@ -234,6 +240,91 @@ class AuthManager(private val context: Context) {
             Log.d(TAG, "🚪 Sesión cerrada")
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error cerrando sesión: ${e.message}")
+        }
+    }
+
+    suspend fun guardarEncuestaCompleta(respuestas: Map<Int, RespuestaPregunta>): Boolean {
+        val user = auth.currentUser ?: return false
+
+        try {
+            Log.d(TAG, "📋 Guardando encuesta para usuario: ${user.uid}")
+
+            // Convertir respuestas a formato Firebase
+            val respuestasFirebase = respuestas.map { (preguntaId, respuesta) ->
+                mapOf(
+                    "preguntaId" to preguntaId,
+                    "respuestaTexto" to respuesta.respuestaTexto,
+                    "respuestaNumero" to respuesta.respuestaNumero,
+                    "respuestaFecha" to respuesta.respuestaFecha,
+                    "opcionSeleccionada" to respuesta.opcionSeleccionada,
+                    "opcionesSeleccionadas" to respuesta.opcionesSeleccionadas,
+                    "valorEscala" to respuesta.valorEscala,
+                    "respuestaSiNo" to respuesta.respuestaSiNo,
+                    "timestamp" to FieldValue.serverTimestamp()
+                )
+            }
+
+            // Datos completos de la encuesta
+            val encuestaData = mapOf(
+                "userId" to user.uid,
+                "completada" to true,
+                "fechaCompletado" to FieldValue.serverTimestamp(),
+                "respuestas" to respuestasFirebase,
+                "totalPreguntas" to respuestas.size,
+                "dispositivo" to android.os.Build.MODEL,
+                "versionApp" to "1.0.0"
+            )
+
+            // Guardar encuesta en subcolección
+            db.collection("users")
+                .document(user.uid)
+                .collection("encuestas")
+                .document("respuestas")
+                .set(encuestaData)
+                .await()
+
+            // Marcar usuario como encuesta completada
+            db.collection("users")
+                .document(user.uid)
+                .update(
+                    "encuestaCompleta", true,
+                    "fechaEncuesta", FieldValue.serverTimestamp()
+                )
+                .await()
+
+            // Actualizar estado de autenticación
+            _authState.value = AuthState.Authenticated(user, true)
+
+            Log.d(TAG, "✅ Encuesta guardada exitosamente para ${user.displayName}")
+            return true
+
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error guardando encuesta: ${e.message}", e)
+            return false
+        }
+    }
+    // Verifica si el usuario ya completó la encuesta (al iniciar sesión)
+    suspend fun verificarEncuestaCompletada(): Boolean {
+        val user = auth.currentUser ?: return false
+
+        return try {
+            val documento = db.collection("users")
+                .document(user.uid)
+                .get()
+                .await()
+
+            val encuestaCompleta = documento.getBoolean("encuestaCompleta") ?: false
+
+            Log.d(TAG, "📋 Encuesta completada: $encuestaCompleta para ${user.displayName}")
+
+            // Actualizar estado
+            _authState.value = AuthState.Authenticated(user, encuestaCompleta)
+
+            encuestaCompleta
+
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error verificando encuesta: ${e.message}")
+            false
         }
     }
 

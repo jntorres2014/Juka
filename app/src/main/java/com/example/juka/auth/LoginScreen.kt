@@ -57,10 +57,24 @@ fun LoginScreen(
                 isLoading = false
                 errorMessage = null
 
-                // ✅ SIEMPRE ir a "home" ya que no hay survey
-                Log.d("LOGIN_DEBUG", "Navegando a home")
-                navController.navigate(route = "chat") {
-                    popUpTo("login") { inclusive = true }
+// ✅ Verificar si completó la encuesta antes de navegar
+                Log.d("LOGIN_DEBUG", "Verificando encuesta...")
+
+// Verificar si el usuario ya completó la encuesta
+                val encuestaCompleta = authManager.verificarEncuestaCompletada()
+
+                Log.d("LOGIN_DEBUG", "Encuesta completada: $encuestaCompleta")
+
+                if (encuestaCompleta) {
+                    Log.d("LOGIN_DEBUG", "Navegando a home")
+                    navController.navigate("home") {
+                        popUpTo("login") { inclusive = true }
+                    }
+                } else {
+                    Log.d("LOGIN_DEBUG", "Navegando a encuesta")
+                    navController.navigate("encuesta") {
+                        popUpTo("login") { inclusive = true }
+                    }
                 }
             }
             is AuthState.Error -> {

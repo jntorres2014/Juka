@@ -93,16 +93,12 @@ fun SimpleProfileScreen(
                 modifier = Modifier.padding(16.dp)
             ) {
                 Text(
-                    text = "Juka - Tu Asistente de Pesca",
+                    text = "Huka - Opciones de perfil",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Medium
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "✅ Chat inteligente\n✅ Identificación de peces\n✅ Reportes automáticos\n✅ Datos sincronizados",
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp
-                )
+
             }
         }
 

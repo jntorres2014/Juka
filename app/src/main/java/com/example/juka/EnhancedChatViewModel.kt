@@ -111,9 +111,9 @@ class EnhancedChatViewModel(application: Application) : AndroidViewModel(applica
         // Mensaje inicial del modo parte
         val mensajeBienvenida = ChatMessageWithMode(
             content = """
-🎣 **Modo Crear Parte Activado**
+🎣 **Modo Crear Parte **
 
-¡Perfecto! Ahora vamos a registrar tu jornada de pesca paso a paso.
+Vamos a registrar tu jornada de pesca paso a paso.
 
 Contame todo sobre tu pesca - yo me encargo de extraer automáticamente:
 • 📅 Fecha y horarios
@@ -747,7 +747,7 @@ ${generarResumenProgreso(_parteSession.value?.parteData)}
     private fun addWelcomeMessage() {
         val welcomeMessage = ChatMessageWithMode(
             content = """
-🎣 **¡Hola! Soy Juka, tu asistente de pesca inteligente**
+🎣 **¡Hola! Soy Huka, tu asistente de pesca inteligente**
 
 **Dos formas de usar la app:**
 
@@ -756,13 +756,6 @@ ${generarResumenProgreso(_parteSession.value?.parteData)}
 • Identificación de especies
 • Charla sobre técnicas
 • Preguntas generales
-
-📋 **Crear Parte** (toca el botón):
-• Registro automático de jornadas
-• Extracción inteligente con ML Kit
-• Guarda todo en Firebase
-• Chat específico para cada reporte
-
 ¿En qué te ayudo hoy?
             """.trimIndent(),
             isFromUser = false,

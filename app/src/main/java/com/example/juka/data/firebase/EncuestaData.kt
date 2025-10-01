@@ -10,9 +10,11 @@ data class Pregunta(
     val id: Int,
     val texto: String,
     val tipo: TipoPregunta,
-    val opciones: List<String> = emptyList(), // Para preguntas de opción múltiple
+    val opciones: List<String> = emptyList(),
     val esObligatoria: Boolean = true,
-    val placeholder: String = "" // Para preguntas de texto libre
+    val placeholder: String = "",
+    val rangoNumero: IntRange = 0..150, // Para preguntas numéricas (ej: edad 0-150)
+    val rangoEscala: IntRange = 1..5    // Para escalas (1-5 o 1-7)
 )
 
 /**
@@ -20,10 +22,12 @@ data class Pregunta(
  */
 enum class TipoPregunta {
     TEXTO_LIBRE,        // EditText
+    NUMERO,             // EditText numérico (para edad)
+    FECHA,              // DatePicker
     OPCION_MULTIPLE,    // RadioButton group
     SELECCION_MULTIPLE, // CheckBox group
-    ESCALA,            // SeekBar o RadioButtons 1-5
-    SI_NO              // Switch o RadioButtons Si/No
+    ESCALA,             // Slider 1-5 o 1-7
+    SI_NO               // Botones Si/No
 }
 
 /**
@@ -31,11 +35,13 @@ enum class TipoPregunta {
  */
 data class RespuestaPregunta(
     val preguntaId: Int,
-    val respuestaTexto: String? = null,        // Para texto libre
-    val opcionSeleccionada: String? = null,    // Para opción múltiple
-    val opcionesSeleccionadas: List<String> = emptyList(), // Para selección múltiple
-    val valorEscala: Int? = null,              // Para escalas 1-5
-    val respuestaSiNo: Boolean? = null,        // Para preguntas Si/No
+    val respuestaTexto: String? = null,
+    val respuestaNumero: Int? = null,          // Para números (edad)
+    val respuestaFecha: String? = null,        // Formato "dd/MM/yyyy"
+    val opcionSeleccionada: String? = null,
+    val opcionesSeleccionadas: List<String> = emptyList(),
+    val valorEscala: Int? = null,
+    val respuestaSiNo: Boolean? = null,
     val timestamp: Timestamp = Timestamp.now()
 )
 
@@ -48,7 +54,7 @@ data class EncuestaData(
     val fechaInicio: Timestamp,
     val fechaCompletado: Timestamp? = null,
     val completada: Boolean = false,
-    val progreso: Int = 0, // Porcentaje 0-100
+    val progreso: Int = 0,
     val dispositivo: String = android.os.Build.MODEL,
     val versionApp: String = "1.0.0"
 )
@@ -81,100 +87,92 @@ object PreguntasEncuesta {
     val PREGUNTAS = listOf(
         Pregunta(
             id = 1,
-            texto = "¿Cuál es tu nivel de experiencia en pesca?",
-            tipo = TipoPregunta.OPCION_MULTIPLE,
-            opciones = listOf(
-                "Principiante (menos de 1 año)",
-                "Intermedio (1-5 años)",
-                "Avanzado (5-10 años)",
-                "Experto (más de 10 años)"
-            )
+            texto = "¿En que año nació?",
+            tipo = TipoPregunta.NUMERO,
+            placeholder = "Selecciona tu año de nacimiento",
+            rangoNumero = 1888..2025
         ),
 
         Pregunta(
             id = 2,
-            texto = "¿Con qué frecuencia pescas?",
+            texto = "Género",
             tipo = TipoPregunta.OPCION_MULTIPLE,
             opciones = listOf(
-                "Varias veces por semana",
-                "Una vez por semana",
-                "Algunas veces al mes",
-                "Solo en vacaciones",
-                "Muy raramente"
+                "Masculino",
+                "Femenino",
+                "No binario",
+                "Prefiero no contestar"
             )
         ),
 
         Pregunta(
             id = 3,
-            texto = "¿Qué modalidades de pesca practicas? (puedes seleccionar varias)",
-            tipo = TipoPregunta.SELECCION_MULTIPLE,
-            opciones = listOf(
-                "Pesca desde costa",
-                "Pesca embarcada",
-                "Pesca en ríos",
-                "Pesca en lagos",
-                "Pesca deportiva",
-                "Pesca submarina"
-            )
+            texto = "¿Desde qué edad pesca?",
+            tipo = TipoPregunta.NUMERO,
+            placeholder = "Ingresa tu edad en años",
+            rangoNumero = 0..150
         ),
 
         Pregunta(
             id = 4,
-            texto = "¿En qué provincias o regiones pescas habitualmente?",
-            tipo = TipoPregunta.SELECCION_MULTIPLE,
-
-            placeholder = "Ej: Buenos Aires, Chubut, Patagonia..."
-        ),
-
-        Pregunta(
-            id = 5,
-            texto = "¿Qué tan importante es para ti registrar tus jornadas de pesca?",
-            tipo = TipoPregunta.ESCALA,
-            opciones = listOf("1 - Nada importante", "2", "3", "4", "5 - Muy importante")
-        ),
-
-        Pregunta(
-            id = 6,
-            texto = "¿Compartes tus experiencias de pesca en redes sociales?",
+            texto = "¿Es socio/a de algún club de pesca recreativa?",
             tipo = TipoPregunta.SI_NO
         ),
 
         Pregunta(
+            id = 5,
+            texto = "¿Participó alguna vez en concurso de pesca?",
+            tipo = TipoPregunta.SI_NO
+        ),
+
+        Pregunta(
+            id = 6,
+            texto = "¿Cómo calificaría su habilidad como pescador/a comparándose con otras personas que practican pesca recreativa en los sitios que usted frecuenta?",
+            tipo = TipoPregunta.ESCALA,
+            opciones = listOf("1 - Mucho peor", "2", "3", "4", "5", "6", "7 - Mucho mejor"),
+            rangoEscala = 1..7
+        ),
+
+        Pregunta(
             id = 7,
-            texto = "¿Qué especies te interesan más capturar?",
-            tipo = TipoPregunta.TEXTO_LIBRE,
-            placeholder = "Ej: Salmón, pejerrey, trucha, dorado..."
+            texto = "¿Cuán altas son sus expectativas de capturar una pieza trofeo (de gran porte o especie en particular), durante una salida de pesca?",
+            tipo = TipoPregunta.ESCALA,
+            opciones = listOf("1 - Nada altas", "2", "3", "4", "5", "6", "7 - Muy altas"),
+            rangoEscala = 1..7
         ),
 
         Pregunta(
             id = 8,
-            texto = "¿Qué características te gustaría que tuviera una app de pesca? (selecciona las que te interesen)",
-            tipo = TipoPregunta.SELECCION_MULTIPLE,
-            opciones = listOf(
-                "Registro automático de capturas",
-                "Identificación de especies por foto",
-                "Compartir reportes con amigos",
-                "Estadísticas personales",
-                "Mapas de lugares de pesca",
-                "Pronóstico del tiempo",
-                "Consejos y técnicas",
-                "Comunidad de pescadores"
-            )
+            texto = "¿Cuán altas son sus expectativas de capturar un gran número de peces durante una salida de pesca?",
+            tipo = TipoPregunta.ESCALA,
+            opciones = listOf("1 - Nada altas", "2", "3", "4", "5", "6", "7 - Muy altas"),
+            rangoEscala = 1..7
         ),
 
         Pregunta(
             id = 9,
-            texto = "¿Cómo calificarías tu interés en la tecnología aplicada a la pesca?",
+            texto = "¿Cuán importante es para usted el consumo de las capturas de la pesca recreativa?",
             tipo = TipoPregunta.ESCALA,
-            opciones = listOf("1 - Poco interés", "2", "3", "4", "5 - Muy interesado")
+            opciones = listOf("1 - Nada importante", "2", "3", "4", "5", "6", "7 - Muy importante"),
+            rangoEscala = 1..7
         ),
 
         Pregunta(
             id = 10,
-            texto = "¿Hay algo específico que te gustaría que mejoremos en esta aplicación?",
-            tipo = TipoPregunta.SELECCION_MULTIPLE,
-            placeholder = "Comparte tus ideas, sugerencias o comentarios...",
-            esObligatoria = false
+            texto = "¿La mayoría de sus amistades están vinculadas de alguna manera con la pesca recreativa?",
+            tipo = TipoPregunta.SI_NO
+        ),
+
+        Pregunta(
+            id = 11,
+            texto = "¿Otras personas dirían que usted pasa mucho tiempo pescando?",
+            tipo = TipoPregunta.SI_NO
+        ),
+
+        Pregunta(
+            id = 12,
+            texto = "¿La pesca es su actividad recreativa favorita?",
+            tipo = TipoPregunta.SI_NO
         )
     )
 
@@ -208,6 +206,24 @@ object ValidadorEncuesta {
                 }
             }
 
+            TipoPregunta.NUMERO -> {
+                if (respuesta.respuestaNumero == null) {
+                    ValidacionRespuesta(false, "Debes ingresar un número")
+                } else if (respuesta.respuestaNumero !in pregunta.rangoNumero) {
+                    ValidacionRespuesta(false, "El número debe estar entre ${pregunta.rangoNumero.first} y ${pregunta.rangoNumero.last}")
+                } else {
+                    ValidacionRespuesta(true)
+                }
+            }
+
+            TipoPregunta.FECHA -> {
+                if (respuesta.respuestaFecha.isNullOrBlank()) {
+                    ValidacionRespuesta(false, "Debes seleccionar una fecha")
+                } else {
+                    ValidacionRespuesta(true)
+                }
+            }
+
             TipoPregunta.OPCION_MULTIPLE -> {
                 if (respuesta.opcionSeleccionada.isNullOrBlank()) {
                     ValidacionRespuesta(false, "Debes seleccionar una opción")
@@ -225,8 +241,10 @@ object ValidadorEncuesta {
             }
 
             TipoPregunta.ESCALA -> {
-                if (respuesta.valorEscala == null || respuesta.valorEscala !in 1..5) {
-                    ValidacionRespuesta(false, "Debes seleccionar un valor entre 1 y 5")
+                if (respuesta.valorEscala == null) {
+                    ValidacionRespuesta(false, "Debes seleccionar un valor")
+                } else if (respuesta.valorEscala !in pregunta.rangoEscala) {
+                    ValidacionRespuesta(false, "El valor debe estar entre ${pregunta.rangoEscala.first} y ${pregunta.rangoEscala.last}")
                 } else {
                     ValidacionRespuesta(true)
                 }

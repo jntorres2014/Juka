@@ -1,65 +1,54 @@
 package com.example.juka.auth
 
+import android.app.DatePickerDialog
+import androidx.activity.result.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.juka.data.AuthManager
 import com.example.juka.data.encuesta.PreguntasEncuesta
 import com.example.juka.data.encuesta.RespuestaPregunta
 import com.example.juka.data.encuesta.TipoPregunta
-import com.example.juka.viewmodel.EncuestaViewModel
-import com.google.firebase.Timestamp
+import com.example.juka.data.encuesta.ValidadorEncuesta
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.*
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EncuestaScreen(
     authManager: AuthManager,
-    navController: NavController,
-    viewModel: EncuestaViewModel = viewModel()
+    navController: NavController
 ) {
     val scope = rememberCoroutineScope()
+    var preguntaActual by remember { mutableStateOf(0) }
+    val respuestas = remember { mutableStateMapOf<Int, RespuestaPregunta>() }
+    var mensajeError by remember { mutableStateOf<String?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
 
-    // Estados del ViewModel
-    val estadoEncuesta by viewModel.estadoEncuesta.collectAsState()
-    val preguntaActual by viewModel.preguntaActual.collectAsState()
-    val isLoading by viewModel.isLoading.collectAsState()
-    val mensajeError by viewModel.mensajeError.collectAsState()
-    val encuestaCompletada by viewModel.encuestaCompletada.collectAsState()
-    val guardandoProgreso by viewModel.guardandoProgreso.collectAsState()
-
-    // Pregunta actual y respuesta
-    val pregunta = viewModel.obtenerPreguntaActual()
-    val respuestaActual = viewModel.obtenerRespuestaActual()
-
-    // Si la encuesta se completó, navegar a home
-    LaunchedEffect(encuestaCompletada) {
-        if (encuestaCompletada) {
-            authManager.markSurveyCompleted()
-            navController.navigate("home") {
-                popUpTo("survey") { inclusive = true }
-            }
-        }
-    }
+    val totalPreguntas = PreguntasEncuesta.obtenerTotalPreguntas()
+    val pregunta = PreguntasEncuesta.PREGUNTAS.getOrNull(preguntaActual)
+    val progreso = ((respuestas.size.toFloat() / totalPreguntas) * 100).toInt()
 
     Box(
         modifier = Modifier
@@ -89,28 +78,18 @@ fun EncuestaScreen(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Text(
-                        text = viewModel.obtenerResumenProgreso(),
+                        text = "Pregunta ${preguntaActual + 1} de $totalPreguntas ($progreso% completado)",
                         fontSize = 14.sp,
                         color = Color.Gray
                     )
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // Barra de progreso
                     LinearProgressIndicator(
-                        progress = estadoEncuesta.progresoPorcentaje / 100f,
+                        progress = { progreso / 100f },
                         modifier = Modifier.fillMaxWidth(),
                         color = Color(0xFF1E3A8A)
                     )
-
-                    if (guardandoProgreso) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Guardando progreso...",
-                            fontSize = 12.sp,
-                            color = Color.Gray
-                        )
-                    }
                 }
             }
 
@@ -129,16 +108,16 @@ fun EncuestaScreen(
                         .verticalScroll(rememberScrollState())
                 ) {
                     if (pregunta != null) {
-                        PreguntaContent(
+                        PreguntaContentSimple(
                             pregunta = pregunta,
-                            respuestaActual = respuestaActual,
+                            respuestaActual = respuestas[pregunta.id],
                             onRespuestaChanged = { nuevaRespuesta ->
-                                viewModel.guardarRespuesta(nuevaRespuesta)
+                                respuestas[pregunta.id] = nuevaRespuesta
+                                mensajeError = null
                             }
                         )
                     }
 
-                    // Mostrar error si existe
                     mensajeError?.let { error ->
                         Spacer(modifier = Modifier.height(16.dp))
                         Card(
@@ -167,10 +146,12 @@ fun EncuestaScreen(
                         .padding(16.dp),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // Botón Anterior
                     OutlinedButton(
-                        onClick = { viewModel.preguntaAnterior() },
-                        enabled = estadoEncuesta.puedeRetroceder && !isLoading,
+                        onClick = {
+                            preguntaActual -= 1
+                            mensajeError = null
+                        },
+                        enabled = preguntaActual > 0 && !isLoading,
                         modifier = Modifier.weight(1f)
                     ) {
                         Icon(Icons.Default.ArrowBack, contentDescription = null)
@@ -180,16 +161,46 @@ fun EncuestaScreen(
 
                     Spacer(modifier = Modifier.width(16.dp))
 
-                    // Botón Siguiente/Completar
-                    if (preguntaActual == PreguntasEncuesta.obtenerTotalPreguntas() - 1) {
-                        // Última pregunta - botón completar
+                    if (preguntaActual == totalPreguntas - 1) {
                         Button(
                             onClick = {
+                                if (pregunta != null && pregunta.esObligatoria) {
+                                    val respuesta = respuestas[pregunta.id]
+                                    if (respuesta == null) {
+                                        mensajeError = "Esta pregunta es obligatoria"
+                                        return@Button
+                                    }
+                                    val validacion = ValidadorEncuesta.validarRespuesta(pregunta, respuesta)
+                                    if (!validacion.esValida) {
+                                        mensajeError = validacion.mensajeError
+                                        return@Button
+                                    }
+                                }
+
+                                val preguntasObligatorias = PreguntasEncuesta.PREGUNTAS.filter { it.esObligatoria }
+                                val faltantes = preguntasObligatorias.filter { respuestas[it.id] == null }
+
+                                if (faltantes.isNotEmpty()) {
+                                    mensajeError = "Faltan ${faltantes.size} preguntas obligatorias"
+                                    return@Button
+                                }
+
+                                // <-- 2. LANZAR LA COROUTINE AQUÍ
                                 scope.launch {
-                                    viewModel.completarEncuesta()
+                                    isLoading = true
+                                    // Ahora la llamada a la función suspend es segura
+                                    authManager.markSurveyCompleted()
+
+                                    // La navegación también debe ir aquí para asegurar que se
+                                    // ejecute después de que `markSurveyCompleted` termine.
+                                    navController.navigate("home") {
+                                        popUpTo("survey") { inclusive = true }
+                                    }
+                                    // Podrías poner isLoading = false aquí si la pantalla no desaparece
+                                    // inmediatamente, pero con la navegación, no es estrictamente necesario.
                                 }
                             },
-                            enabled = viewModel.puedeCompletarEncuesta() && !isLoading,
+                            enabled = !isLoading,
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = Color(0xFF4CAF50)
@@ -197,6 +208,7 @@ fun EncuestaScreen(
                         ) {
                             if (isLoading) {
                                 CircularProgressIndicator(
+                                    modifier = Modifier.size(24.dp),
                                     color = Color.White
                                 )
                             } else {
@@ -206,13 +218,25 @@ fun EncuestaScreen(
                             }
                         }
                     } else {
-                        // Botón siguiente normal
                         Button(
                             onClick = {
-                                viewModel.limpiarError()
-                                viewModel.siguientePregunta()
+                                if (pregunta != null && pregunta.esObligatoria) {
+                                    val respuesta = respuestas[pregunta.id]
+                                    if (respuesta == null) {
+                                        mensajeError = "Esta pregunta es obligatoria"
+                                        return@Button
+                                    }
+                                    val validacion = ValidadorEncuesta.validarRespuesta(pregunta, respuesta)
+                                    if (!validacion.esValida) {
+                                        mensajeError = validacion.mensajeError
+                                        return@Button
+                                    }
+                                }
+
+                                preguntaActual += 1
+                                mensajeError = null
                             },
-                            enabled = estadoEncuesta.puedeAvanzar && !isLoading,
+                            enabled = preguntaActual < totalPreguntas - 1 && !isLoading,
                             modifier = Modifier.weight(1f)
                         ) {
                             Text("Siguiente")
@@ -221,28 +245,19 @@ fun EncuestaScreen(
                         }
                     }
                 }
-
-                // Botón guardar progreso
-                if (estadoEncuesta.progresoPorcentaje > 0) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    TextButton(
-                        onClick = { viewModel.guardarProgreso() },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Guardar progreso para continuar después")
-                    }
-                }
             }
         }
     }
 }
 
 @Composable
-fun PreguntaContent(
+fun PreguntaContentSimple(
     pregunta: com.example.juka.data.encuesta.Pregunta,
     respuestaActual: RespuestaPregunta?,
     onRespuestaChanged: (RespuestaPregunta) -> Unit
 ) {
+    val context = LocalContext.current
+
     Column {
         Text(
             text = pregunta.texto,
@@ -252,8 +267,80 @@ fun PreguntaContent(
         )
 
         when (pregunta.tipo) {
+            TipoPregunta.FECHA -> {
+                var fechaSeleccionada by remember(pregunta.id) {
+                    mutableStateOf(respuestaActual?.respuestaFecha ?: "")
+                }
+
+                OutlinedTextField(
+                    value = fechaSeleccionada,
+                    onValueChange = {},
+                    label = { Text("Fecha de nacimiento") },
+                    placeholder = { Text("DD/MM/AAAA") },
+                    readOnly = true,
+                    trailingIcon = {
+                        IconButton(onClick = {
+                            val calendar = Calendar.getInstance()
+                            val year = calendar.get(Calendar.YEAR)
+                            val month = calendar.get(Calendar.MONTH)
+                            val day = calendar.get(Calendar.DAY_OF_MONTH)
+
+                            DatePickerDialog(
+                                context,
+                                { _, selectedYear, selectedMonth, selectedDay ->
+                                    val fecha = String.format("%02d/%02d/%04d", selectedDay, selectedMonth + 1, selectedYear)
+                                    fechaSeleccionada = fecha
+                                    onRespuestaChanged(
+                                        RespuestaPregunta(
+                                            preguntaId = pregunta.id,
+                                            respuestaFecha = fecha
+                                        )
+                                    )
+                                },
+                                year,
+                                month,
+                                day
+                            ).apply {
+                                datePicker.maxDate = System.currentTimeMillis()
+                            }.show()
+                        }) {
+                            Icon(Icons.Default.CalendarToday, contentDescription = "Seleccionar fecha")
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            TipoPregunta.NUMERO -> {
+                var numero by remember(pregunta.id) {
+                    mutableStateOf(respuestaActual?.respuestaNumero?.toString() ?: "")
+                }
+
+                OutlinedTextField(
+                    value = numero,
+                    onValueChange = {
+                        if (it.isEmpty() || it.all { char -> char.isDigit() }) {
+                            numero = it
+                            val numeroInt = it.toIntOrNull()
+                            if (numeroInt != null) {
+                                onRespuestaChanged(
+                                    RespuestaPregunta(
+                                        preguntaId = pregunta.id,
+                                        respuestaNumero = numeroInt
+                                    )
+                                )
+                            }
+                        }
+                    },
+                    label = { Text("Edad en años") },
+                    placeholder = { Text(pregunta.placeholder) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
             TipoPregunta.TEXTO_LIBRE -> {
-                var texto by remember(respuestaActual) {
+                var texto by remember(pregunta.id) {
                     mutableStateOf(respuestaActual?.respuestaTexto ?: "")
                 }
 
@@ -275,7 +362,7 @@ fun PreguntaContent(
             }
 
             TipoPregunta.OPCION_MULTIPLE -> {
-                var seleccionada by remember(respuestaActual) {
+                var seleccionada by remember(pregunta.id) {
                     mutableStateOf(respuestaActual?.opcionSeleccionada ?: "")
                 }
 
@@ -315,7 +402,7 @@ fun PreguntaContent(
             }
 
             TipoPregunta.SELECCION_MULTIPLE -> {
-                var seleccionadas by remember(respuestaActual) {
+                var seleccionadas by remember(pregunta.id) {
                     mutableStateOf(respuestaActual?.opcionesSeleccionadas?.toSet() ?: emptySet())
                 }
 
@@ -360,14 +447,18 @@ fun PreguntaContent(
             }
 
             TipoPregunta.ESCALA -> {
-                var valor by remember(respuestaActual) {
-                    mutableStateOf(respuestaActual?.valorEscala?.toFloat() ?: 1f)
+                var valor by remember(pregunta.id) {
+                    mutableStateOf(
+                        respuestaActual?.valorEscala?.toFloat()
+                            ?: ((pregunta.rangoEscala.first + pregunta.rangoEscala.last) / 2f)
+                    )
                 }
 
                 Column {
                     Text(
                         text = "Valor: ${valor.toInt()}",
                         style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
 
@@ -382,8 +473,8 @@ fun PreguntaContent(
                                 )
                             )
                         },
-                        valueRange = 1f..5f,
-                        steps = 3,
+                        valueRange = pregunta.rangoEscala.first.toFloat()..pregunta.rangoEscala.last.toFloat(),
+                        steps = pregunta.rangoEscala.last - pregunta.rangoEscala.first - 1,
                         modifier = Modifier.fillMaxWidth()
                     )
 
@@ -391,11 +482,10 @@ fun PreguntaContent(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        pregunta.opciones.forEach { label ->
+                        for (i in pregunta.rangoEscala) {
                             Text(
-                                text = label,
-                                style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier.width(60.dp)
+                                text = i.toString(),
+                                style = MaterialTheme.typography.labelSmall
                             )
                         }
                     }
@@ -403,7 +493,7 @@ fun PreguntaContent(
             }
 
             TipoPregunta.SI_NO -> {
-                var respuesta by remember(respuestaActual) {
+                var respuesta by remember(pregunta.id) {
                     mutableStateOf(respuestaActual?.respuestaSiNo)
                 }
 
@@ -421,14 +511,12 @@ fun PreguntaContent(
                                 )
                             )
                         },
-                        colors = if (respuesta == true) {
-                            ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))
-                        } else {
-                            ButtonDefaults.outlinedButtonColors()
-                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (respuesta == true) Color(0xFF4CAF50) else Color.Gray
+                        ),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("Sí")
+                        Text("Sí", color = Color.White)
                     }
 
                     Button(
@@ -441,14 +529,12 @@ fun PreguntaContent(
                                 )
                             )
                         },
-                        colors = if (respuesta == false) {
-                            ButtonDefaults.buttonColors(containerColor = Color(0xFFf44336))
-                        } else {
-                            ButtonDefaults.outlinedButtonColors()
-                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (respuesta == false) Color(0xFFf44336) else Color.Gray
+                        ),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("No")
+                        Text("No", color = Color.White)
                     }
                 }
             }
