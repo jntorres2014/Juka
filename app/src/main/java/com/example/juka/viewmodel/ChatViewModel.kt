@@ -1,474 +1,235 @@
-// ChatViewModel.kt - Versión corregida con Firebase integrado
+// viewmodel/ChatViewModel.kt - VERSIÓN OPTIMIZADA
 package com.example.juka.viewmodel
 
-import android.R.attr.content
 import android.app.Application
-import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.juka.IMessage
+import com.example.juka.data.repository.ChatRepository
+import com.example.juka.data.local.LocalStorageHelper
 import com.example.juka.data.firebase.FirebaseManager
-import com.example.juka.data.firebase.FirebaseResult
+import com.example.juka.usecase.SendMessageUseCase
 import com.example.juka.FishDatabase
-import com.example.juka.FishIdentifier
-import com.example.juka.FishingDataExtractor
-import com.example.juka.FishingStoryAnalyzer
 import com.example.juka.IntelligentResponses
-import com.example.juka.OpenAiApiService
+import com.example.juka.FishingDataExtractor
 import com.example.juka.data.firebase.PartePesca
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
-import java.io.File
-import java.text.SimpleDateFormat
-import java.util.*
-import kotlin.random.Random
+import kotlinx.coroutines.flow.*
 
+import kotlinx.coroutines.launch
+
+/**
+ * ViewModel optimizado con Repository Pattern y Use Cases
+ * Responsabilidades:
+ * - Manejo de estado UI
+ * - Coordinación de casos de uso
+ * - Observación de datos del Repository
+ */
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
-    val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
+    // ================== DEPENDENCIES ==================
+    private val localStorageHelper = LocalStorageHelper(application)
+    private val firebaseManager = FirebaseManager(application)
+    private val repository = ChatRepository(firebaseManager, localStorageHelper)
 
-    private val _isAnalyzing = MutableStateFlow(false)
-    val isAnalyzing: StateFlow<Boolean> = _isAnalyzing.asStateFlow()
-
-    private val _isTyping = MutableStateFlow(false)
-    val isTyping: StateFlow<Boolean> = _isTyping.asStateFlow()
-
-    // Firebase integration
-    private val _firebaseStatus = MutableStateFlow<String?>(null)
-    val firebaseStatus: StateFlow<String?> = _firebaseStatus.asStateFlow()
-
-    // Archivos para persistencia local (backup)
-    private val chatFile = File(getApplication<Application>().filesDir, "fishing_chat_history.txt")
-    private val conversationLogFile = File(getApplication<Application>().filesDir, "conversation_log.txt")
-
-    // Instancias de las clases auxiliares
-    private val fishDatabase = FishDatabase(getApplication())
+    private val fishDatabase = FishDatabase(application)
     private val intelligentResponses = IntelligentResponses(fishDatabase)
-    private val fishIdentifier = FishIdentifier(getApplication())
-    private val storyAnalyzer = FishingStoryAnalyzer(getApplication())
-    private val dataExtractor = FishingDataExtractor(getApplication())
+    private val dataExtractor = FishingDataExtractor(application)
 
-    // Firebase Manager
-    private val firebaseManager = FirebaseManager(getApplication())
-    val openAiService = OpenAiApiService()
+    private val sendMessageUseCase = SendMessageUseCase(
+        repository,
+        intelligentResponses,
+        dataExtractor
+    )
 
+    // ================== UI STATE ==================
+    private val _uiState = MutableStateFlow(ChatUiState())
+    val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
+    // Backward compatibility (puedes remover después)
+    val messages: StateFlow<List<IMessage>> = repository.messages.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        emptyList()
+    )
+    val isTyping: StateFlow<Boolean> = _uiState.map { it.isTyping }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        false
+    )
+    val isAnalyzing: StateFlow<Boolean> = _uiState.map { it.isAnalyzing }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        false
+    )
+    val firebaseStatus: StateFlow<String?> = _uiState.map { it.firebaseStatus }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        null
+    )
 
-    private fun addWelcomeMessage() {
-        if (_messages.value.isEmpty()) {
-            val welcomeMessage = ChatMessage(
-                content = "Hola pescador! Soy Juka, tu asistente de pesca inteligente.\n\n" +
-                        "**Funciones:**\n" +
-                        "• Consejos sobre especies argentinas\n" +
-                        "• Análisis de técnicas y carnadas\n" +
-                        "• Registro automático en Firebase\n" +
-                        "• Análisis automático de relatos de pesca\n" +
-                        "• Registro de datos de pesca\n\n" +
-                        "Contame sobre tus jornadas, subí fotos o grabá un audio!",
-                isFromUser = false,
-                type = MessageType.TEXT,
-                timestamp = getCurrentTimestamp()
-            )
-            addMessage(welcomeMessage)
+    // ================== INITIALIZATION ==================
+    init {
+        initializeViewModel()
+    }
+
+    private fun initializeViewModel() {
+        viewModelScope.launch {
+            try {
+                // Inicializar base de datos
+                fishDatabase.initialize()
+
+                // Cargar mensajes locales
+                val localMessages = repository.loadLocalMessages()
+
+                // Si no hay mensajes, agregar bienvenida
+                if (localMessages.isEmpty()) {
+                    addWelcomeMessage()
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(error = e.message) }
+            }
         }
     }
+
+    // ================== PUBLIC ACTIONS ==================
 
     fun sendTextMessage(content: String) {
-        val userMessage = ChatMessage(
-            content = content,
-            isFromUser = true,
-            type = MessageType.TEXT,
-            timestamp = getCurrentTimestamp()
-        )
-
-        addMessage(userMessage)
-        saveMessageToFile(userMessage)
-        saveConversationLog("USER", content)
-
-        // Extraer datos de pesca
-        val extractedData = dataExtractor.extractFromMessage(content)
-        val missingFields = dataExtractor.getMissingFields(extractedData)
-
-        // Detectar si es un relato de pesca
-        val isLikelyStory = isLikelyFishingStory(content)
-
-        _isTyping.value = true
-
         viewModelScope.launch {
-            delay(Random.nextLong(1000, 3000))
+            _uiState.update { it.copy(isTyping = true) }
 
-            val response = if (isLikelyStory) {
-                val storyAnalysis = storyAnalyzer.analyzeStory(content)
-                val analysisResponse = storyAnalyzer.buildAnalysisResponse(storyAnalysis)
-                val contextualResponse = intelligentResponses.getStoryResponse(storyAnalysis)
-                "$analysisResponse\n\n$contextualResponse"
-            } else {
-                intelligentResponses.getResponse(content)
-            }
+            delay(kotlin.random.Random.nextLong(1000, 3000))
 
-            // Verificar si el parte está completo y guardarlo
-            var finalResponse = if (missingFields.isEmpty() && extractedData.fishCount != null && extractedData.fishCount!! > 0) {
-                // Parte completo - intentar guardar en Firebase
-                _firebaseStatus.value = "Guardando en Firebase..."
-
-                val firebaseResult = firebaseManager.guardarParteAutomatico(extractedData, content)
-
-                when (firebaseResult) {
-                    is FirebaseResult.Success -> {
-                        _firebaseStatus.value = "Guardado en Firebase"
-                        dataExtractor.resetSession()
-                        "$response\n\n✅ **Parte completo guardado automáticamente en Firebase!**\n" +
-                                "📊 Datos: Día ${extractedData.day}, ${extractedData.fishCount} peces, " +
-                                "Tipo ${extractedData.type}, ${extractedData.rodsCount} cañas"
-                    }
-                    is FirebaseResult.Error -> {
-                        _firebaseStatus.value = "Error Firebase"
-                        "$response\n\n⚠️ **Datos completos localmente, pero error guardando en Firebase:**\n" +
-                                "${firebaseResult.message}\n\n📊 Datos locales: ${extractedData.fishCount} peces, ${extractedData.type}"
-                    }
-                    else -> response
+            sendMessageUseCase.sendTextMessage(content)
+                .onSuccess {
+                    _uiState.update { it.copy(isTyping = false, error = null) }
                 }
-            } else if (missingFields.isNotEmpty()) {
-                "$response\n\n📝 **Para completar el registro:** ${missingFields.joinToString(" ")}"
-            } else {
-                response
-            }
-
-            // Limpiar estado Firebase después de 3 segundos
-            if (_firebaseStatus.value != null) {
-                delay(3000)
-                _firebaseStatus.value = null
-            }
-
-            val botMessage = ChatMessage(
-                content = finalResponse,
-                isFromUser = false,
-                type = MessageType.TEXT,
-                timestamp = getCurrentTimestamp()
-            )
-
-            _isTyping.value = false
-            addMessage(botMessage)
-            saveMessageToFile(botMessage)
-            saveConversationLog("BOT_SMART", finalResponse)
-        }
-    }
-
-    fun sendImageMessage(imagePath: String) {
-        val userMessage = ChatMessage(
-            content = imagePath,
-            isFromUser = true,
-            type = MessageType.IMAGE,
-            timestamp = getCurrentTimestamp()
-        )
-
-        addMessage(userMessage)
-        saveMessageToFile(userMessage, "IMAGE: $imagePath")
-        saveConversationLog("USER_IMAGE", imagePath)
-
-        // OBTENER CONTEXTO DE MENSAJES ANTERIORES PARA ESPECIES
-        val contextoPrevio = obtenerContextoPescaReciente()
-
-        // Extraer datos usando el contexto si existe
-        val extractedData = if (contextoPrevio.isNotBlank()) {
-            // Si hay contexto previo con especies, usarlo
-            val dataFromContext = dataExtractor.extractFromMessage(contextoPrevio)
-            // Agregar la foto al resultado
-            dataFromContext.copy(photoUri = imagePath)
-        } else {
-            // Si no hay contexto, crear datos básicos con la foto
-            dataExtractor.extractFromMessage("").copy(photoUri = imagePath)
-        }
-
-        val missingFields = dataExtractor.getMissingFields(extractedData)
-
-        _isTyping.value = true
-
-        viewModelScope.launch {
-            delay(Random.nextLong(1500, 2500))
-
-            var response = if (contextoPrevio.isNotBlank()) {
-                "📸 Excelente foto! La agregué a tu reporte de pesca."
-            } else {
-                "📸 Foto recibida! Para incluirla en un reporte, contame qué pescaste."
-            }
-
-            // Solo guardar si hay datos completos
-            if (missingFields.isEmpty() && extractedData.fishCount != null && extractedData.fishCount!! > 0) {
-                _firebaseStatus.value = "Guardando en Firebase..."
-
-                // Usar el contexto previo como transcripción para análisis de especies
-                val transcripcionParaAnalisis = if (contextoPrevio.isNotBlank()) {
-                    "$contextoPrevio (con foto adjunta)"
-                } else {
-                    "Foto de pesca sin especificar especies"
-                }
-
-                val firebaseResult = firebaseManager.guardarParteAutomatico(extractedData, transcripcionParaAnalisis)
-
-                response += when (firebaseResult) {
-                    is FirebaseResult.Success -> {
-                        _firebaseStatus.value = "Guardado en Firebase"
-                        dataExtractor.resetSession()
-                        "\n\n✅ **Reporte con foto guardado en Firebase!**\n📊 ${extractedData.fishCount} peces registrados con imagen"
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            isTyping = false,
+                            error = error.message
+                        )
                     }
-                    is FirebaseResult.Error -> {
-                        _firebaseStatus.value = "Error Firebase"
-                        "\n\n⚠️ **Error guardando en Firebase:** ${firebaseResult.message}"
-                    }
-                    else -> ""
                 }
-            } else {
-                if (extractedData.fishCount == null || extractedData.fishCount!! == 0) {
-                    response += "\n\n💡 **Tip:** Contame qué especies pescaste para crear un reporte completo con tu foto."
-                } else if (missingFields.isNotEmpty()) {
-                    response += "\n\n📝 Para completar el reporte con foto: ${missingFields.joinToString(" ")}"
-                }
-            }
-
-            if (_firebaseStatus.value != null) {
-                delay(3000)
-                _firebaseStatus.value = null
-            }
-
-            val botMessage = ChatMessage(
-                content = response,
-                isFromUser = false,
-                type = MessageType.TEXT,
-                timestamp = getCurrentTimestamp()
-            )
-
-            _isTyping.value = false
-            addMessage(botMessage)
-            saveMessageToFile(botMessage)
-            saveConversationLog("BOT_IMAGE", response)
-        }
-    }
-
-    // NUEVA FUNCIÓN AUXILIAR - Agregar al ChatViewModel
-    private fun obtenerContextoPescaReciente(): String {
-        // Buscar en los últimos 5 mensajes del usuario por especies o datos de pesca
-        val mensajesRecientes = _messages.value
-            .filter { it.isFromUser && it.type != MessageType.IMAGE }
-            .takeLast(5)
-            .map { it.content }
-            .joinToString(" ")
-
-        // Buscar indicadores de especies en el contexto
-        val especiesIndicadores = listOf(
-            "dorado", "dorados", "surubí", "surubís", "pacú", "pacús",
-            "pejerrey", "pejerreyes", "tararira", "bagre", "corvina"
-        )
-
-        return if (especiesIndicadores.any { mensajesRecientes.lowercase().contains(it) }) {
-            mensajesRecientes
-        } else {
-            ""
         }
     }
 
     fun sendAudioTranscript(transcript: String) {
-        val userMessage = ChatMessage(
-            content = "🎤 \"$transcript\"",
-            isFromUser = true,
-            type = MessageType.AUDIO,
-            timestamp = getCurrentTimestamp()
-        )
-
-        addMessage(userMessage)
-        saveMessageToFile(userMessage, "AUDIO_TRANSCRIPT: $transcript")
-        saveConversationLog("USER_AUDIO", transcript)
-
-        val extractedData = dataExtractor.extractFromMessage(transcript)
-        val missingFields = dataExtractor.getMissingFields(extractedData)
-
-        _isTyping.value = true
-
         viewModelScope.launch {
-            delay(Random.nextLong(1000, 2500))
+            _uiState.update { it.copy(isTyping = true) }
 
-            val confirmationResponse = "👂 Perfecto, entendí: \"$transcript\""
-            val baseResponse = intelligentResponses.getAudioResponse()
+            delay(kotlin.random.Random.nextLong(1000, 2500))
 
-            var finalResponse = if (missingFields.isEmpty() && extractedData.fishCount != null && extractedData.fishCount!! > 0) {
-                _firebaseStatus.value = "Guardando en Firebase..."
-
-                val firebaseResult = firebaseManager.guardarParteAutomatico(extractedData, transcript)
-
-                when (firebaseResult) {
-                    is FirebaseResult.Success -> {
-                        _firebaseStatus.value = "Guardado en Firebase"
-                        dataExtractor.resetSession()
-                        "$confirmationResponse\n\n$baseResponse\n\n🔥 **Audio procesado y parte guardado en Firebase!**\n" +
-                                "📊 Registrado: ${extractedData.fishCount} peces, tipo ${extractedData.type}"
-                    }
-                    is FirebaseResult.Error -> {
-                        _firebaseStatus.value = "Error Firebase"
-                        "$confirmationResponse\n\n$baseResponse\n\n⚠️ **Error guardando en Firebase:** ${firebaseResult.message}"
-                    }
-                    else -> "$confirmationResponse\n\n$baseResponse"
+            sendMessageUseCase.sendAudioMessage(transcript)
+                .onSuccess {
+                    _uiState.update { it.copy(isTyping = false, error = null) }
                 }
-            } else if (missingFields.isNotEmpty()) {
-                "$confirmationResponse\n\n$baseResponse\n\nPara completar: ${missingFields.joinToString(" ")}"
-            } else {
-                "$confirmationResponse\n\n$baseResponse"
-            }
-
-            if (_firebaseStatus.value != null) {
-                delay(3000)
-                _firebaseStatus.value = null
-            }
-
-            val botMessage = ChatMessage(
-                content = finalResponse,
-                isFromUser = false,
-                type = MessageType.TEXT,
-                timestamp = getCurrentTimestamp()
-            )
-
-            _isTyping.value = false
-            addMessage(botMessage)
-            saveMessageToFile(botMessage)
-            saveConversationLog("BOT_AUDIO", finalResponse)
-        }
-    }
-
-    // Función para obtener estadísticas Firebase
-    suspend fun obtenerEstadisticasFirebase(): Map<String, Any> {
-        return firebaseManager.obtenerEstadisticas()
-    }
-
-    // Función para obtener mis partes desde Firebase
-    suspend fun obtenerMisPartes(): List<PartePesca> {
-        return firebaseManager.obtenerMisPartes()
-    }
-
-    private fun isLikelyFishingStory(text: String): Boolean {
-        val storyIndicators = listOf(
-            "pesqu", "saq", "captur", "jornada", "salida", "día de pesca",
-            "fuimos", "estuve", "nos fuimos", "salimos", "ayer", "hoy",
-            "mañana", "tarde", "dorado", "surubí", "pacú", "pejerrey"
-        )
-
-        val indicatorCount = storyIndicators.count {
-            text.lowercase().contains(it)
-        }
-
-        return text.length > 50 && indicatorCount >= 2
-    }
-
-    fun getConversationStats(): String {
-        return try {
-            val totalMessages = _messages.value.size
-            val userMessages = _messages.value.count { it.isFromUser }
-            val botMessages = totalMessages - userMessages
-            val audioMessages = _messages.value.count { it.type == MessageType.AUDIO }
-
-            "📊 Total: $totalMessages | Usuario: $userMessages | Bot: $botMessages | Audio: $audioMessages | Firebase: Activo"
-        } catch (e: Exception) {
-            "📊 Estadísticas no disponibles"
-        }
-    }
-
-    private fun addMessage(message: ChatMessage) {
-        _messages.value = _messages.value + message
-    }
-
-    private fun saveMessageToFile(message: ChatMessage, customContent: String? = null) {
-        try {
-            val messageText = "${message.timestamp} - ${if (message.isFromUser) "USER" else "BOT"}: ${customContent ?: message.content}\n"
-            chatFile.appendText(messageText)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    private fun saveConversationLog(sender: String, content: String) {
-        try {
-            val timestamp = getCurrentTimestamp()
-            val logText = "$timestamp - $sender: $content\n"
-            conversationLogFile.appendText(logText)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    private fun loadMessagesFromFile() {
-        try {
-            if (chatFile.exists()) {
-                val lines = chatFile.readLines().takeLast(50)
-                val loadedMessages = mutableListOf<ChatMessage>()
-
-                lines.forEach { line ->
-                    if (line.isNotBlank()) {
-                        val parts = line.split(" - ", limit = 2)
-                        if (parts.size == 2) {
-                            val timestamp = parts[0]
-                            val content = parts[1]
-
-                            when {
-                                content.startsWith("USER: AUDIO_TRANSCRIPT:") -> {
-                                    val transcript = content.removePrefix("USER: AUDIO_TRANSCRIPT: ")
-                                    loadedMessages.add(
-                                        ChatMessage("🎤 \"$transcript\"", true, MessageType.AUDIO, timestamp)
-                                    )
-                                }
-                                content.startsWith("USER: IMAGE:") -> {
-                                    val imagePath = content.removePrefix("USER: IMAGE: ")
-                                    loadedMessages.add(
-                                        ChatMessage(imagePath, true, MessageType.IMAGE, timestamp)
-                                    )
-                                }
-                                content.startsWith("USER: ") -> {
-                                    loadedMessages.add(
-                                        ChatMessage(content.removePrefix("USER: "), true, MessageType.TEXT, timestamp)
-                                    )
-                                }
-                                content.startsWith("BOT: ") -> {
-                                    loadedMessages.add(
-                                        ChatMessage(content.removePrefix("BOT: "), false, MessageType.TEXT, timestamp)
-                                    )
-                                }
-                            }
-                        }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            isTyping = false,
+                            error = error.message
+                        )
                     }
                 }
+        }
+    }
 
-                _messages.value = loadedMessages
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
+    fun sendImageMessage(imagePath: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isAnalyzing = true) }
+
+            delay(kotlin.random.Random.nextLong(2000, 4000))
+
+            sendMessageUseCase.sendImageMessage(imagePath)
+                .onSuccess {
+                    _uiState.update { it.copy(isAnalyzing = false, error = null) }
+                }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            isAnalyzing = false,
+                            error = error.message
+                        )
+                    }
+                }
         }
     }
 
     fun clearMessages() {
-        _messages.value = emptyList()
-        try {
-            if (chatFile.exists()) chatFile.delete()
-            if (conversationLogFile.exists()) conversationLogFile.delete()
-        } catch (e: Exception) {
-            e.printStackTrace()
+        viewModelScope.launch {
+            repository.clearMessages()
+            addWelcomeMessage()
         }
-        addWelcomeMessage()
     }
 
-    private fun getCurrentTimestamp(): String {
-        val dateFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
-        return dateFormat.format(Date())
+    fun getConversationStats(): String {
+        val currentMessages = messages.value
+        val totalMessages = currentMessages.size
+        val userMessages = currentMessages.count { it.isFromUser }
+        val botMessages = totalMessages - userMessages
+
+        return "📊 Total: $totalMessages | Usuario: $userMessages | Bot: $botMessages | Firebase: Activo"
+    }
+
+    // ================== PRIVATE HELPERS ==================
+
+    private suspend fun addWelcomeMessage() {
+        val welcomeMessage = ChatMessage(
+            content = """
+                Hola pescador! Soy Juka, tu asistente de pesca inteligente.
+                
+                **Funciones:**
+                • Consejos sobre especies argentinas
+                • Análisis de técnicas y carnadas
+                • Registro automático en Firebase
+                
+                Contame sobre tus jornadas, subí fotos o grabá un audio!
+            """.trimIndent(),
+            isFromUser = false,
+            type = MessageType.TEXT,
+            timestamp = repository.getCurrentTimestamp()
+        )
+        repository.saveMessageLocally(welcomeMessage)
     }
 }
 
-// Data classes (sin cambios)
-data class ChatMessage(
-    val content: String,
-    val isFromUser: Boolean,
-    val type: MessageType,
-    val timestamp: String
+
+// ================== UI STATE ==================
+
+data class ChatUiState(
+    val isTyping: Boolean = false,
+    val isAnalyzing: Boolean = false,
+    val firebaseStatus: String? = null,
+    val error: String? = null
 )
+
+// ================== DATA CLASSES (mantener compatibilidad) ==================
+
+data class ChatMessage(
+    override val content: String,
+    override val isFromUser: Boolean,
+    override val type: MessageType,
+    override val timestamp: String
+) : IMessage
 
 enum class MessageType {
     TEXT, AUDIO, IMAGE
 }
+/**
+ * Obtiene estadísticas de Firebase
+ */
+/*
+suspend fun obtenerEstadisticasFirebase(): Map<String, Any> {
+    return firebaseManager.obtenerEstadisticas()
+}
+
+*/
+/**
+ * Obtiene mis partes desde Firebase
+ *//*
+
+suspend fun obtenerMisPartes(): List<PartePesca> {
+    return firebaseManager.obtenerMisPartes()
+}*/

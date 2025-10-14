@@ -327,6 +327,7 @@ fun ReporteCard(
         }
     }
 }
+/*
 
 // Composable principal de la pantalla
 @OptIn(ExperimentalMaterial3Api::class)
@@ -515,4 +516,4 @@ fun MisReportesScreen(
             }
         }
     }
-}
+}*/

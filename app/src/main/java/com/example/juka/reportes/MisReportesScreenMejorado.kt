@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.example.juka.data.firebase.FirebaseManager
 import com.example.juka.viewmodel.ChatViewModel
 import com.example.juka.data.firebase.PartePesca
 import kotlinx.coroutines.launch
@@ -49,7 +50,9 @@ fun MisReportesScreenMejorado(
         scope.launch {
             isLoading = true
             try {
-                reportes = viewModel.obtenerMisPartes()
+                val firebaseManager = FirebaseManager(context)
+                reportes = firebaseManager.obtenerMisPartes()
+                //reportes = viewModel.obtenerMisPartes()
                 reportesFiltrados = reportes
                 error = null
             } catch (e: Exception) {
@@ -132,7 +135,9 @@ fun MisReportesScreenMejorado(
                                 scope.launch {
                                     isLoading = true
                                     try {
-                                        reportes = viewModel.obtenerMisPartes()
+                                        val firebaseManager = FirebaseManager(context)
+                                        reportes = firebaseManager.obtenerMisPartes()
+                                        //reportes = viewModel.obtenerMisPartes()
                                         error = null
                                     } catch (e: Exception) {
                                         error = "Error: ${e.message}"

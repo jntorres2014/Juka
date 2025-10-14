@@ -1,4 +1,4 @@
-// EnhancedChatScreen.kt - UI con separación de dos modos de chat
+
 package com.example.juka
 
 import android.net.Uri
@@ -16,14 +16,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.*
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.juka.chat.ImageMessageContent
-import com.example.juka.viewmodel.MessageType
+import com.example.juka.viewmodel.ChatMessage
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -33,7 +30,6 @@ fun EnhancedChatScreen(
     viewModel: EnhancedChatViewModel = viewModel()
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
 
     // Estados del ViewModel
@@ -46,7 +42,6 @@ fun EnhancedChatScreen(
 
     // Estados locales
     var messageText by remember { mutableStateOf("") }
-    var showParteActions by remember { mutableStateOf(false) }
 
     // Determinar qué mensajes mostrar según el modo
     val currentMessages = when (currentMode) {
@@ -97,8 +92,8 @@ fun EnhancedChatScreen(
         if (currentMode == ChatMode.CREAR_PARTE && parteSession != null) {
             AnimatedVisibility(
                 visible = true,
-                enter = slideInVertically() + fadeIn(),
-                exit = slideOutVertically() + fadeOut()
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
             ) {
                 ParteProgressIndicator(
                     parteData = parteSession!!.parteData,
@@ -117,8 +112,9 @@ fun EnhancedChatScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             items(currentMessages) { message ->
-                EnhancedMessageBubble(
-                    message = message as ChatMessageWithMode,
+                // ✅ USANDO COMPONENTE CENTRALIZADO
+                MessageBubble(
+                    message = message,
                     currentMode = currentMode
                 )
             }
@@ -126,13 +122,15 @@ fun EnhancedChatScreen(
             // Indicadores de estado
             if (isAnalyzing) {
                 item {
-                    MLKitAnalyzingIndicator()
+                    // ✅ COMPONENTE CENTRALIZADO
+                    AnalyzingIndicator()
                 }
             }
 
             if (isTyping) {
                 item {
-                    TypingIndicatorEnhanced()
+                    // ✅ COMPONENTE CENTRALIZADO
+                    TypingIndicator()
                 }
             }
 
@@ -160,6 +158,8 @@ fun EnhancedChatScreen(
         )
     }
 }
+
+// ================== HEADER ==================
 
 @Composable
 fun EnhancedChatHeader(
@@ -273,8 +273,8 @@ fun EnhancedChatHeader(
             // Indicador de modo con animación
             AnimatedVisibility(
                 visible = currentMode == ChatMode.CREAR_PARTE,
-                enter = slideInVertically() + fadeIn(),
-                exit = slideOutVertically() + fadeOut()
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
             ) {
                 Surface(
                     color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.1f),
@@ -302,6 +302,8 @@ fun EnhancedChatHeader(
         }
     }
 }
+
+// ================== PROGRESS INDICATOR ==================
 
 @Composable
 fun ParteProgressIndicator(
@@ -402,243 +404,7 @@ fun ParteProgressIndicator(
     }
 }
 
-@Composable
-fun EnhancedMessageBubble(
-    message: ChatMessageWithMode,
-    currentMode: ChatMode
-) {
-    val isUser = message.isFromUser
-
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
-    ) {
-        if (!isUser) {
-            Surface(
-                modifier = Modifier.size(40.dp),
-                shape = CircleShape,
-                color = when (currentMode) {
-                    ChatMode.GENERAL -> MaterialTheme.colorScheme.secondary
-                    ChatMode.CREAR_PARTE -> MaterialTheme.colorScheme.tertiary
-                }
-            ) {
-                Icon(
-                    when (currentMode) {
-                        ChatMode.GENERAL -> Icons.Default.SmartToy
-                        ChatMode.CREAR_PARTE -> Icons.Default.Assignment
-                    },
-                    contentDescription = null,
-                    modifier = Modifier.padding(8.dp),
-                    tint = MaterialTheme.colorScheme.onSecondary
-                )
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-        }
-
-        Column(
-            modifier = Modifier.widthIn(max = 300.dp)
-        ) {
-            Surface(
-                shape = RoundedCornerShape(
-                    topStart = if (isUser) 16.dp else 4.dp,
-                    topEnd = if (isUser) 4.dp else 16.dp,
-                    bottomStart = 16.dp,
-                    bottomEnd = 16.dp
-                ),
-                color = if (isUser) {
-                    when (currentMode) {
-                        ChatMode.GENERAL -> MaterialTheme.colorScheme.primary
-                        ChatMode.CREAR_PARTE -> MaterialTheme.colorScheme.tertiary
-                    }
-                } else {
-                    MaterialTheme.colorScheme.surfaceVariant
-                },
-                shadowElevation = 2.dp
-            ) {
-                Column(
-                    modifier = Modifier.padding(12.dp)
-                ) {
-                    when (message.type) {
-                        MessageType.TEXT -> {
-                            FormattedText(
-                                text = message.content,
-                                color = if (isUser)
-                                    MaterialTheme.colorScheme.onPrimary
-                                else
-                                    MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        MessageType.AUDIO -> {
-                            AudioMessageContent(
-                                content = message.content,
-                                isUser = isUser,
-                                currentMode = currentMode
-                            )
-                        }
-                        MessageType.IMAGE -> {
-                            ImageMessageContent(
-                                imagePath = message.content,
-                                isUser = isUser
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Timestamp y modo
-            Row(
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = message.timestamp,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                )
-
-                if (currentMode == ChatMode.CREAR_PARTE && !isUser) {
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Icon(
-                        Icons.Default.AutoAwesome,
-                        contentDescription = null,
-                        modifier = Modifier.size(12.dp),
-                        tint = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.7f)
-                    )
-                }
-            }
-        }
-
-        if (isUser) {
-            Spacer(modifier = Modifier.width(8.dp))
-            Surface(
-                modifier = Modifier.size(40.dp),
-                shape = CircleShape,
-                color = when (currentMode) {
-                    ChatMode.GENERAL -> MaterialTheme.colorScheme.primary
-                    ChatMode.CREAR_PARTE -> MaterialTheme.colorScheme.tertiary
-                }
-            ) {
-                Icon(
-                    Icons.Default.Person,
-                    contentDescription = null,
-                    modifier = Modifier.padding(8.dp),
-                    tint = MaterialTheme.colorScheme.onPrimary
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun MLKitAnalyzingIndicator() {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Start
-    ) {
-        Surface(
-            modifier = Modifier.size(40.dp),
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.tertiary
-        ) {
-            Icon(
-                Icons.Default.AutoAwesome,
-                contentDescription = null,
-                modifier = Modifier.padding(8.dp),
-                tint = MaterialTheme.colorScheme.onTertiary
-            )
-        }
-        Spacer(modifier = Modifier.width(8.dp))
-
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.tertiaryContainer,
-            shadowElevation = 2.dp,
-            modifier = Modifier.padding(vertical = 4.dp)
-        ) {
-            Row(
-                modifier = Modifier.padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp,
-                    color = MaterialTheme.colorScheme.onTertiaryContainer
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Text(
-                    "Extrayendo información con ML Kit...",
-                    color = MaterialTheme.colorScheme.onTertiaryContainer,
-                    fontSize = 14.sp,
-                    fontStyle = FontStyle.Italic
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun AudioMessageContent(
-    content: String,
-    isUser: Boolean,
-    currentMode: ChatMode
-) {
-    val transcript = content.removePrefix("🎤 \"").removeSuffix("\"")
-
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Icon(
-            Icons.Default.GraphicEq,
-            contentDescription = null,
-            modifier = Modifier.size(24.dp),
-            tint = if (isUser) {
-                MaterialTheme.colorScheme.onPrimary
-            } else {
-                when (currentMode) {
-                    ChatMode.GENERAL -> MaterialTheme.colorScheme.primary
-                    ChatMode.CREAR_PARTE -> MaterialTheme.colorScheme.tertiary
-                }
-            }
-        )
-
-        Spacer(modifier = Modifier.width(8.dp))
-
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "Mensaje de voz",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = if (isUser)
-                        MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
-                    else
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                )
-
-                if (currentMode == ChatMode.CREAR_PARTE && !isUser) {
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Icon(
-                        Icons.Default.AutoAwesome,
-                        contentDescription = null,
-                        modifier = Modifier.size(12.dp),
-                        tint = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.7f)
-                    )
-                }
-            }
-
-            Text(
-                text = "\"$transcript\"",
-                fontSize = 14.sp,
-                fontStyle = FontStyle.Italic,
-                color = if (isUser)
-                    MaterialTheme.colorScheme.onPrimary
-                else
-                    MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
+// ================== MESSAGE INPUT ==================
 
 @Composable
 fun EnhancedMessageInput(
@@ -786,46 +552,3 @@ fun EnhancedMessageInput(
         }
     }
 }
-
-// ================== COMPONENTES AUXILIARES ==================
-
-@Composable
-fun FormattedText(
-    text: String,
-    color: Color,
-    modifier: Modifier = Modifier
-) {
-    val formattedText = remember(text) {
-        buildAnnotatedString {
-            var currentIndex = 0
-            val boldRegex = """\*\*(.*?)\*\*""".toRegex()
-            val boldMatches = boldRegex.findAll(text).toList()
-
-            if (boldMatches.isEmpty()) {
-                append(text)
-            } else {
-                boldMatches.forEach { match ->
-                    if (match.range.first > currentIndex) {
-                        append(text.substring(currentIndex, match.range.first))
-                    }
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(match.groupValues[1])
-                    }
-                    currentIndex = match.range.last + 1
-                }
-                if (currentIndex < text.length) {
-                    append(text.substring(currentIndex))
-                }
-            }
-        }
-    }
-
-    Text(
-        text = formattedText,
-        color = color,
-        fontSize = 16.sp,
-        lineHeight = 22.sp,
-        modifier = modifier
-    )
-}
-

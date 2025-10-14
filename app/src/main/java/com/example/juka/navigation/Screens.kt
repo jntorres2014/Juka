@@ -1,3 +1,4 @@
+/*
 package com.example.juka.navigation
 
 import android.net.Uri
@@ -233,3 +234,4 @@ fun ChatScreenWithUser(
         }
     }
 }
+*/

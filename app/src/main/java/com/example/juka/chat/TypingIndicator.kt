@@ -1,3 +1,4 @@
+/*
 package com.example.juka.chat
 
 import androidx.compose.foundation.layout.Arrangement
@@ -62,4 +63,4 @@ fun TypingIndicator() {
             }
         }
     }
-}
+}*/

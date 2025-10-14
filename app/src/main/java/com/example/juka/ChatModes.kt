@@ -5,7 +5,12 @@ import com.example.juka.viewmodel.ChatMessage
 import com.example.juka.viewmodel.MessageType
 import java.text.SimpleDateFormat
 import java.util.*
-
+interface IMessage {
+    val content: String
+    val isFromUser: Boolean
+    val type: MessageType
+    val timestamp: String
+}
 // Enum para los diferentes modos de chat
 enum class ChatMode {
     GENERAL,    // Chat normal - consejos, identificación, etc.
@@ -14,13 +19,12 @@ enum class ChatMode {
 
 // Data class para mensajes con contexto de modo
 data class ChatMessageWithMode(
-    val content: String,
-    val isFromUser: Boolean,
-    val type: MessageType,
-    val timestamp: String,
-    val mode: ChatMode,
-    //val messageId: String = UUID.randomUUID().toString()
-)
+    override val content: String,
+    override val isFromUser: Boolean,
+    override val type: MessageType,
+    override val timestamp: String,
+    val mode: ChatMode
+) : IMessage
 
 // Data class para sesiones de chat de partes
 data class ParteSessionChat(

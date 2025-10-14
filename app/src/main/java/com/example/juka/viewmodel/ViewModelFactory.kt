@@ -1,3 +1,4 @@
+/*
 // ViewModelFactory.kt - Para inyectar FirebaseManager en ViewModels
 package com.example.juka.data
 
@@ -21,10 +22,12 @@ class ViewModelFactory(
             modelClass.isAssignableFrom(PartesConChatViewModel::class.java) -> {
                 PartesConChatViewModel(firebaseManager) as T
             }
-            /*modelClass.isAssignableFrom(SesionesPendientesViewModel::class.java) -> {
+            */
+/*modelClass.isAssignableFrom(SesionesPendientesViewModel::class.java) -> {
                 SesionesPendientesViewModel(firebaseManager) as T
-            }*/
+            }*//*
+
             else -> throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
         }
     }
-}
+}*/
