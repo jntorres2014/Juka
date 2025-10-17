@@ -9,6 +9,7 @@ import com.example.juka.data.firebase.FirebaseManager
 import com.example.juka.data.firebase.FirebaseResult
 import com.example.juka.viewmodel.ChatMessage
 import com.example.juka.viewmodel.MessageType
+import com.google.firebase.firestore.GeoPoint
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -154,7 +155,7 @@ Contame todo sobre tu pesca - yo me encargo de extraer automáticamente:
 
         _parteSession.value?.let { session ->
             val sessionCancelada = session.copy(estado = EstadoParte.CANCELADO)
-            guardarParteSession(sessionCancelada)
+            //guardarParteSession(sessionCancelada)
         }
 
         _parteSession.value = null
@@ -513,8 +514,10 @@ ${generarResumenProgreso(_parteSession.value?.parteData)}
             fecha = nuevo.fecha ?: existente.fecha,
             horaInicio = nuevo.horaInicio ?: existente.horaInicio,
             horaFin = nuevo.horaFin ?: existente.horaFin,
-            lugar = nuevo.lugar ?: existente.lugar,
+            // lugar ya no existe
             provincia = nuevo.provincia ?: existente.provincia,
+            ubicacion = nuevo.ubicacion ?: existente.ubicacion, // Añadido
+            nombreLugar = nuevo.nombreLugar ?: existente.nombreLugar, // Añadido
             modalidad = nuevo.modalidad ?: existente.modalidad,
             numeroCanas = nuevo.numeroCanas ?: existente.numeroCanas,
             tipoEmbarcacion = nuevo.tipoEmbarcacion ?: existente.tipoEmbarcacion,
@@ -526,18 +529,21 @@ ${generarResumenProgreso(_parteSession.value?.parteData)}
     }
 
     private fun calcularProgresoParte(datos: ParteEnProgreso): ProgresoInfo {
+        // Quitamos "lugar" de los campos obligatorios
         val camposObligatorios = listOf(
             "fecha" to datos.fecha,
-            "lugar" to datos.lugar,
+            // "lugar" to datos.lugar, // Se quita
             "modalidad" to datos.modalidad?.displayName,
             "especies" to if (datos.especiesCapturadas.isNotEmpty()) "completado" else null
         )
 
+        // Podemos añadir la ubicación a los opcionales si queremos,
+        // pero como no afecta el %, lo dejamos fuera del cálculo.
         val camposOpcionales = listOf(
             "provincia" to datos.provincia?.displayName,
             "hora_inicio" to datos.horaInicio,
             "hora_fin" to datos.horaFin,
-            "numero_canas" to datos.numeroCanas?.toString(),
+            "numero de cañas" to datos.numeroCanas?.toString(),
             "imagenes" to if (datos.imagenes.isNotEmpty()) "completado" else null
         )
 
@@ -612,7 +618,7 @@ ${generarResumenProgreso(_parteSession.value?.parteData)}
         resumen.append("📋 **Progreso del parte: ${progreso.porcentaje}%**\n\n")
 
         if (datos.fecha != null) resumen.append("✅ Fecha: ${datos.fecha}\n")
-        if (datos.lugar != null) resumen.append("✅ Lugar: ${datos.lugar}\n")
+        //if (datos.lugar != null) resumen.append("✅ Lugar: ${datos.lugar}\n")
         if (datos.modalidad != null) resumen.append("✅ Modalidad: ${datos.modalidad.displayName}\n")
         if (datos.especiesCapturadas.isNotEmpty()) {
             resumen.append("✅ Especies: ${datos.especiesCapturadas.joinToString(", ") { "${it.numeroEjemplares} ${it.nombre}" }}\n")
@@ -768,7 +774,7 @@ ${generarResumenProgreso(_parteSession.value?.parteData)}
 
     // Reemplazar las funciones existentes en tu EnhancedChatViewModel
 
-    private fun guardarParteSession(session: ParteSessionChat) {
+/*    private fun guardarParteSession(session: ParteSessionChat) {
         viewModelScope.launch {
             try {
                 val resultado = firebaseManager.guardarParteSession(session)
@@ -785,8 +791,8 @@ ${generarResumenProgreso(_parteSession.value?.parteData)}
                 android.util.Log.e(TAG, "💥 Error en guardarParteSession: ${e.message}")
             }
         }
-    }
-
+    }*/
+/*
     fun guardarParteBorrador() {
         _parteSession.value?.let { session ->
             val sessionBorrador = session.copy()
@@ -832,7 +838,7 @@ ${generarResumenProgreso(_parteSession.value?.parteData)}
                 }
             }
         }
-    }
+    }*/
 
     fun completarYEnviarParte() {
         _parteSession.value?.let { session ->
@@ -928,6 +934,44 @@ ${session.parteData.camposFaltantes.joinToString("\n") { "• $it" }}
                 )
                 addMessageToParteSession(mensajeIncompleto)
             }
+        }
+    }
+    // ================== NUEVA FUNCIÓN PARA GUARDAR UBICACIÓN ==================
+
+    fun saveLocation(latitude: Double, longitude: Double, name: String?) {
+        if (_currentMode.value != ChatMode.CREAR_PARTE) return
+
+        val geoPoint = GeoPoint(latitude, longitude)
+        val locationName = name ?: "Ubicación sin nombre"
+
+        Log.d(TAG, "📍 Guardando ubicación: $locationName ($geoPoint)")
+
+        _parteSession.value?.let { session ->
+            // Actualizar los datos del parte con la nueva ubicación
+            val datosActualizados = session.parteData.copy(
+                ubicacion = geoPoint,
+                nombreLugar = locationName
+            )
+
+            // Volver a calcular el progreso (sin que la ubicación afecte el %)
+            val progreso = calcularProgresoParte(datosActualizados)
+            val sessionConProgreso = session.copy(
+                parteData = datosActualizados.copy(
+                    porcentajeCompletado = progreso.porcentaje,
+                    camposFaltantes = progreso.camposFaltantes
+                )
+            )
+            _parteSession.value = sessionConProgreso
+
+            // Añadir un mensaje de confirmación al chat
+            val confirmMessage = ChatMessageWithMode(
+                content = "✅ **Ubicación guardada:** $locationName",
+                isFromUser = false,
+                type = MessageType.TEXT,
+                timestamp = getCurrentTimestamp(),
+                mode = ChatMode.CREAR_PARTE
+            )
+            addMessageToParteSession(confirmMessage)
         }
     }
 

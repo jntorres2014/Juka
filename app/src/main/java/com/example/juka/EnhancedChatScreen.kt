@@ -42,6 +42,16 @@ fun EnhancedChatScreen(
 
     // Estados locales
     var messageText by remember { mutableStateOf("") }
+    var showMapPicker by remember { mutableStateOf(false) }
+    if (showMapPicker) {
+        MapPickerScreen(
+            onDismiss = { showMapPicker = false },
+            onLocationSelected = { lat, lon, name ->
+                viewModel.saveLocation(lat, lon, name)
+                showMapPicker = false
+            }
+        )
+    }
 
     // Determinar qué mensajes mostrar según el modo
     val currentMessages = when (currentMode) {
@@ -97,7 +107,8 @@ fun EnhancedChatScreen(
             ) {
                 ParteProgressIndicator(
                     parteData = parteSession!!.parteData,
-                    onGuardarBorrador = { viewModel.guardarParteBorrador() },
+                    //onGuardarBorrador = { viewModel.guardarParteBorrador() },
+                    onGuardarBorrador = { },
                     onCompletarParte = { viewModel.completarYEnviarParte() },
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
@@ -152,6 +163,8 @@ fun EnhancedChatScreen(
             },
             onSendImage = { imagePickerLauncher.launch("image/*") },
             onSendAudio = { transcript -> viewModel.sendAudioTranscript(transcript) },
+            // Nuevas props para el mapa
+            onSendLocation = { showMapPicker = true },
             currentMode = currentMode,
             isProcessing = isTyping || isAnalyzing,
             onCreateParte = { viewModel.iniciarCrearParte() }
@@ -413,6 +426,7 @@ fun EnhancedMessageInput(
     onSendMessage: () -> Unit,
     onSendImage: () -> Unit,
     onSendAudio: (String) -> Unit,
+    onSendLocation: () -> Unit, // Nuevo parámetro
     currentMode: ChatMode,
     isProcessing: Boolean,
     onCreateParte: () -> Unit
@@ -449,6 +463,31 @@ fun EnhancedMessageInput(
                             "Crear Parte de Pesca",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+            if (currentMode == ChatMode.CREAR_PARTE) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 16.dp, end = 16.dp, top = 8.dp),
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    OutlinedButton(
+                        onClick = onSendLocation,
+                        modifier = Modifier.fillMaxWidth(0.8f),
+                        shape = RoundedCornerShape(24.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.LocationOn,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "Quiero cargar mi ubicación",
+                            fontSize = 14.sp
                         )
                     }
                 }

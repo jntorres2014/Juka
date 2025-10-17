@@ -3,6 +3,7 @@ package com.example.juka
 
 import com.example.juka.viewmodel.ChatMessage
 import com.example.juka.viewmodel.MessageType
+import com.google.firebase.firestore.GeoPoint
 import java.text.SimpleDateFormat
 import java.util.*
 interface IMessage {
@@ -50,8 +51,12 @@ data class ParteEnProgreso(
     val fecha: String? = null,
     val horaInicio: String? = null,
     val horaFin: String? = null,
-    val lugar: String? = null,
+    // val lugar: String? = null, // ELIMINAMOS EL CAMPO LUGAR
     val provincia: Provincia? = null,
+
+    // NUEVOS CAMPOS PARA UBICACIÓN
+    val ubicacion: GeoPoint? = null,
+    val nombreLugar: String? = null,
 
     // Modalidad de pesca
     val modalidad: ModalidadPesca? = null,
@@ -163,8 +168,9 @@ fun ParteEnProgreso.copy(
     fecha: String? = this.fecha,
     horaInicio: String? = this.horaInicio,
     horaFin: String? = this.horaFin,
-    lugar: String? = this.lugar,
     provincia: Provincia? = this.provincia,
+    ubicacion: GeoPoint? = this.ubicacion, // AÑADIDO
+    nombreLugar: String? = this.nombreLugar, // AÑADIDO
     modalidad: ModalidadPesca? = this.modalidad,
     numeroCanas: Int? = this.numeroCanas,
     tipoEmbarcacion: TipoEmbarcacion? = this.tipoEmbarcacion,
@@ -175,7 +181,7 @@ fun ParteEnProgreso.copy(
     porcentajeCompletado: Int = this.porcentajeCompletado,
     camposFaltantes: List<String> = this.camposFaltantes
 ): ParteEnProgreso = ParteEnProgreso(
-    fecha, horaInicio, horaFin, lugar, provincia, modalidad, numeroCanas,
+    fecha, horaInicio, horaFin, provincia, ubicacion, nombreLugar, modalidad, numeroCanas,
     tipoEmbarcacion, especiesCapturadas, imagenes, observaciones,
     noIdentificoEspecie, porcentajeCompletado, camposFaltantes
 )

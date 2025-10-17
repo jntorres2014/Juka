@@ -67,7 +67,7 @@ class EstadisticasFirebase(private val manager: FirebaseManager) {
     }
 
 
-    @RequiresApi(Build.VERSION_CODES.O)
+/*    @RequiresApi(Build.VERSION_CODES.O)
     suspend fun obtenerHistorialChat(sessionId: String) =
-        SesionesFirebase(manager).obtenerHistorialChat(sessionId)  // CAMBIO: manager en lugar de this
+        SesionesFirebase(manager).obtenerHistorialChat(sessionId)  // CAMBIO: manager en lugar de this*/
 }

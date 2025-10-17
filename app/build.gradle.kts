@@ -109,6 +109,13 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
+
+    // maps
+
+
+    implementation("org.osmdroid:osmdroid-android:6.1.18")
+    // Para obtener la ubicación actual del dispositivo (opcional pero recomendado)
+    implementation("com.google.android.gms:play-services-location:21.2.0")
     // ================== ML KIT DEPENDENCIES ==================
 
     // ML Kit Entity Extraction

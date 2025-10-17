@@ -515,7 +515,7 @@ class MLKitManager(private val context: Context) {
                 "FECHA" -> parteData = parteData.copy(fecha = entity.valor)
                 "HORA_INICIO" -> parteData = parteData.copy(horaInicio = entity.valor)
                 "HORA_FIN" -> parteData = parteData.copy(horaFin = entity.valor)
-                "LUGAR" -> parteData = parteData.copy(lugar = entity.valor)
+//                "LUGAR" -> parteData = parteData.copy(lugar = entity.valor)
                 "PROVINCIA" -> {
                     val provincia = Provincia.fromString(entity.valor)
                     parteData = parteData.copy(provincia = provincia)

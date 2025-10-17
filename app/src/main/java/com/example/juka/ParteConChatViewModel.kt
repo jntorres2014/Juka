@@ -40,6 +40,7 @@ class PartesConChatViewModel(
     /**
      * Carga partes con información de chat asociado
      */
+/*
     fun cargarPartesConChat(limite: Int = 50) {
         viewModelScope.launch {
             Log.d(TAG, "Cargando partes con información de chat")
@@ -97,13 +98,14 @@ class PartesConChatViewModel(
             }
         }
     }
+*/
 
     /**
      * Refresca la lista de partes
      */
-    fun refrescarPartes() {
+/*    fun refrescarPartes() {
         cargarPartesConChat()
-    }
+    }*/
 
     /**
      * Filtra partes que tienen chat
@@ -123,7 +125,7 @@ class PartesConChatViewModel(
     /**
      * Muestra todos los partes nuevamente
      */
-    fun mostrarTodos() {
+/*    fun mostrarTodos() {
         cargarPartesConChat()
-    }
+    }*/
 }

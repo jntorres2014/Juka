@@ -39,10 +39,10 @@ class SesionesFirebase(private val manager: FirebaseManager) {
             val userId = manager.getCurrentUserId() ?: return FirebaseResult.Error("Usuario no autenticado")
 
             // Validar que el sessionId no esté vacío
-          /*  if (session.sessionId.isBlank()) {
-                Log.e(TAG, "❌ SessionId está vacío o nulo")
-                return FirebaseResult.Error("SessionId inválido")
-            }*/
+            /*  if (session.sessionId.isBlank()) {
+                  Log.e(TAG, "❌ SessionId está vacío o nulo")
+                  return FirebaseResult.Error("SessionId inválido")
+              }*/
 
             val parteData = session.parteData
             val parteId = UtilsFirebase.generarIdParte()
@@ -59,7 +59,7 @@ class SesionesFirebase(private val manager: FirebaseManager) {
                 cantidadTotal = parteData.especiesCapturadas.sumOf { it.numeroEjemplares },
                 tipo = parteData.modalidad?.displayName?.lowercase(),
                 canas = parteData.numeroCanas,
-                ubicacion = parteData.lugar?.let { UbicacionPesca(nombre = it, zona = parteData.provincia?.displayName) },
+                //ubicacion = parteData.lugar?.let { UbicacionPesca(nombre = it, zona = parteData.provincia?.displayName) },
                 fotos = parteData.imagenes,
                 transcripcionOriginal = UtilsFirebase.extraerTranscripcionFromSession(session),
                 //deviceInfo = UtilsFirebase.getDeviceInfo(),
@@ -74,7 +74,7 @@ class SesionesFirebase(private val manager: FirebaseManager) {
                 .await()
 
             // Construir la ruta del documento de sesión correctamente
-            val sessionPath = "${FirebaseManager.COLLECTION_PARTES}/$userId/sesiones/}"
+            val sessionPath = "${FirebaseManager.COLLECTION_PARTES}/$userId/"
 
             Log.d(TAG, "🔍 Actualizando sesión en ruta: $sessionPath")
 
@@ -97,30 +97,30 @@ class SesionesFirebase(private val manager: FirebaseManager) {
         }
     }
 
-/*
-    suspend fun obtenerSesionesUsuario(estado: EstadoParte? = null): List<ParteSessionChat> {
-        return try {
-            val userId = manager.getCurrentUserId() ?: return emptyList()
-            var query = manager.firestore
-                .collection("${FirebaseManager.COLLECTION_PARTES}/$userId/sesiones")
-                .orderBy("fechaCreacion", com.google.firebase.firestore.Query.Direction.DESCENDING)
+    /*
+        suspend fun obtenerSesionesUsuario(estado: EstadoParte? = null): List<ParteSessionChat> {
+            return try {
+                val userId = manager.getCurrentUserId() ?: return emptyList()
+                var query = manager.firestore
+                    .collection("${FirebaseManager.COLLECTION_PARTES}/$userId/sesiones")
+                    .orderBy("fechaCreacion", com.google.firebase.firestore.Query.Direction.DESCENDING)
 
-            estado?.let { query = query.whereEqualTo("estado", it.name) }
-            val snapshot = query.get().await()
-            snapshot.documents.mapNotNull { doc ->
-                try {
-                    doc.toObject(ParteSessionChat::class.java)?.copy(obtenerSesionPorId() = doc.id)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error parseando sesión ${doc.id}: ${e.message}")
-                    null
-                }
-            }.also { Log.i(TAG, "📊 Encontradas ${it.size} sesiones para usuario $userId") }
-        } catch (e: Exception) {
-            Log.e(TAG, "💥 Error obteniendo sesiones: ${e.message}", e)
-            emptyList()
+                estado?.let { query = query.whereEqualTo("estado", it.name) }
+                val snapshot = query.get().await()
+                snapshot.documents.mapNotNull { doc ->
+                    try {
+                        doc.toObject(ParteSessionChat::class.java)?.copy(obtenerSesionPorId() = doc.id)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error parseando sesión ${doc.id}: ${e.message}")
+                        null
+                    }
+                }.also { Log.i(TAG, "📊 Encontradas ${it.size} sesiones para usuario $userId") }
+            } catch (e: Exception) {
+                Log.e(TAG, "💥 Error obteniendo sesiones: ${e.message}", e)
+                emptyList()
+            }
         }
-    }
-*/
+    */
 
     /**
      * Obtiene el historial completo de mensajes de una sesión específica
@@ -160,80 +160,80 @@ class SesionesFirebase(private val manager: FirebaseManager) {
         }
     }
 
-/*
-    suspend fun obtenerSesionesPendientes(): List<ParteSessionChat> {
-        return try {
-            val userId = manager.getCurrentUserId()
-            if (userId == null) {
-                Log.e(TAG, "❌ Usuario no autenticado para obtener pendientes")
-                return emptyList()
+    /*
+        suspend fun obtenerSesionesPendientes(): List<ParteSessionChat> {
+            return try {
+                val userId = manager.getCurrentUserId()
+                if (userId == null) {
+                    Log.e(TAG, "❌ Usuario no autenticado para obtener pendientes")
+                    return emptyList()
+                }
+
+                Log.d(TAG, "⏳ Obteniendo sesiones pendientes para usuario: $userId")
+
+                val query = manager.firestore
+                    .collection("$COLLECTION_PARTES/$userId/sesiones")
+                    .whereIn("estado", listOf(
+                        EstadoParte.EN_PROGRESO.name,
+                        EstadoParte.BORRADOR.name
+                    ))
+                    .orderBy("fechaCreacion", com.google.firebase.firestore.Query.Direction.DESCENDING)
+
+                val snapshot = query.get().await()
+                val sesiones = snapshot.documents.mapNotNull { document ->
+                    try {
+                        document.toObject(ParteSessionChat::class.java)?.copy(sessionId = document.id)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error parseando sesión pendiente ${document.id}: ${e.message}")
+                        null
+                    }
+                }
+
+                Log.i(TAG, "📋 Encontradas ${sesiones.size} sesiones pendientes")
+                sesiones.forEach { session ->
+                    Log.d(TAG, "  - ${session.sessionId}: ${session.estado} (${session.messages.size} mensajes)")
+                }
+
+                sesiones
+
+            } catch (e: Exception) {
+                Log.e(TAG, "💥 Error obteniendo sesiones pendientes: ${e.message}", e)
+                emptyList()
             }
+        }
+    */
 
-            Log.d(TAG, "⏳ Obteniendo sesiones pendientes para usuario: $userId")
+    /*
+        suspend fun obtenerSesionPorId(sessionId: String): ParteSessionChat? {
+            return try {
+                val userId = manager.getCurrentUserId()
+                if (userId == null) {
+                    Log.e(TAG, "❌ Usuario no autenticado")
+                    return null
+                }
 
-            val query = manager.firestore
-                .collection("$COLLECTION_PARTES/$userId/sesiones")
-                .whereIn("estado", listOf(
-                    EstadoParte.EN_PROGRESO.name,
-                    EstadoParte.BORRADOR.name
-                ))
-                .orderBy("fechaCreacion", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                Log.d(TAG, "🔍 Obteniendo sesión: $sessionId")
 
-            val snapshot = query.get().await()
-            val sesiones = snapshot.documents.mapNotNull { document ->
-                try {
-                    document.toObject(ParteSessionChat::class.java)?.copy(sessionId = document.id)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error parseando sesión pendiente ${document.id}: ${e.message}")
+                val sessionDoc = manager.firestore
+                    .document("$COLLECTION_PARTES/$userId/sesiones/$sessionId")
+                    .get()
+                    .await()
+
+                if (sessionDoc.exists()) {
+                    val session = sessionDoc.toObject(ParteSessionChat::class.java)?.copy(sessionId = sessionDoc.id)
+                    Log.i(TAG, "✅ Sesión obtenida: ${session?.estado}")
+                    session
+                } else {
+                    Log.w(TAG, "⚠️ Sesión no encontrada: $sessionId")
                     null
                 }
-            }
 
-            Log.i(TAG, "📋 Encontradas ${sesiones.size} sesiones pendientes")
-            sesiones.forEach { session ->
-                Log.d(TAG, "  - ${session.sessionId}: ${session.estado} (${session.messages.size} mensajes)")
-            }
-
-            sesiones
-
-        } catch (e: Exception) {
-            Log.e(TAG, "💥 Error obteniendo sesiones pendientes: ${e.message}", e)
-            emptyList()
-        }
-    }
-*/
-
-/*
-    suspend fun obtenerSesionPorId(sessionId: String): ParteSessionChat? {
-        return try {
-            val userId = manager.getCurrentUserId()
-            if (userId == null) {
-                Log.e(TAG, "❌ Usuario no autenticado")
-                return null
-            }
-
-            Log.d(TAG, "🔍 Obteniendo sesión: $sessionId")
-
-            val sessionDoc = manager.firestore
-                .document("$COLLECTION_PARTES/$userId/sesiones/$sessionId")
-                .get()
-                .await()
-
-            if (sessionDoc.exists()) {
-                val session = sessionDoc.toObject(ParteSessionChat::class.java)?.copy(sessionId = sessionDoc.id)
-                Log.i(TAG, "✅ Sesión obtenida: ${session?.estado}")
-                session
-            } else {
-                Log.w(TAG, "⚠️ Sesión no encontrada: $sessionId")
+            } catch (e: Exception) {
+                Log.e(TAG, "💥 Error obteniendo sesión: ${e.message}", e)
                 null
             }
-
-        } catch (e: Exception) {
-            Log.e(TAG, "💥 Error obteniendo sesión: ${e.message}", e)
-            null
         }
-    }
-*/
+    */
 
     suspend fun obtenerChatPorParteId(parteId: String): List<ChatMessageWithMode> {
         return try {

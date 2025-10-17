@@ -66,32 +66,35 @@ class FirebaseManager(val context: Context) {
     suspend fun obtenerMisPartes(limite: Int = 50) =
         PartesFirebase(this).obtenerMisPartes(limite)
 
+/*
     suspend fun guardarParteSession(session: ParteSessionChat) =
         SesionesFirebase(this).guardarParteSession(session)
-
+*/
     suspend fun convertirSessionAParte(session: ParteSessionChat) =
         SesionesFirebase(this).convertirSessionAParte(session)
 
-    /*
+
+/*
     suspend fun obtenerSesionesUsuario(estado: EstadoParte? = null) =
         SesionesFirebase(this).obtenerSesionesUsuario(estado)
 */
 
-    suspend fun obtenerChatPorParteId(parteId: String) =
-        SesionesFirebase(this).obtenerChatPorParteId(parteId)
 
+    /*suspend fun obtenerChatPorParteId(parteId: String) =
+        SesionesFirebase(this).obtenerChatPorParteId(parteId)
+*/
     /*suspend fun obtenerSesionesPendientes() =
         SesionesFirebase(this).obtenerSesionesPendientes()
 */
     /*  suspend fun obtenerSesionPorId(sessionId: String) =
         SesionesFirebase(this).obtenerSesionPorId(sessionId)
 */
-    suspend fun actualizarEstadoSesion(sessionId: String, nuevoEstado: EstadoParte) =
+ /*   suspend fun actualizarEstadoSesion(sessionId: String, nuevoEstado: EstadoParte) =
         SesionesFirebase(this).actualizarEstadoSesion(sessionId, nuevoEstado)
 
     suspend fun eliminarSesion(sessionId: String) =
         SesionesFirebase(this).eliminarSesion(sessionId)
-
+*/
     suspend fun obtenerEstadisticas() =
         EstadisticasFirebase(this).obtenerEstadisticas()
 
@@ -102,9 +105,9 @@ class FirebaseManager(val context: Context) {
     //EstadisticasFirebase(this).obtenerEstadisticasSesiones()
 
     @RequiresApi(Build.VERSION_CODES.O)
-    suspend fun obtenerHistorialChat(sessionId: String) =
+   /* suspend fun obtenerHistorialChat(sessionId: String) =
         SesionesFirebase(this).obtenerHistorialChat(sessionId)
-
+*/
     suspend fun guardarRespuestasEncuesta(respuestas: EncuestaData) =
         EncuestaFirebase(this).guardarRespuestasEncuesta(respuestas)
 

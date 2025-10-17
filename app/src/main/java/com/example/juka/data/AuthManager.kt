@@ -219,6 +219,7 @@ class AuthManager(private val context: Context) {
     suspend fun markSurveyCompleted() {
         val user = auth.currentUser ?: return
         try {
+
             db.collection("users").document(user.uid)
                 .update(
                     "encuestaCompleta", true,

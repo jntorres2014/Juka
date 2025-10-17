@@ -31,6 +31,8 @@ import com.example.juka.data.encuesta.PreguntasEncuesta
 import com.example.juka.data.encuesta.RespuestaPregunta
 import com.example.juka.data.encuesta.TipoPregunta
 import com.example.juka.data.encuesta.ValidadorEncuesta
+import com.example.juka.data.firebase.FirebaseManager
+import com.example.juka.viewmodel.EncuestaViewModel
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
@@ -190,7 +192,7 @@ fun EncuestaScreen(
                                     isLoading = true
                                     // Ahora la llamada a la función suspend es segura
                                     authManager.markSurveyCompleted()
-
+                                    //EncuestaViewModel.completarEncuesta()
                                     // La navegación también debe ir aquí para asegurar que se
                                     // ejecute después de que `markSurveyCompleted` termine.
                                     navController.navigate("home") {
