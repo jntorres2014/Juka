@@ -4,7 +4,6 @@ import android.content.Context
 import android.os.Build
 import android.util.Log
 import androidx.annotation.RequiresApi
-import com.example.juka.EstadoParte
 import com.example.juka.FishDatabase
 import com.example.juka.FishingData
 import com.example.juka.ParteSessionChat

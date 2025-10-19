@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -23,6 +24,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.juka.data.AuthManager
 import com.example.juka.data.AuthState
+import com.example.juka.data.firebase.FirebaseManager
 import com.example.juka.navigation.JukaAppWithUser
 
 @Composable
@@ -36,7 +38,11 @@ fun AppWithAuth(authManager: AuthManager = AuthManager(LocalContext.current)) {
         }
 
         composable("encuesta") {
-            EncuestaScreen(authManager, navController)
+            EncuestaScreen(
+                authManager = authManager,
+
+                navController = navController
+            )
         }
 
         composable("home") {

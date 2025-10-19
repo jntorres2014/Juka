@@ -14,7 +14,7 @@ class EncuestaFirebase(private val firebaseManager: FirebaseManager) {
 
     companion object {
         const val TAG = "📋 EncuestaFirebase"
-        const val COLLECTION_USERS = "users"
+        const val COLLECTION_USERS = "userEncuestas"
         const val SUBCOLLECTION_ENCUESTA = "encuesta"
         const val DOCUMENT_RESPUESTAS = "respuestas"
         const val COLLECTION_ESTADISTICAS_ENCUESTA = "estadisticas_encuesta"

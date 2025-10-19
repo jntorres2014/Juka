@@ -46,7 +46,15 @@ class SesionesFirebase(private val manager: FirebaseManager) {
 
             val parteData = session.parteData
             val parteId = UtilsFirebase.generarIdParte()
+            val ubicacionPesca = parteData.nombreLugar?.let { nombreLugar ->
+                UbicacionPesca(
+                    nombre = nombreLugar,  // <-- CAMBIO: de 'lugar' a 'nombreLugar'
+                    zona = parteData.provincia?.displayName,
+                    latitud = parteData.ubicacion?.latitude,  // Opcional: agrega GeoPoint si tu UbicacionPesca lo tiene
+                    longitud = parteData.ubicacion?.longitude
 
+                )
+            }
             val parte = PartePesca(
                 id = parteId,
                 userId = userId,
@@ -59,6 +67,7 @@ class SesionesFirebase(private val manager: FirebaseManager) {
                 cantidadTotal = parteData.especiesCapturadas.sumOf { it.numeroEjemplares },
                 tipo = parteData.modalidad?.displayName?.lowercase(),
                 canas = parteData.numeroCanas,
+                ubicacion = ubicacionPesca,
                 //ubicacion = parteData.lugar?.let { UbicacionPesca(nombre = it, zona = parteData.provincia?.displayName) },
                 fotos = parteData.imagenes,
                 transcripcionOriginal = UtilsFirebase.extraerTranscripcionFromSession(session),

@@ -51,7 +51,7 @@ fun EncuestaScreen(
     val totalPreguntas = PreguntasEncuesta.obtenerTotalPreguntas()
     val pregunta = PreguntasEncuesta.PREGUNTAS.getOrNull(preguntaActual)
     val progreso = ((respuestas.size.toFloat() / totalPreguntas) * 100).toInt()
-
+    val fechaInicio = remember { com.google.firebase.Timestamp.now() }
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -189,17 +189,33 @@ fun EncuestaScreen(
 
                                 // <-- 2. LANZAR LA COROUTINE AQUÍ
                                 scope.launch {
-                                    isLoading = true
-                                    // Ahora la llamada a la función suspend es segura
-                                    authManager.markSurveyCompleted()
-                                    //EncuestaViewModel.completarEncuesta()
-                                    // La navegación también debe ir aquí para asegurar que se
-                                    // ejecute después de que `markSurveyCompleted` termine.
-                                    navController.navigate("home") {
-                                        popUpTo("survey") { inclusive = true }
+                                    try {
+                                        isLoading = true
+                                        val guardado =
+                                            authManager.guardarEncuestaCompleta(respuestas)
+                                        if (guardado) {
+                                            navController.navigate("home") {
+                                                popUpTo("survey") { inclusive = true }
+                                            }
+                                        } else {
+                                            mensajeError = "Error al guardar la encuesta"
+                                            isLoading = false
+                                        }
+
+                                        // Ahora la llamada a la función suspend es segura
+                                        authManager.markSurveyCompleted()
+                                        //EncuestaViewModel.completarEncuesta()
+                                        // La navegación también debe ir aquí para asegurar que se
+                                        // ejecute después de que `markSurveyCompleted` termine.
+                                        navController.navigate("home") {
+                                            popUpTo("survey") { inclusive = true }
+                                        }
+                                        // Podrías poner isLoading = false aquí si la pantalla no desaparece
+                                        // inmediatamente, pero con la navegación, no es estrictamente necesario.
+                                    } catch (e: Exception) {
+                                        mensajeError = "Error al guardar la encuesta"
+                                        isLoading = false
                                     }
-                                    // Podrías poner isLoading = false aquí si la pantalla no desaparece
-                                    // inmediatamente, pero con la navegación, no es estrictamente necesario.
                                 }
                             },
                             enabled = !isLoading,

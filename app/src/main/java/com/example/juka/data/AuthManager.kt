@@ -5,6 +5,8 @@ import android.content.Intent
 import android.util.Log
 import com.example.juka.R
 import com.example.juka.data.encuesta.RespuestaPregunta
+import com.example.juka.data.firebase.EncuestaFirebase
+import com.example.juka.data.firebase.FirebaseManager
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.android.gms.auth.api.signin.GoogleSignInClient
@@ -99,13 +101,14 @@ class AuthManager(private val context: Context) {
             // Verificar Firestore en background
             kotlinx.coroutines.GlobalScope.launch {
                 try {
-                    val userDoc = db.collection("users").document(currentUser.uid).get().await()
+                    val userDoc = db.collection("users_encuesta").document(currentUser.uid).get().await()
                     val surveyCompleted = userDoc.getBoolean("surveyCompleted") ?: false
                     if (!userDoc.exists()) {
                         db.collection("users").document(currentUser.uid)
                             .set(mapOf("surveyCompleted" to true)).await()
                     }
                     _authState.value = AuthState.Authenticated(currentUser, true)
+
                 } catch (e: Exception) {
                     Log.w(TAG, "⚠️ Error consultando Firestore, pero usuario válido: ${e.message}")
                     // Mantener el usuario autenticado aunque Firestore falle
@@ -261,7 +264,7 @@ class AuthManager(private val context: Context) {
                     "opcionesSeleccionadas" to respuesta.opcionesSeleccionadas,
                     "valorEscala" to respuesta.valorEscala,
                     "respuestaSiNo" to respuesta.respuestaSiNo,
-                    "timestamp" to FieldValue.serverTimestamp()
+                    "timestamp" to com.google.firebase.Timestamp.now()
                 )
             }
 
