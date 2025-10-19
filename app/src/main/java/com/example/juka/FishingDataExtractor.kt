@@ -55,6 +55,7 @@ class FishingDataExtractor(private val application: Application) {
         // "de 7 a 11", "desde las 6 hasta las 10"
         Regex("""de\s+(\d{1,2}):?(\d{2})?\s+a\s+(?:las\s+)?(\d{1,2}):?(\d{2})?"""),
         Regex("""desde\s+(?:las\s+)?(\d{1,2}):?(\d{2})?\s+hasta\s+(?:las\s+)?(\d{1,2}):?(\d{2})?"""),
+        Regex("""entre\s+(?:las\s+)?(\d{1,2}):?(\d{2})?\s+hasta\s+(?:las\s+)?(\d{1,2}):?(\d{2})?"""),
         Regex("""de\s+las\s+(\d{1,2}):?(\d{2})?\s+a\s+las\s+(\d{1,2}):?(\d{2})?"""),
         // "de 8 a 12hs", "desde las 6 hasta mediodía"
         Regex("""de\s+(\d{1,2})\s+a\s+(\d{1,2})(?:hs?)?"""),
