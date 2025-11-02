@@ -116,7 +116,7 @@ class EnhancedChatViewModel(application: Application) : AndroidViewModel(applica
 
 Vamos a registrar tu jornada de pesca paso a paso.
 
-Contame todo sobre tu pesca - yo me encargo de extraer automáticamente:
+Contame todo sobre tu pesca:
 • 📅 Fecha y horarios
 • 📍 Lugar y provincia  
 • 🎣 Modalidad (costa/embarcado/etc)
@@ -191,6 +191,7 @@ Contame todo sobre tu pesca - yo me encargo de extraer automáticamente:
     fun sendAudioTranscript(transcript: String) {
         when (_currentMode.value) {
             ChatMode.GENERAL -> sendGeneralAudioMessage(transcript)
+            //ChatMode.CREAR_PARTE -> sendParteTextMessage(transcript)
             ChatMode.CREAR_PARTE -> sendParteAudioMessage(transcript)
         }
     }
@@ -311,6 +312,7 @@ Contame todo sobre tu pesca - yo me encargo de extraer automáticamente:
 
     // ================== CHAT CREAR PARTE (CON ML KIT) ==================
 
+    /*
     private fun sendParteTextMessage(content: String) {
         android.util.Log.d(TAG, "🎯 Mensaje parte: '$content'")
 
@@ -385,6 +387,7 @@ Contame todo sobre tu pesca - yo me encargo de extraer automáticamente:
             }
         }
     }
+*/
 
     private fun sendParteAudioMessage(transcript: String) {
         val userMessage = ChatMessageWithMode(
@@ -479,7 +482,7 @@ Contame todo sobre tu pesca - yo me encargo de extraer automáticamente:
                 val response = """
 📸 **Imagen agregada al parte**
 
-¡Excelente! La foto se agregó automáticamente a tu reporte.
+¡Excelente! La foto se agregó a tu reporte.
 
 ${generarResumenProgreso(_parteSession.value?.parteData)}
 
@@ -774,7 +777,7 @@ ${generarResumenProgreso(_parteSession.value?.parteData)}
 
     // Reemplazar las funciones existentes en tu EnhancedChatViewModel
 
-/*    private fun guardarParteSession(session: ParteSessionChat) {
+    /*    private fun guardarParteSession(session: ParteSessionChat) {
         viewModelScope.launch {
             try {
                 val resultado = firebaseManager.guardarParteSession(session)
@@ -792,7 +795,7 @@ ${generarResumenProgreso(_parteSession.value?.parteData)}
             }
         }
     }*/
-/*
+    /*
     fun guardarParteBorrador() {
         _parteSession.value?.let { session ->
             val sessionBorrador = session.copy()
@@ -886,6 +889,7 @@ ${generarResumenProgreso(_parteSession.value?.parteData)}
                                 _firebaseStatus.value = null
 
                             }
+
                             is FirebaseResult.Error -> {
                                 _firebaseStatus.value = "Error completando parte"
 
@@ -898,10 +902,14 @@ ${generarResumenProgreso(_parteSession.value?.parteData)}
                                 )
                                 addMessageToParteSession(mensajeError)
 
-                                android.util.Log.e(TAG, "Error completando parte: ${resultadoConversion.message}")
+                                android.util.Log.e(
+                                    TAG,
+                                    "Error completando parte: ${resultadoConversion.message}"
+                                )
                                 delay(3000)
                                 _firebaseStatus.value = null
                             }
+
                             else -> {}
                         }
 
@@ -975,7 +983,7 @@ ${session.parteData.camposFaltantes.joinToString("\n") { "• $it" }}
         }
     }
 
-/*    // Nueva función para cargar borradores
+    /*    // Nueva función para cargar borradores
     suspend fun cargarBorradores(): List<ParteSessionChat> {
         return try {
             firebaseManager.obtenerSesionesUsuario(EstadoParte.BORRADOR)
@@ -1007,6 +1015,7 @@ Continuando desde donde lo dejaste:
         )
         addMessageToParteSession(mensajeRetomar)
     }
+
     fun getConversationStats(): String {
         val generalCount = _generalMessages.value.size
         val parteCount = _parteSession.value?.messages?.size ?: 0
@@ -1023,5 +1032,687 @@ Continuando desde donde lo dejaste:
     override fun onCleared() {
         super.onCleared()
         mlKitManager.cleanup()
+    }
+
+    private val _currentFieldInProgress = MutableStateFlow<CampoParte?>(null)
+    val currentFieldInProgress: StateFlow<CampoParte?> = _currentFieldInProgress.asStateFlow()
+
+    // NUEVO: Estado de espera de respuesta específica
+    private val _waitingForFieldResponse = MutableStateFlow<CampoParte?>(null)
+    val waitingForFieldResponse: StateFlow<CampoParte?> = _waitingForFieldResponse.asStateFlow()
+
+    // NUEVO: Función para manejar selección de campo
+    fun onCampoParteSelected(campo: CampoParte) {
+        _currentFieldInProgress.value = campo
+        _waitingForFieldResponse.value = campo
+
+        // Agregar mensaje del bot con la pregunta específica (genérico inicial)
+        val preguntaMessage = ChatMessageWithMode(
+            content = campo.pregunta,  // Asumiendo que cada CampoParte tiene su .pregunta
+            isFromUser = false,
+            type = MessageType.TEXT,
+            timestamp = getCurrentTimestamp(),
+            mode = ChatMode.CREAR_PARTE,
+            // NUEVO: Agregar metadata del campo
+            metadata = mapOf("fieldType" to campo.name)
+        )
+
+        addMessageToParteSession(preguntaMessage)
+
+        // Manejo específico por campo: agregar mensaje detallado de instrucciones
+        when (campo) {
+            CampoParte.FECHA -> {
+                _waitingForFieldResponse.value = campo
+                val pregunta = ChatMessageWithMode(
+                    content = """
+                📅 **Fecha de la jornada**
+                
+                ¿En qué día saliste a pescar? Ejemplo: 15/10/2025
+                
+                • Formato: DD/MM/AAAA
+                • Si es hoy, decí "hoy" y lo auto-completo.
+                • Podés editar después si querés.
+                
+                ¡Empecemos por ahí!
+                """.trimIndent(),
+                    isFromUser = false,
+                    type = MessageType.TEXT,
+                    timestamp = getCurrentTimestamp(),
+                    mode = ChatMode.CREAR_PARTE
+                )
+                addMessageToParteSession(pregunta)
+            }
+
+            CampoParte.HORARIOS -> {
+                _waitingForFieldResponse.value = campo
+                val pregunta = ChatMessageWithMode(
+                    content = """
+                ⏰ **Horarios de pesca**
+                
+                ¿Cuándo arrancaste y terminaste la jornada? Ejemplo: 6:00 - 18:00
+                
+                • Formato: HH:MM - HH:MM (hora de salida y regreso)
+                • Si no sabés exacto, aproximá.
+                • Incluí si hubo pausas largas.
+                
+                Contame tus timings...
+                """.trimIndent(),
+                    isFromUser = false,
+                    type = MessageType.TEXT,
+                    timestamp = getCurrentTimestamp(),
+                    mode = ChatMode.CREAR_PARTE
+                )
+                addMessageToParteSession(pregunta)
+            }
+
+            CampoParte.UBICACION -> {
+                _waitingForFieldResponse.value = campo
+                val pregunta = ChatMessageWithMode(
+                    content = """
+                📍 **Ubicación de la pesca**
+                
+                ¿Dónde pescaste hoy? Ejemplo: "Río Paraná, cerca de Rosario" o coordenadas.
+                
+                • Podés describir: río, mar, lago, spot conocido.
+                • Si querés precisión, decime y abro el mapa para pinchar.
+                
+                ¿Dejame saber el lugar!
+                """.trimIndent(),
+                    isFromUser = false,
+                    type = MessageType.TEXT,
+                    timestamp = getCurrentTimestamp(),
+                    mode = ChatMode.CREAR_PARTE
+                )
+                addMessageToParteSession(pregunta)
+            }
+
+            CampoParte.ESPECIES -> {
+                _waitingForFieldResponse.value = campo
+                val pregunta = ChatMessageWithMode(
+                    content = """
+                🐟 **Especies capturadas**
+                
+                ¿Qué pescaste? Ejemplo: "Dorados (3), Bogas (2)"
+                
+                • Lista las especies y cantidades aproximadas.
+                • Si no pescaste nada, decí "cero" o "sin capturas".
+                • Podés agregar tamaños o notas después.
+                
+                ¡Mostrame tus trofeos!
+                """.trimIndent(),
+                    isFromUser = false,
+                    type = MessageType.TEXT,
+                    timestamp = getCurrentTimestamp(),
+                    mode = ChatMode.CREAR_PARTE
+                )
+                addMessageToParteSession(pregunta)
+            }
+
+            CampoParte.MODALIDAD -> {
+                _waitingForFieldResponse.value = campo
+                val pregunta = ChatMessageWithMode(
+                    content = """
+                🎣 **Modalidad de pesca**
+                
+                ¿Cómo pescaste? Ejemplo: "de costa, embarcado"
+                
+                • kayak.
+                • Con red.
+                • Medio mundo.
+                
+                ¿Cuál fue tu estilo hoy?
+                """.trimIndent(),
+                    isFromUser = false,
+                    type = MessageType.TEXT,
+                    timestamp = getCurrentTimestamp(),
+                    mode = ChatMode.CREAR_PARTE
+                )
+                addMessageToParteSession(pregunta)
+            }
+
+            CampoParte.FOTOS -> {
+                _waitingForFieldResponse.value = campo
+                val pregunta = ChatMessageWithMode(
+                    content = """
+                📸 **Fotos de la jornada**
+                
+                ¿Querés agregar imágenes? Ejemplo: "Foto del dorado de 5kg" o subí directamente.
+                
+                • Ideal para capturas, spots o equipo.
+                
+                ¡Subí tus mejores fotos!
+                """.trimIndent(),
+                    isFromUser = false,
+                    type = MessageType.TEXT,
+                    timestamp = getCurrentTimestamp(),
+                    mode = ChatMode.CREAR_PARTE
+                )
+                addMessageToParteSession(pregunta)
+            }
+
+            CampoParte.CANAS -> {  // Asumiendo que es "Cañas" (equipo) o "Capturas" - ajustá si es otra cosa
+                _waitingForFieldResponse.value = campo
+                val pregunta = ChatMessageWithMode(
+                    content = """
+                🎣 **Cañas y equipo utilizado**
+                
+                ¿Cuantas cañas usarte? "
+                
+                • Lo que funcionó mejor.
+                • Ayuda para futuras salidas.
+                
+                Contame tu equipo...
+                """.trimIndent(),
+                    isFromUser = false,
+                    type = MessageType.TEXT,
+                    timestamp = getCurrentTimestamp(),
+                    mode = ChatMode.CREAR_PARTE
+                )
+                addMessageToParteSession(pregunta)
+            }
+
+            CampoParte.OBSERVACIONES -> {
+                // Tu código original, lo mantengo intacto
+                _waitingForFieldResponse.value = campo
+                val pregunta = ChatMessageWithMode(
+                    content = """
+                📝 **Observaciones adicionales**
+                
+                Podés agregar cualquier comentario sobre tu jornada:
+                • Estado del mar o clima
+                • Carnada utilizada
+                • Técnicas de pesca
+                • Anécdotas o detalles importantes
+                • Lo que quieras recordar
+                
+                Escribí libremente lo que quieras registrar...
+                """.trimIndent(),
+                    isFromUser = false,
+                    type = MessageType.TEXT,
+                    timestamp = getCurrentTimestamp(),
+                    mode = ChatMode.CREAR_PARTE
+                )
+                addMessageToParteSession(pregunta)
+            }
+
+            // Default para campos futuros
+            else -> {
+                val preguntaDefault = ChatMessageWithMode(
+                    content = "Por favor, proporcioná la info para: ${campo.name}. ¡Estoy listo para ayudarte!",
+                    isFromUser = false,
+                    type = MessageType.TEXT,
+                    timestamp = getCurrentTimestamp(),
+                    mode = ChatMode.CREAR_PARTE
+                )
+                addMessageToParteSession(preguntaDefault)
+            }
+        }
+
+        // Si es ubicación, abrir directamente el mapa
+        if (campo == CampoParte.UBICACION) {
+            // Esto triggereará el MapPicker en la UI
+            _showMapPicker.value = true
+        }
+
+        // Si es fotos, abrir selector de imágenes
+        if (campo == CampoParte.FOTOS) {
+            _showImagePicker.value = true
+        }
+    }
+    private fun procesarRespuestaCampo(content: String, campo: CampoParte) {
+        viewModelScope.launch {
+            _isAnalyzing.value = true
+
+            try {
+                // CASO ESPECIAL: Observaciones es texto libre, no necesita extracción
+                if (campo == CampoParte.OBSERVACIONES) {
+                    // Guardar directamente el texto sin procesar
+                    _parteSession.value?.let { session ->
+                        val datosActualizados = session.parteData.copy(
+                            observaciones = content
+                        )
+
+                        val progreso = calcularProgresoParte(datosActualizados)
+                        _parteSession.value = session.copy(
+                            parteData = datosActualizados.copy(
+                                porcentajeCompletado = progreso.porcentaje,
+                                camposFaltantes = progreso.camposFaltantes
+                            )
+                        )
+
+                        // Mensaje de confirmación
+                        val confirmacion = """
+                        ✅ **Observaciones guardadas:**
+                        
+                        "$content"
+                        
+                        Tus notas han sido registradas correctamente.
+                    """.trimIndent()
+
+                        val botMessage = ChatMessageWithMode(
+                            content = confirmacion,
+                            isFromUser = false,
+                            type = MessageType.TEXT,
+                            timestamp = getCurrentTimestamp(),
+                            mode = ChatMode.CREAR_PARTE
+                        )
+
+                        addMessageToParteSession(botMessage)
+
+                        // Limpiar estados
+                        _currentFieldInProgress.value = null
+                        _waitingForFieldResponse.value = null
+                    }
+                    return@launch
+                }
+
+                // Para los demás campos, usar el proceso normal de extracción
+                val extractionResult = mlKitManager.extraerInformacionPesca(content)
+
+                // Filtrar SOLO las entidades del campo específico
+                val entidadesRelevantes = filtrarEntidadesPorCampo(extractionResult, campo)
+
+                // Solo actualizar si encontramos entidades relevantes
+                if (entidadesRelevantes.entidadesDetectadas.isNotEmpty()) {
+                    // Actualizar SOLO el campo específico
+                    actualizarDatosPartePorCampo(campo, entidadesRelevantes)
+
+                    // Generar respuesta de confirmación
+                    val confirmacion = generarMensajeConfirmacionCampo(campo, entidadesRelevantes)
+
+                    val botMessage = ChatMessageWithMode(
+                        content = confirmacion,
+                        isFromUser = false,
+                        type = MessageType.TEXT,
+                        timestamp = getCurrentTimestamp(),
+                        mode = ChatMode.CREAR_PARTE
+                    )
+
+                    addMessageToParteSession(botMessage)
+
+                    // Limpiar estados
+                    _currentFieldInProgress.value = null
+                    _waitingForFieldResponse.value = null
+                } else {
+                    // No se encontró información relevante
+                    val mensajeNoDetectado = ChatMessageWithMode(
+                        content = """
+                    ❓ No pude detectar ${campo.displayName.drop(3).lowercase()} en tu respuesta.
+                    
+                    Por favor, intentá de nuevo con el formato sugerido:
+                    ${obtenerEjemploPorCampo(campo)}
+                    """.trimIndent(),
+                        isFromUser = false,
+                        type = MessageType.TEXT,
+                        timestamp = getCurrentTimestamp(),
+                        mode = ChatMode.CREAR_PARTE
+                    )
+
+                    addMessageToParteSession(mensajeNoDetectado)
+                    // Mantener el campo en progreso para que el usuario reintente
+                }
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error procesando campo $campo: ${e.message}")
+
+                val errorMessage = ChatMessageWithMode(
+                    content = "⚠️ Error procesando tu respuesta. Por favor, intentá de nuevo.",
+                    isFromUser = false,
+                    type = MessageType.TEXT,
+                    timestamp = getCurrentTimestamp(),
+                    mode = ChatMode.CREAR_PARTE
+                )
+                addMessageToParteSession(errorMessage)
+
+            } finally {
+                _isAnalyzing.value = false
+            }
+        }
+    }
+
+    // NUEVO: Función auxiliar para dar ejemplos
+    private fun obtenerEjemploPorCampo(campo: CampoParte): String {
+        return when (campo) {
+            CampoParte.HORARIOS -> "• De 6 a 11\n• Desde las 5:30 hasta las 10:00"
+            CampoParte.ESPECIES -> "• 2 pejerreyes y 1 róbalo\n• Saqué 3 merluzas"
+            CampoParte.FECHA -> "• Hoy\n• Ayer\n• 25/10/2024"
+            CampoParte.CANAS -> "• 2 cañas\n• Usé tres cañas"
+            CampoParte.MODALIDAD -> "• Desde costa\n• Embarcado\n• Con kayak"
+            CampoParte.UBICACION -> "• Puerto Madryn\n• Playa Unión"
+            CampoParte.OBSERVACIONES -> "Cualquier comentario sobre tu jornada"
+            else -> ""
+        }
+    }
+
+    // Modificar sendParteTextMessage para considerar el campo en progreso
+    private fun sendParteTextMessage(content: String) {
+        val userMessage = ChatMessageWithMode(
+            content = content,
+            isFromUser = true,
+            type = MessageType.TEXT,
+            timestamp = getCurrentTimestamp(),
+            mode = ChatMode.CREAR_PARTE
+        )
+
+        addMessageToParteSession(userMessage)
+
+        // Si estamos esperando respuesta de un campo específico
+        _waitingForFieldResponse.value?.let { campo ->
+            procesarRespuestaCampo(content, campo)
+            return
+        }
+
+        // Si no, procesar normalmente
+        _isAnalyzing.value = true
+        // ... resto del código existente ...
+    }
+
+    private fun generarMensajeConfirmacionCampo(
+        campo: CampoParte,
+        extraction: MLKitExtractionResult
+    ): String {
+        val datos = _parteSession.value?.parteData
+
+        return when (campo) {
+            CampoParte.ESPECIES -> {
+                val especies = datos?.especiesCapturadas ?: emptyList()
+                if (especies.isNotEmpty()) {
+                    """
+                ✅ **Peces registrados:**
+                ${especies.joinToString("\n") { "• ${it.numeroEjemplares} ${it.nombre}" }}
+                
+                Total: ${especies.sumOf { it.numeroEjemplares }} ejemplares
+                
+                ¿Querés agregar más especies o continuar con otro campo?
+                """.trimIndent()
+                } else {
+                    "❓ No pude identificar especies. ¿Podrías ser más específico?"
+                }
+            }
+
+            CampoParte.FECHA -> {
+                datos?.fecha?.let { fecha ->
+                    "✅ **Fecha registrada:** $fecha"
+                } ?: "❓ No pude identificar la fecha. Probá con 'hoy', 'ayer' o una fecha específica"
+            }
+
+            CampoParte.HORARIOS -> {
+                val inicio = datos?.horaInicio
+                val fin = datos?.horaFin
+
+                when {
+                    inicio != null && fin != null -> {
+                        "✅ **Horarios registrados:** de $inicio a $fin"
+                    }
+                    inicio != null -> {
+                        "✅ **Hora de inicio registrada:** $inicio\n\n¿A qué hora terminaste?"
+                    }
+                    fin != null -> {
+                        "✅ **Hora de fin registrada:** $fin\n\n¿A qué hora empezaste?"
+                    }
+                    else -> {
+                        "❓ No pude detectar los horarios. Intentá con formato 'de 6 a 11' o '6:00 hasta 11:30'"
+                    }
+                }
+            }
+
+            CampoParte.MODALIDAD -> {
+                datos?.modalidad?.let { modalidad ->
+                    "✅ **Modalidad registrada:** ${modalidad.displayName}"
+                } ?: "❓ No pude detectar la modalidad. Decime si fue desde costa, embarcado, etc."
+            }
+
+            CampoParte.CANAS -> {
+                datos?.numeroCanas?.let { numero ->
+                    "✅ **Número de cañas:** $numero"
+                } ?: "❓ No pude detectar el número. Decime cuántas cañas usaste (1, 2, 3...)"
+            }
+
+            CampoParte.UBICACION -> {
+                val lugar = datos?.nombreLugar
+                val provincia = datos?.provincia
+
+                when {
+                    lugar != null && provincia != null -> {
+                        "✅ **Ubicación completa:** $lugar, ${provincia.displayName}"
+                    }
+                    lugar != null -> {
+                        "✅ **Lugar registrado:** $lugar"
+                    }
+                    provincia != null -> {
+                        "✅ **Provincia registrada:** ${provincia.displayName}"
+                    }
+                    else -> {
+                        "❓ No pude detectar la ubicación. ¿Dónde pescaste?"
+                    }
+                }
+            }
+
+            CampoParte.OBSERVACIONES -> {
+                "✅ **Observaciones guardadas**"
+            }
+
+            else -> "✅ Información registrada correctamente"
+        }
+    }
+    private fun filtrarEntidadesPorCampo(
+        extractionResult: MLKitExtractionResult,
+        campo: CampoParte
+    ): MLKitExtractionResult {
+        val entidadesFiltradas = when (campo) {
+            CampoParte.ESPECIES -> {
+                // SOLO especies y cantidades de peces
+                extractionResult.entidadesDetectadas.filter {
+                    it.tipo in listOf("ESPECIE", "CANTIDAD_PECES")
+                }
+            }
+
+            CampoParte.FECHA -> {
+                // SOLO fechas
+                extractionResult.entidadesDetectadas.filter {
+                    it.tipo == "FECHA"
+                }
+            }
+
+            CampoParte.HORARIOS -> {
+                // SOLO horas (inicio, fin o genérica)
+                extractionResult.entidadesDetectadas.filter {
+                    it.tipo in listOf("HORA_INICIO", "HORA_FIN", "HORA")
+                }
+            }
+
+            CampoParte.MODALIDAD -> {
+                // SOLO modalidad
+                extractionResult.entidadesDetectadas.filter {
+                    it.tipo == "MODALIDAD"
+                }
+            }
+
+            CampoParte.CANAS -> {
+                // SOLO número de cañas
+                extractionResult.entidadesDetectadas.filter {
+                    it.tipo == "NUMERO_CANAS"
+                }
+            }
+
+            CampoParte.UBICACION -> {
+                // SOLO lugar y provincia
+                extractionResult.entidadesDetectadas.filter {
+                    it.tipo in listOf("LUGAR", "PROVINCIA")
+                }
+            }
+
+            CampoParte.OBSERVACIONES -> {
+                // Para observaciones, no filtrar (es texto libre)
+                extractionResult.entidadesDetectadas
+            }
+
+            else -> emptyList()
+        }
+
+        return MLKitExtractionResult(
+            textoExtraido = extractionResult.textoExtraido,
+            entidadesDetectadas = entidadesFiltradas,
+            confianza = if (entidadesFiltradas.isNotEmpty()) extractionResult.confianza else 0f
+        )
+    }
+
+    // Nuevos estados para triggers de UI
+    private val _showMapPicker = MutableStateFlow(false)
+    val showMapPicker: StateFlow<Boolean> = _showMapPicker.asStateFlow()
+
+    private val _showImagePicker = MutableStateFlow(false)
+    val showImagePicker: StateFlow<Boolean> = _showImagePicker.asStateFlow()
+
+    fun dismissMapPicker() {
+        _showMapPicker.value = false
+    }
+
+    fun dismissImagePicker() {
+        _showImagePicker.value = false
+    }
+
+    // ACTUALIZAR: Actualizar datos del parte según el campo (más estricto)
+    private fun actualizarDatosPartePorCampo(
+        campo: CampoParte,
+        extractionResult: MLKitExtractionResult
+    ) {
+        _parteSession.value?.let { session ->
+            var datosActualizados = session.parteData
+
+            // IMPORTANTE: Solo actualizar el campo específico, ignorar cualquier otra información
+            when (campo) {
+                CampoParte.ESPECIES -> {
+                    // Solo procesar entidades de tipo ESPECIE y CANTIDAD_PECES
+                    val entidadesEspecies = extractionResult.entidadesDetectadas.filter {
+                        it.tipo in listOf("ESPECIE", "CANTIDAD_PECES")
+                    }
+
+                    if (entidadesEspecies.isNotEmpty()) {
+                        val nuevosDataParte =
+                            mlKitManager.convertirEntidadesAParteDatos(entidadesEspecies)
+
+                        // Agregar nuevas especies a las existentes
+                        val especiesExistentes =
+                            datosActualizados.especiesCapturadas.toMutableList()
+                        nuevosDataParte.especiesCapturadas.forEach { nuevaEspecie ->
+                            val existente =
+                                especiesExistentes.find { it.nombre == nuevaEspecie.nombre }
+                            if (existente != null) {
+                                val index = especiesExistentes.indexOf(existente)
+                                especiesExistentes[index] = existente.copy(
+                                    numeroEjemplares = existente.numeroEjemplares + nuevaEspecie.numeroEjemplares
+                                )
+                            } else {
+                                especiesExistentes.add(nuevaEspecie)
+                            }
+                        }
+                        datosActualizados =
+                            datosActualizados.copy(especiesCapturadas = especiesExistentes)
+                    }
+                }
+
+                CampoParte.FECHA -> {
+                    // SOLO actualizar fecha si encontramos una entidad FECHA
+                    extractionResult.entidadesDetectadas
+                        .firstOrNull { it.tipo == "FECHA" }
+                        ?.let { entity ->
+                            datosActualizados = datosActualizados.copy(fecha = entity.valor)
+                        }
+                }
+
+                CampoParte.HORARIOS -> {
+                    // SOLO actualizar horarios
+                    var horaInicioEncontrada = false
+                    var horaFinEncontrada = false
+
+                    extractionResult.entidadesDetectadas.forEach { entity ->
+                        when (entity.tipo) {
+                            "HORA_INICIO" -> {
+                                datosActualizados =
+                                    datosActualizados.copy(horaInicio = entity.valor)
+                                horaInicioEncontrada = true
+                            }
+
+                            "HORA_FIN" -> {
+                                datosActualizados = datosActualizados.copy(horaFin = entity.valor)
+                                horaFinEncontrada = true
+                            }
+
+                            "HORA" -> {
+                                // Si solo detecta una hora genérica, asignarla según lo que falta
+                                if (!horaInicioEncontrada && datosActualizados.horaInicio == null) {
+                                    datosActualizados =
+                                        datosActualizados.copy(horaInicio = entity.valor)
+                                } else if (!horaFinEncontrada && datosActualizados.horaFin == null) {
+                                    datosActualizados =
+                                        datosActualizados.copy(horaFin = entity.valor)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                CampoParte.MODALIDAD -> {
+                    // SOLO actualizar modalidad
+                    extractionResult.entidadesDetectadas
+                        .firstOrNull { it.tipo == "MODALIDAD" }
+                        ?.let { entity ->
+                            val modalidad = ModalidadPesca.fromString(entity.valor)
+                            datosActualizados = datosActualizados.copy(modalidad = modalidad)
+                        }
+                }
+
+                CampoParte.CANAS -> {
+                    // SOLO actualizar número de cañas
+                    extractionResult.entidadesDetectadas
+                        .firstOrNull { it.tipo == "NUMERO_CANAS" }
+                        ?.let { entity ->
+                            val numero = entity.valor.toIntOrNull()
+                            if (numero != null) {
+                                datosActualizados = datosActualizados.copy(numeroCanas = numero)
+                            }
+                        }
+                }
+
+                CampoParte.UBICACION -> {
+                    // SOLO actualizar ubicación y provincia
+                    extractionResult.entidadesDetectadas.forEach { entity ->
+                        when (entity.tipo) {
+                            "LUGAR" -> datosActualizados =
+                                datosActualizados.copy(nombreLugar = entity.valor)
+
+                            "PROVINCIA" -> {
+                                val provincia = Provincia.fromString(entity.valor)
+                                datosActualizados = datosActualizados.copy(provincia = provincia)
+                            }
+                            // Ignorar cualquier otra entidad
+                        }
+                    }
+                }
+
+                CampoParte.OBSERVACIONES -> {
+                    // Para observaciones, guardar el texto completo como está
+                    datosActualizados = datosActualizados.copy(
+                        observaciones = extractionResult.textoExtraido
+                    )
+                }
+
+                CampoParte.FOTOS -> {
+                    // Las fotos se manejan diferente, no por texto
+                    // Este caso no debería llegar aquí
+                }
+            }
+
+            // Recalcular progreso con los datos actualizados
+            val progreso = calcularProgresoParte(datosActualizados)
+            val sessionActualizada = session.copy(
+                parteData = datosActualizados.copy(
+                    porcentajeCompletado = progreso.porcentaje,
+                    camposFaltantes = progreso.camposFaltantes
+                )
+            )
+            _parteSession.value = sessionActualizada
+        }
     }
 }

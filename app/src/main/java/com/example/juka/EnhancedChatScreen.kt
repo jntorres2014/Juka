@@ -40,15 +40,25 @@ fun EnhancedChatScreen(
     val isAnalyzing by viewModel.isAnalyzing.collectAsState()
     val firebaseStatus by viewModel.firebaseStatus.collectAsState()
 
+
+    // NUEVOS estados
+    val currentFieldInProgress by viewModel.currentFieldInProgress.collectAsState()
+    val showMapPickerFromViewModel by viewModel.showMapPicker.collectAsState()
+    val showImagePickerFromViewModel by viewModel.showImagePicker.collectAsState()
+
     // Estados locales
     var messageText by remember { mutableStateOf("") }
     var showMapPicker by remember { mutableStateOf(false) }
-    if (showMapPicker) {
+    if (showMapPicker || showMapPickerFromViewModel) {
         MapPickerScreen(
-            onDismiss = { showMapPicker = false },
+            onDismiss = {
+                showMapPicker = false
+                viewModel.dismissMapPicker()
+            },
             onLocationSelected = { lat, lon, name ->
                 viewModel.saveLocation(lat, lon, name)
                 showMapPicker = false
+                viewModel.dismissMapPicker()
             }
         )
     }
@@ -94,7 +104,8 @@ fun EnhancedChatScreen(
             onCancelarParte = { viewModel.cancelarParte() },
             onInfoClick = {
                 val stats = viewModel.getConversationStats()
-                android.widget.Toast.makeText(context, stats, android.widget.Toast.LENGTH_LONG).show()
+                android.widget.Toast.makeText(context, stats, android.widget.Toast.LENGTH_LONG)
+                    .show()
             }
         )
 
@@ -105,16 +116,40 @@ fun EnhancedChatScreen(
                 enter = expandVertically() + fadeIn(),
                 exit = shrinkVertically() + fadeOut()
             ) {
-                ParteProgressIndicator(
-                    parteData = parteSession!!.parteData,
-                    //onGuardarBorrador = { viewModel.guardarParteBorrador() },
-                    onGuardarBorrador = { },
-                    onCompletarParte = { viewModel.completarYEnviarParte() },
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-            }
-        }
+                Column {
+                    // Progreso simplificado
+                    LinearProgressIndicator(
+                        progress = parteSession!!.parteData.porcentajeCompletado / 100f,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        color = when {
+                            parteSession!!.parteData.porcentajeCompletado >= 80 -> Color(0xFF4CAF50)
+                            parteSession!!.parteData.porcentajeCompletado >= 50 -> Color(0xFFFF9800)
+                            else -> MaterialTheme.colorScheme.primary
+                        }
+                    )
 
+                    // NUEVO: Botones de acción rápida
+                    ParteQuickActions(
+                        parteData = parteSession!!.parteData,
+                        onCampoSelected = { campo ->
+                            viewModel.onCampoParteSelected(campo)
+                        },
+                        currentFieldInProgress = currentFieldInProgress,
+                        onGuardarBorrador = {
+                           //viewModel.guardarParteBorrador()
+                        },
+                        onCompletarParte = {
+                            viewModel.completarYEnviarParte()
+                        },
+                        firebaseStatus = firebaseStatus,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
+            }
+
+        }
         // ================== LISTA DE MENSAJES ==================
         LazyColumn(
             state = listState,
@@ -152,23 +187,48 @@ fun EnhancedChatScreen(
         }
 
         // ================== INPUT MEJORADO ==================
-        EnhancedMessageInput(
-            messageText = messageText,
-            onMessageChange = { messageText = it },
-            onSendMessage = {
-                if (messageText.isNotBlank()) {
-                    viewModel.sendTextMessage(messageText.trim())
-                    messageText = ""
-                }
-            },
-            onSendImage = { imagePickerLauncher.launch("image/*") },
-            onSendAudio = { transcript -> viewModel.sendAudioTranscript(transcript) },
-            // Nuevas props para el mapa
-            onSendLocation = { showMapPicker = true },
-            currentMode = currentMode,
-            isProcessing = isTyping || isAnalyzing,
-            onCreateParte = { viewModel.iniciarCrearParte() }
-        )
+        if (currentMode == ChatMode.CREAR_PARTE) {
+            SimpleParteInput(
+                messageText = messageText,
+                onMessageChange = { messageText = it },
+                onSendMessage = {
+                    if (messageText.isNotBlank()) {
+                        viewModel.sendTextMessage(messageText.trim())
+                        messageText = ""
+                    }
+                },
+                onSendAudio = { transcript ->
+                    viewModel.sendAudioTranscript(transcript)
+                },
+                isWaitingForResponse = currentFieldInProgress != null,
+                currentField = currentFieldInProgress
+            )
+        } else {
+            EnhancedMessageInput(
+                messageText = messageText,
+                onMessageChange = { messageText = it },
+                onSendMessage = {
+                    if (messageText.isNotBlank()) {
+                        viewModel.sendTextMessage(messageText.trim())
+                        messageText = ""
+                    }
+                },
+                onSendImage = { imagePickerLauncher.launch("image/*") },
+                onSendAudio = { transcript -> viewModel.sendAudioTranscript(transcript) },
+                // Nuevas props para el mapa
+                onSendLocation = { showMapPicker = true },
+                currentMode = currentMode,
+                isProcessing = isTyping || isAnalyzing,
+                onCreateParte = { viewModel.iniciarCrearParte() }
+            )
+        }
+    }
+    // Trigger para selector de imágenes
+    LaunchedEffect(showImagePickerFromViewModel) {
+        if (showImagePickerFromViewModel) {
+            imagePickerLauncher.launch("image/*")
+            viewModel.dismissImagePicker()
+        }
     }
 }
 
@@ -586,6 +646,107 @@ fun EnhancedMessageInput(
                             contentDescription = "Enviar"
                         )
                     }
+                }
+            }
+        }
+    }
+}
+// NUEVO: Input simplificado para modo parte
+@Composable
+fun SimpleParteInput(
+    messageText: String,
+    onMessageChange: (String) -> Unit,
+    onSendMessage: () -> Unit,
+    onSendAudio: (String) -> Unit,
+    isWaitingForResponse: Boolean,
+    currentField: CampoParte?,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shadowElevation = 4.dp,
+        color = MaterialTheme.colorScheme.surface
+    ) {
+        Column {
+            // Indicador del campo actual
+            AnimatedVisibility(visible = currentField != null) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Edit,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "Respondiendo: ${currentField?.displayName ?: ""}",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+            }
+
+            // Input row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                verticalAlignment = Alignment.Bottom
+            ) {
+                // Campo de texto
+                OutlinedTextField(
+                    value = messageText,
+                    onValueChange = onMessageChange,
+                    modifier = Modifier.weight(1f),
+                    placeholder = {
+                        Text(
+                            when (currentField) {
+                                CampoParte.ESPECIES -> "Ej: 2 pejerreyes y 1 róbalo"
+                                CampoParte.FECHA -> "Ej: hoy, ayer, 25/10"
+                                CampoParte.HORARIOS -> "Ej: de 6 a 11"
+                                else -> "Escribí tu respuesta..."
+                            }
+                        )
+                    },
+                    shape = RoundedCornerShape(24.dp),
+                    maxLines = 3
+                )
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                // Botón de audio
+                WorkingAudioButton(
+                    onAudioTranscribed = onSendAudio,
+                    modifier = Modifier.size(48.dp)
+                )
+
+                Spacer(modifier = Modifier.width(4.dp))
+
+                // Botón enviar
+                FloatingActionButton(
+                    onClick = onSendMessage,
+                    modifier = Modifier.size(48.dp),
+                    containerColor = if (messageText.isNotBlank())
+                        MaterialTheme.colorScheme.tertiary
+                    else
+                        MaterialTheme.colorScheme.surfaceVariant
+                ) {
+                    Icon(
+                        Icons.Default.Send,
+                        contentDescription = "Enviar",
+                        tint = if (messageText.isNotBlank())
+                            MaterialTheme.colorScheme.onTertiary
+                        else
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }

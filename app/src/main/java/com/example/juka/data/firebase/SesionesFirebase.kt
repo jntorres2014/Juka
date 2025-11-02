@@ -74,7 +74,9 @@ class SesionesFirebase(private val manager: FirebaseManager) {
                 //deviceInfo = UtilsFirebase.getDeviceInfo(),
                 userInfo = manager.getCurrentUserInfo(),
                 timestamp = Timestamp.now(),
-                estado = session.estado.name.lowercase()
+                estado = session.estado.name.lowercase(),
+                observaciones = parteData.observaciones
+
             )
 
             val partePath = "${FirebaseManager.COLLECTION_PARTES}/$userId/${FirebaseManager.SUBCOLLECTION_PARTES}/$parteId"

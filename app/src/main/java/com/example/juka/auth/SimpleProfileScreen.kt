@@ -64,7 +64,7 @@ fun SimpleProfileScreen(
         isLoading = true
         try {
             // Intentar cargar datos adicionales de Firestore
-            val doc = db.collection("users")
+            val doc = db.collection("perfil")
                 .document(user.uid)
                 .get()
                 .await()
@@ -87,7 +87,7 @@ fun SimpleProfileScreen(
                     photoUrl = user.photoUrl?.toString()
                 )
 
-                db.collection("users")
+                db.collection("perfil")
                     .document(user.uid)
                     .set(newProfile)
                     .await()
@@ -125,7 +125,7 @@ fun SimpleProfileScreen(
                     lastLogin = System.currentTimeMillis()
                 )
 
-                db.collection("users")
+                db.collection("perfil")
                     .document(user.uid)
                     .set(updatedProfile)
                     .await()

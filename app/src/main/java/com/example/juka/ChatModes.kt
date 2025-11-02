@@ -24,7 +24,9 @@ data class ChatMessageWithMode(
     override val isFromUser: Boolean,
     override val type: MessageType,
     override val timestamp: String,
-    val mode: ChatMode
+    val mode: ChatMode,
+    // NUEVO: Metadata para información adicional
+    val metadata: Map<String, String> = emptyMap()
 ) : IMessage
 
 // Data class para sesiones de chat de partes

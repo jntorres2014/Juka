@@ -350,7 +350,7 @@ fun PreguntaContentSimple(
                             }
                         }
                     },
-                    label = { Text("Edad en años") },
+                    label = { Text("Ingrese año") },
                     placeholder = { Text(pregunta.placeholder) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth()
@@ -548,7 +548,7 @@ fun PreguntaContentSimple(
                             )
                         },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (respuesta == false) Color(0xFFf44336) else Color.Gray
+                            containerColor = if (respuesta == false) Color(0xFFFFA500) else Color.Gray
                         ),
                         modifier = Modifier.weight(1f)
                     ) {

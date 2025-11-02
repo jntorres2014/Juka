@@ -1,7 +1,12 @@
-// MisReportesScreen.kt - VERSIÓN MEJORADA CON FILTROS Y ESTADÍSTICAS
+// MisReportesScreen.kt - VERSIÓN ORIGINAL CON FIX SOLO PARA EL MAPA (ANTI-LAG)
 package com.example.juka.reportes
 
+import android.content.Intent
+import android.net.Uri
 import android.R
+import android.content.Context
+import android.util.Log
+
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
@@ -12,7 +17,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -20,12 +27,19 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.juka.data.firebase.FirebaseManager
 import com.example.juka.viewmodel.ChatViewModel
 import com.example.juka.data.firebase.PartePesca
 import kotlinx.coroutines.launch
+import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -35,12 +49,47 @@ fun MisReportesScreenMejorado(
     viewModel: ChatViewModel = viewModel()
 ) {
     var reportes by remember { mutableStateOf<List<PartePesca>>(emptyList()) }
-    var reportesFiltrados by remember { mutableStateOf<List<PartePesca>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var filtroSeleccionado by remember { mutableStateOf("todos") }
     var busqueda by remember { mutableStateOf("") }
     var mostrarEstadisticas by remember { mutableStateOf(false) }
+    var selectedReporte by remember { mutableStateOf<PartePesca?>(null) }
+    var mostrarMapaGeneral by remember { mutableStateOf(false) }
+
+    val bottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+
+    // OPTIMIZACIÓN: DerivedState para filtrado lazy
+    val reportesFiltrados by remember(busqueda, filtroSeleccionado, reportes) {
+        derivedStateOf {
+            reportes.filter { reporte ->
+                val cumpleFiltro = when (filtroSeleccionado) {
+                    "embarcado" -> reporte.tipo == "embarcado"
+                    "costa" -> reporte.tipo == "costa"
+                    "exitosos" -> reporte.cantidadTotal > 0
+                    "recientes" -> {
+                        val hace7Dias = Calendar.getInstance().apply {
+                            add(Calendar.DAY_OF_YEAR, -7)
+                        }.time
+                        try {
+                            val fechaReporte = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                                .parse(reporte.fecha)
+                            fechaReporte?.after(hace7Dias) ?: false
+                        } catch (e: Exception) { false }
+                    }
+                    else -> true
+                }
+
+                val cumpleBusqueda = if (busqueda.isBlank()) true else {
+                    reporte.peces.any { pez ->
+                        pez.especie.contains(busqueda, ignoreCase = true)
+                    } || reporte.transcripcionOriginal?.contains(busqueda, ignoreCase = true) == true
+                }
+
+                cumpleFiltro && cumpleBusqueda
+            }.sortedByDescending { it.fecha }
+        }
+    }
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -52,8 +101,6 @@ fun MisReportesScreenMejorado(
             try {
                 val firebaseManager = FirebaseManager(context)
                 reportes = firebaseManager.obtenerMisPartes()
-                //reportes = viewModel.obtenerMisPartes()
-                reportesFiltrados = reportes
                 error = null
             } catch (e: Exception) {
                 error = "Error cargando reportes: ${e.message}"
@@ -63,34 +110,75 @@ fun MisReportesScreenMejorado(
         }
     }
 
-    // Aplicar filtros
-    LaunchedEffect(filtroSeleccionado, busqueda, reportes) {
-        reportesFiltrados = reportes.filter { reporte ->
-            val cumpleFiltro = when (filtroSeleccionado) {
-                "embarcado" -> reporte.tipo == "embarcado"
-                "costa" -> reporte.tipo == "costa"
-                "exitosos" -> reporte.cantidadTotal > 0
-                "recientes" -> {
-                    val hace7Dias = Calendar.getInstance().apply {
-                        add(Calendar.DAY_OF_YEAR, -7)
-                    }.time
-                    try {
-                        val fechaReporte = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-                            .parse(reporte.fecha)
-                        fechaReporte?.after(hace7Dias) ?: false
-                    } catch (e: Exception) { false }
-                }
-                else -> true
-            }
+    // OPTIMIZACIÓN: Stats lazy
+    val totalPeces by remember(reportes) {
+        derivedStateOf { reportes.sumOf { it.cantidadTotal } }
+    }
+    val exitosas by remember(reportes) {
+        derivedStateOf { reportes.count { it.cantidadTotal > 0 } }
+    }
+    val especiesUnicas by remember(reportes) {
+        derivedStateOf {
+            reportes.flatMap { it.peces }.map { it.especie }.distinct().size
+        }
+    }
 
-            val cumpleBusqueda = if (busqueda.isBlank()) true else {
-                reporte.peces.any { pez ->
-                    pez.especie.contains(busqueda, ignoreCase = true)
-                } || reporte.transcripcionOriginal?.contains(busqueda, ignoreCase = true) == true
-            }
+    val especiesFrecuentes by remember(reportes) {
+        derivedStateOf {
+            reportes
+                .flatMap { it.peces }
+                .groupBy { it.especie }
+                .mapValues { it.value.sumOf { pez -> pez.cantidad } }
+                .toList()
+                .sortedByDescending { it.second }
+                .take(3)
+        }
+    }
 
-            cumpleFiltro && cumpleBusqueda
-        }.sortedByDescending { it.fecha }
+    val promedioEmbarcado by remember(reportes) {
+        derivedStateOf {
+            reportes.filter { it.tipo == "embarcado" }.takeIf { it.isNotEmpty() }?.let { lista ->
+                lista.sumOf { it.cantidadTotal }.toDouble() / lista.size
+            }
+        }
+    }
+    val promedioCosta by remember(reportes) {
+        derivedStateOf {
+            reportes.filter { it.tipo == "costa" }.takeIf { it.isNotEmpty() }?.let { lista ->
+                lista.sumOf { it.cantidadTotal }.toDouble() / lista.size
+            }
+        }
+    }
+
+    // OPTIMIZACIÓN: ListState para smooth scroll
+    val listState = rememberLazyListState()
+
+    // FIX: Mapa fullscreen condicional (movido AL PRINCIPIO, antes del Column)
+    if (mostrarMapaGeneral) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            MapaGeneralDeReportes(
+                reportes = reportes,
+                onCerrar = { mostrarMapaGeneral = false }
+            )
+        }
+        return  // Salir temprano para no renderizar el resto
+    }
+
+    // Bottom Sheet para detalles
+    if (selectedReporte != null) {
+        ModalBottomSheet(
+            onDismissRequest = { selectedReporte = null },
+            sheetState = bottomSheetState
+        ) {
+            selectedReporte?.let { reporte ->
+                DetalleParteBottomSheet(
+                    reporte = reporte,
+                    onDismiss = { selectedReporte = null },
+                    onCompartir = { /* Implementar compartir */ },
+                    onEditar = { /* Navega al chat con este parte ID */ }
+                )
+            }
+        }
     }
 
     Column(
@@ -98,6 +186,7 @@ fun MisReportesScreenMejorado(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
+
         when {
             isLoading -> {
                 Box(
@@ -137,7 +226,6 @@ fun MisReportesScreenMejorado(
                                     try {
                                         val firebaseManager = FirebaseManager(context)
                                         reportes = firebaseManager.obtenerMisPartes()
-                                        //reportes = viewModel.obtenerMisPartes()
                                         error = null
                                     } catch (e: Exception) {
                                         error = "Error: ${e.message}"
@@ -186,28 +274,53 @@ fun MisReportesScreenMejorado(
             }
 
             else -> {
+                if (!isLoading && error == null && !mostrarMapaGeneral) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalAlignment = Alignment.End
+                    ) {
+                        Button(
+                            onClick = { mostrarMapaGeneral = true },
+                            modifier = Modifier
+                                .shadow(4.dp, RoundedCornerShape(12.dp)),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.Map, contentDescription = "Ver mapa")
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Ver mapa general")
+                        }
+                    }
+                }
+
                 LazyColumn(
+                    state = listState,  // OPTIMIZACIÓN: Smooth scroll
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // Header con estadísticas
                     item {
                         HeaderConEstadisticas(
-                            reportes = reportes,
-                            reportesFiltrados = reportesFiltrados,
+                            totalPeces = totalPeces,
+                            exitosas = exitosas,
+                            especiesUnicas = especiesUnicas,
+                            reportesFiltrados = reportesFiltrados.size,
+                            reportesTotal = reportes.size,
                             onToggleEstadisticas = { mostrarEstadisticas = !mostrarEstadisticas }
                         )
                     }
 
-                    // Estadísticas expandidas
                     if (mostrarEstadisticas) {
                         item {
-                            EstadisticasDetalladas(reportes = reportes)
+                            EstadisticasDetalladas(
+                                especiesFrecuentes = especiesFrecuentes,
+                                promedioEmbarcado = promedioEmbarcado,
+                                promedioCosta = promedioCosta
+                            )
                         }
                     }
 
-                    // Barra de búsqueda
                     item {
                         OutlinedTextField(
                             value = busqueda,
@@ -228,7 +341,6 @@ fun MisReportesScreenMejorado(
                         )
                     }
 
-                    // Filtros
                     item {
                         LazyRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -252,7 +364,6 @@ fun MisReportesScreenMejorado(
                         }
                     }
 
-                    // Lista de reportes
                     if (reportesFiltrados.isEmpty()) {
                         item {
                             Card(
@@ -285,16 +396,18 @@ fun MisReportesScreenMejorado(
                             }
                         }
                     } else {
-                        items(reportesFiltrados) { reporte ->
+                        items(
+                            reportesFiltrados,
+                            key = { it.id ?: it.fecha }  // OPTIMIZACIÓN: Stable keys
+                        ) { reporte ->
                             ReporteCardMejorado(
                                 reporte = reporte,
-                                onCompartir = { /* Implementar compartir */ },
-                                onVerDetalle = { /* Implementar detalle */ }
+                                onCompartir = { /* Implementar */ },
+                                onVerDetalle = { selectedReporte = reporte }
                             )
                         }
                     }
 
-                    // Espaciador final
                     item {
                         Spacer(modifier = Modifier.height(80.dp))
                     }
@@ -306,8 +419,11 @@ fun MisReportesScreenMejorado(
 
 @Composable
 fun HeaderConEstadisticas(
-    reportes: List<PartePesca>,
-    reportesFiltrados: List<PartePesca>,
+    totalPeces: Int,
+    exitosas: Int,
+    especiesUnicas: Int,
+    reportesFiltrados: Int,
+    reportesTotal: Int,
     onToggleEstadisticas: () -> Unit
 ) {
     Card(
@@ -333,7 +449,7 @@ fun HeaderConEstadisticas(
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                     Text(
-                        text = "Mostrando ${reportesFiltrados.size} de ${reportes.size}",
+                        text = "Mostrando $reportesFiltrados de $reportesTotal",
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                     )
@@ -350,15 +466,15 @@ fun HeaderConEstadisticas(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Estadísticas rápidas
+            // Estadísticas rápidas OPTIMIZADAS
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                StatQuickCard("📊", "${reportes.size}", "Jornadas")
-                StatQuickCard("🐟", "${reportes.sumOf { it.cantidadTotal }}", "Peces")
-                StatQuickCard("🏆", "${reportes.count { it.cantidadTotal > 0 }}", "Exitosas")
-                StatQuickCard("🎯", "${reportes.flatMap { it.peces }.map { it.especie }.distinct().size}", "Especies")
+                StatQuickCard("📊", "$reportesTotal", "Jornadas")
+                StatQuickCard("🐟", "$totalPeces", "Peces")
+                StatQuickCard("🏆", "$exitosas", "Exitosas")
+                StatQuickCard("🎯", "$especiesUnicas", "Especies")
             }
         }
     }
@@ -386,7 +502,11 @@ fun StatQuickCard(icono: String, valor: String, etiqueta: String) {
 }
 
 @Composable
-fun EstadisticasDetalladas(reportes: List<PartePesca>) {
+fun EstadisticasDetalladas(
+    especiesFrecuentes: List<Pair<String, Int>>,
+    promedioEmbarcado: Double?,
+    promedioCosta: Double?
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
@@ -404,14 +524,6 @@ fun EstadisticasDetalladas(reportes: List<PartePesca>) {
             Spacer(modifier = Modifier.height(16.dp))
 
             // Especies más capturadas
-            val especiesFrecuentes = reportes
-                .flatMap { it.peces }
-                .groupBy { it.especie }
-                .mapValues { it.value.sumOf { pez -> pez.cantidad } }
-                .toList()
-                .sortedByDescending { it.second }
-                .take(3)
-
             if (especiesFrecuentes.isNotEmpty()) {
                 Text(
                     text = "🥇 Especies más capturadas:",
@@ -433,13 +545,6 @@ fun EstadisticasDetalladas(reportes: List<PartePesca>) {
             Spacer(modifier = Modifier.height(16.dp))
 
             // Promedio por tipo
-            val promedioEmbarcado = reportes.filter { it.tipo == "embarcado" }.takeIf { it.isNotEmpty() }?.let { lista ->
-                lista.sumOf { it.cantidadTotal }.toDouble() / lista.size
-            }
-            val promedioCosta = reportes.filter { it.tipo == "costa" }.takeIf { it.isNotEmpty() }?.let { lista ->
-                lista.sumOf { it.cantidadTotal }.toDouble() / lista.size
-            }
-
             Text("📊 Promedio de capturas:")
             Spacer(modifier = Modifier.height(8.dp))
             promedioEmbarcado?.let {
@@ -451,6 +556,7 @@ fun EstadisticasDetalladas(reportes: List<PartePesca>) {
         }
     }
 }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReporteCardMejorado(
@@ -518,59 +624,30 @@ fun ReporteCardMejorado(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // NUEVA SECCIÓN: Mostrar fotos si existen
+            // Foto única si existe OPTIMIZADA
             if (reporte.fotos.isNotEmpty()) {
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(vertical = 8.dp)
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(120.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                 ) {
-                    items(reporte.fotos) { fotoUri ->
-                        Card(
-                            modifier = Modifier.size(80.dp),
-                            shape = RoundedCornerShape(8.dp),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                        ) {
-                            AsyncImage(
-                                model = fotoUri,
-                                contentDescription = "Foto de pesca",
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop,
-                                error = painterResource(id = R.drawable.ic_menu_gallery),
-                                placeholder = painterResource(id = R.drawable.ic_menu_gallery)
-                            )
-                        }
-                    }
-
-                    // Indicador de cantidad de fotos si hay más de una
-                    if (reporte.fotos.size > 1) {
-                        item {
-                            Surface(
-                                modifier = Modifier.size(80.dp),
-                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Column(
-                                    modifier = Modifier.fillMaxSize(),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(
-                                        Icons.Default.PhotoLibrary,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(24.dp),
-                                        tint = MaterialTheme.colorScheme.onSecondaryContainer
-                                    )
-                                    Text(
-                                        text = "+${reporte.fotos.size - 1}",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSecondaryContainer
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    AsyncImage(
+                        model = reporte.fotos.first(),
+                        contentDescription = "Foto de pesca",
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {  // OPTIMIZACIÓN: Scale para menos memoria
+                                scaleX = 0.8f
+                                scaleY = 0.8f
+                            },
+                        contentScale = ContentScale.Crop,
+                        error = painterResource(id = R.drawable.ic_menu_gallery),
+                        placeholder = painterResource(id = R.drawable.ic_menu_gallery)
+                    )
                 }
+                Spacer(modifier = Modifier.height(8.dp))
             }
 
             // Información principal
@@ -594,12 +671,6 @@ fun ReporteCardMejorado(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    /*Icon(
-                        Icons.Default.BookmarkBorder,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.secondary
-                    )*/
                     Text(
                         text = "🐠",
                         fontSize = 16.sp,
@@ -644,7 +715,7 @@ fun ReporteCardMejorado(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Mostrar transcripción original si existe (útil para debug)
+                // Mostrar transcripción original si existe
                 if (!reporte.transcripcionOriginal.isNullOrBlank() && reporte.transcripcionOriginal!!.length > 10) {
                     Text(
                         text = "\"${reporte.transcripcionOriginal!!.take(30)}...\"",
@@ -667,6 +738,299 @@ fun ReporteCardMejorado(
                     Text("Compartir")
                 }
             }
+        }
+    }
+}
+
+
+// Bottom Sheet para detalles del parte
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DetalleParteBottomSheet(
+    reporte: PartePesca,
+    onDismiss: () -> Unit,
+    onCompartir: () -> Unit,
+    onEditar: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp)
+    ) {
+        // Header con título y botón cerrar
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Detalles de la jornada",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold
+            )
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Default.Close, contentDescription = "Cerrar")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Foto única (full width) OPTIMIZADA
+        reporte.fotos.firstOrNull()?.let { fotoUri ->
+            Card(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                AsyncImage(
+                    model = fotoUri,
+                    contentDescription = "Foto de la jornada del ${formatearFecha(reporte.fecha)}",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(250.dp)
+                        .graphicsLayer {
+                            scaleX = 0.9f  // Ligero scale para perf
+                            scaleY = 0.9f
+                        },
+                    contentScale = ContentScale.Crop
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+        } ?: Text("Sin foto", color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+        // Detalles en cards
+        InfoSection("📅 Fecha y Horarios", "${formatearFecha(reporte.fecha)} • ${reporte.horaInicio} - ${reporte.horaFin}")
+        InfoSection("🎣 Tipo", reporte.tipo?.replaceFirstChar { it.uppercase() } ?: "No especificado")
+        InfoSection("🐟 Capturas", "${reporte.cantidadTotal} peces: ${reporte.peces.joinToString(" • ") { "${it.especie} x${it.cantidad}" }}")
+
+        // Observaciones o transcripción
+        if (!reporte.transcripcionOriginal.isNullOrBlank()) {
+            InfoSection("📝 Notas", reporte.transcripcionOriginal!!)
+        }
+
+        // Ubicación con visor de mapa
+        UbicacionSection(reporte)
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Botones de acción
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = onEditar,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Default.Edit, contentDescription = null)
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Editar en Chat")
+            }
+            Button(
+                onClick = onCompartir,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Default.Share, contentDescription = null)
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Compartir")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+    }
+}
+
+@Composable
+fun InfoSection(titulo: String, contenido: String) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 8.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(titulo, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Text(contenido, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+        }
+    }
+}
+
+// Visor de ubicación basado en osmdroid
+@Composable
+fun UbicacionSection(reporte: PartePesca) {
+    UbicacionViewer(
+        lat = reporte.ubicacion?.latitud,
+        lng = reporte?.ubicacion?.longitud,
+        ubicacionName = reporte.ubicacion?.nombre,
+        modifier = Modifier.padding(bottom = 8.dp)
+    )
+}
+
+@Composable
+fun UbicacionViewer(
+    lat: Double?,
+    lng: Double?,
+    ubicacionName: String? = null,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+
+    // Configurar osmdroid
+    DisposableEffect(Unit) {
+        Configuration.getInstance().userAgentValue = context.packageName
+        onDispose { }
+    }
+
+    if (lat == null || lng == null) {
+        // Fallback si no hay coords
+        Card(
+            modifier = modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text("📍 Ubicación no disponible", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                if (!ubicacionName.isNullOrBlank()) {
+                    Text("Descripción: $ubicacionName", color = MaterialTheme.colorScheme.onSurface)
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                TextButton(
+                    onClick = {
+                        val gmmIntentUri = "geo:0,0?q=${Uri.encode(ubicacionName ?: "pesca")}"
+                        val mapIntent = Intent(Intent.ACTION_VIEW, Uri.parse(gmmIntentUri))
+                        context.startActivity(mapIntent)
+                    }
+                ) {
+                    Text("Abrir en Maps")
+                }
+            }
+        }
+        return
+    }
+
+    val geoPoint = remember { GeoPoint(lat, lng) }
+
+    Card(
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column {
+            // Header
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "📍 Spot de pesca",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                TextButton(
+                    onClick = {
+                        val gmmIntentUri = "geo:$lat,$lng"
+                        val mapIntent = Intent(Intent.ACTION_VIEW, Uri.parse(gmmIntentUri))
+                        context.startActivity(mapIntent)
+                    }
+                ) {
+                    Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Abrir en app")
+                }
+            }
+
+            // Mapa read-only
+            AndroidView(
+                factory = { ctx ->
+                    MapView(ctx).apply {
+                        setTileSource(TileSourceFactory.MAPNIK)
+                        setMultiTouchControls(true)
+                        controller.setZoom(15.0)
+                        controller.setCenter(geoPoint)
+
+                        // Agregar marcador
+                        val marker = Marker(this)
+                        marker.position = geoPoint
+                        marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                        marker.title = ubicacionName ?: "Tu spot"
+                        marker.snippet = "Aquí pescaste 🐟"  // Personalizá si querés
+                        overlays.add(marker)
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun MapaGeneralDeReportes(
+    reportes: List<PartePesca>,
+    onCerrar: () -> Unit
+) {
+    val context = LocalContext.current
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        AndroidView(
+            factory = { ctx ->
+                org.osmdroid.config.Configuration.getInstance().load(
+                    ctx,
+                    ctx.getSharedPreferences("osmdroid", Context.MODE_PRIVATE)
+                )
+
+                MapView(ctx).apply {
+                    setTileSource(org.osmdroid.tileprovider.tilesource.TileSourceFactory.MAPNIK)
+                    setMultiTouchControls(true)
+
+                    val mapController = controller
+                    val puntosValidos = reportes.filter {
+                        it.ubicacion?.latitud != null && it.ubicacion?.longitud != null
+                    }
+
+                    if (puntosValidos.isNotEmpty()) {
+                        val startPoint = GeoPoint(
+                            puntosValidos.first().ubicacion?.latitud!!,
+                            puntosValidos.first().ubicacion?.longitud!!
+                        )
+                        mapController.setZoom(6.5)
+
+                        mapController.setCenter(startPoint)
+
+                        // Agregar marcadores
+                        puntosValidos.forEach { parte ->
+                            Log.d("MapaGeneralDeReportes", "parte: ${parte.peces}")  // Mantengo tu log para debug
+                            val marker = Marker(this)
+                            marker.position = GeoPoint(parte.ubicacion?.latitud!!, parte.ubicacion?.longitud!!)
+                            marker.title = formatearFecha(parte.fecha)
+
+                            // FIX: Formato bonito para el snippet
+                            val capturasStr = if (parte.peces.isNotEmpty()) {
+                                parte.peces.joinToString("\n") { "• \uD83D\uDC1F ${it.cantidad} ${it.especie}" }
+                            } else {
+                                "Sin capturas"
+                            }
+
+                            marker.snippet = "Capturas: $capturasStr" + "\n" + "Notas: ${parte.observaciones ?: "Sin notas"}"
+                            marker.snippet = marker.snippet.replace("\n", "<br>")
+
+                            marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                            overlays.add(marker)
+                        }
+
+                        invalidate()
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+
+        // Botón para cerrar el mapa
+        FloatingActionButton(
+            onClick = onCerrar,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(16.dp)
+        ) {
+            Icon(Icons.Default.Close, contentDescription = "Cerrar mapa")
         }
     }
 }

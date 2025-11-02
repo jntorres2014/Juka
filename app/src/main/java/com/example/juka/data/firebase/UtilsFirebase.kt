@@ -279,6 +279,7 @@ object UtilsFirebase {
         val duracion = if (data.startTime != null && data.endTime != null) {
             calcularDuracion(data.startTime!!, data.endTime!!)
         } else null
+        Log.d(TAG, "⌛ Dataaaaaa: $data")
 
         return PartePesca(
             userId = userId,
@@ -294,7 +295,6 @@ object UtilsFirebase {
             ubicacion = null,
             fotos = if (data.photoUri != null) listOf(data.photoUri!!) else emptyList(),
             transcripcionOriginal = transcripcion,
-            //deviceInfo = getDeviceInfo(),
             userInfo = mapOf(
                 "userId" to userId,
                 "email" to "no-email", // Placeholder, debería venir de Auth
@@ -303,7 +303,9 @@ object UtilsFirebase {
                 "lastLogin" to Timestamp.now()
             ),
             timestamp = Timestamp.now(),
-            estado = "completado"
+            estado = "completado",
+
+
         )
     }
 

@@ -39,7 +39,9 @@ data class PartePesca @JvmOverloads constructor(
     val transcripcionOriginal: String? = null,
     val userInfo: Map<String, Any> = emptyMap(),
     val timestamp: Timestamp? = null,
+    val observaciones: String? = null,
     val estado: String = "completado"
+
 )
 
 sealed class FirebaseResult {

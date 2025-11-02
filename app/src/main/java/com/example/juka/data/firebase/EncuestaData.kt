@@ -109,7 +109,7 @@ object PreguntasEncuesta {
             id = 3,
             texto = "¿Desde qué edad pesca?",
             tipo = TipoPregunta.NUMERO,
-            placeholder = "Ingresa tu edad en años",
+            placeholder = " ",
             rangoNumero = 0..150
         ),
 
