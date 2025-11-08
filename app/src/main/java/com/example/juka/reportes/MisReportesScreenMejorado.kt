@@ -803,8 +803,8 @@ fun DetalleParteBottomSheet(
         InfoSection("🐟 Capturas", "${reporte.cantidadTotal} peces: ${reporte.peces.joinToString(" • ") { "${it.especie} x${it.cantidad}" }}")
 
         // Observaciones o transcripción
-        if (!reporte.transcripcionOriginal.isNullOrBlank()) {
-            InfoSection("📝 Notas", reporte.transcripcionOriginal!!)
+        if (!reporte.observaciones.isNullOrBlank()) {
+            InfoSection("📝 Notas", reporte.observaciones!!)
         }
 
         // Ubicación con visor de mapa
@@ -821,17 +821,17 @@ fun DetalleParteBottomSheet(
                 onClick = onEditar,
                 modifier = Modifier.weight(1f)
             ) {
-                Icon(Icons.Default.Edit, contentDescription = null)
+              /*  Icon(Icons.Default.Edit, contentDescription = null)
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Editar en Chat")
+                Text("Editar en Chat")*/
             }
             Button(
                 onClick = onCompartir,
                 modifier = Modifier.weight(1f)
             ) {
-                Icon(Icons.Default.Share, contentDescription = null)
+               /* Icon(Icons.Default.Share, contentDescription = null)
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Compartir")
+                Text("Compartir")*/
             }
         }
 

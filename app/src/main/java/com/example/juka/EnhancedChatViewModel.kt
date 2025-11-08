@@ -191,7 +191,9 @@ Contame todo sobre tu pesca:
     fun sendAudioTranscript(transcript: String) {
         when (_currentMode.value) {
             ChatMode.GENERAL -> sendGeneralAudioMessage(transcript)
+            //Este es para que ande los campos seleccionados
             //ChatMode.CREAR_PARTE -> sendParteTextMessage(transcript)
+             //Este es para que tome todo lo que el usuario diga
             ChatMode.CREAR_PARTE -> sendParteAudioMessage(transcript)
         }
     }
@@ -409,7 +411,17 @@ Contame todo sobre tu pesca:
 
                 val nuevosDataParte =
                     mlKitManager.convertirEntidadesAParteDatos(extractionResult.entidadesDetectadas)
-
+                if (extractionResult.entidadesDetectadas.size > 1) {
+                    _currentFieldInProgress.value = null
+                    _waitingForFieldResponse.value = null
+                }
+                val soloObservaciones = extractionResult.entidadesDetectadas.all {
+                    it.tipo == "OBSERVACION"
+                }
+                if (!soloObservaciones && extractionResult.entidadesDetectadas.size > 1) {
+                    _currentFieldInProgress.value = null
+                    _waitingForFieldResponse.value = null
+                }
                 _parteSession.value?.let { session ->
                     val datosActualizados = mergearDatosParte(session.parteData, nuevosDataParte)
                     val progreso = calcularProgresoParte(datosActualizados)
