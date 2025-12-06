@@ -237,7 +237,7 @@ fun IdentificarPezScreen() {
                             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                                 CircularProgressIndicator()
                                 Spacer(modifier = Modifier.height(16.dp))
-                                Text("Consultando al experto...", fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
+                                Text("Consultando a Huka...", fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
                             }
                         } else if (resultadoIdentificacion != null) {
                             Column {

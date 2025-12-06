@@ -7,19 +7,23 @@ import com.google.ai.client.generativeai.GenerativeModel
 import com.google.ai.client.generativeai.type.content
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.example.juka.BuildConfig
 
 class FishIdentifier(private val application: Application) {
 
     // ⚠️ PEGA TU API KEY AQUÍ DE NUEVO (se borró al actualizar)
-    private val API_KEY = "AIzaSyCsgv3LoE2u4o2uaoNeIPM7zxSuZf5O0eA"
+    private val generativeModel = GenerativeModel(
+        modelName = "gemini-2.0-flash",
+        apiKey = BuildConfig.GEMINI_API_KEY  // Usa esto en lugar del hardcoded
+    )
 
     // 🔧 CORRECCIÓN CRÍTICA:
     // Tu cuenta no tiene acceso a 'gemini-1.5-flash', pero SÍ tiene 'gemini-2.0-flash'.
     // Usamos este modelo que vimos en tu lista de Python.
-    private val generativeModel = GenerativeModel(
+   /* private val generativeModel = GenerativeModel(
         modelName = "gemini-2.0-flash",
         apiKey = API_KEY
-    )
+    )*/
 
     suspend fun identifyFish(imagePath: String): String = withContext(Dispatchers.IO) {
         try {

@@ -1,19 +1,17 @@
 package com.example.juka.data
 
+import com.google.ai.client.generativeai.BuildConfig
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.ai.client.generativeai.type.content
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 class GeminiPescaService {
-    private val apiKey = "AIzaSyCsgv3LoE2u4o2uaoNeIPM7zxSuZf5O0eA"
-
-    private val model by lazy {
-        GenerativeModel(
-            modelName = "gemini-2.0-flash", // o "gemini-pro" para respuestas más elaboradas
-            apiKey = apiKey
-        )
-    }
+    // ⚠️ PEGA TU API KEY AQUÍ DE NUEVO (se borró al actualizar)
+    private val generativeModel = GenerativeModel(
+        modelName = "gemini-2.0-flash",
+        apiKey = com.example.juka.BuildConfig.GEMINI_API_KEY  // Usa esto en lugar del hardcoded
+    )
 
     // Prompt especializado para pesca en Argentina
     private val systemPrompt = """
@@ -59,7 +57,7 @@ class GeminiPescaService {
                 append("Pregunta del pescador: $pregunta")
             }
 
-            val response = model.generateContent(
+            val response = generativeModel.generateContent(
                 content { text(promptCompleto) }
             )
 
