@@ -1,169 +1,114 @@
-// FishIdentifier.kt - Versión que funciona sin API key
 package com.example.juka
 
 import android.app.Application
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.net.Uri
-import android.util.Base64
+import com.google.ai.client.generativeai.GenerativeModel
+import com.google.ai.client.generativeai.type.content
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.*
-import okhttp3.MediaType.Companion.toMediaType
-import org.json.JSONObject
-import java.io.ByteArrayOutputStream
-import java.io.File
-import java.text.SimpleDateFormat
-import java.util.*
 
 class FishIdentifier(private val application: Application) {
 
-    private val httpClient = OkHttpClient()
-    private val fishDatabase = FishDatabase(application)
+    // ⚠️ PEGA TU API KEY AQUÍ DE NUEVO (se borró al actualizar)
+    private val API_KEY = "AIzaSyCsgv3LoE2u4o2uaoNeIPM7zxSuZf5O0eA"
 
-    // Versión alternativa que simula IA pero es 100% local
-    private val speciesLogFile = File(application.filesDir, "identified_species.txt")
-
-    suspend fun identifyFish(imagePath: String): String = withContext(Dispatchers.IO) {
-        try {
-            android.util.Log.d("FISH_ID", "Analizando imagen localmente: $imagePath")
-
-            // Análisis inteligente simulado basado en características
-            val analysisResult = performLocalAnalysis(imagePath)
-
-            return@withContext analysisResult
-
-        } catch (e: Exception) {
-            android.util.Log.e("FISH_ID", "Error en análisis: ${e.message}")
-            throw e
-        }
-    }
-
-    private suspend fun performLocalAnalysis(imagePath: String): String {
-        // Simular tiempo de procesamiento de IA
-        kotlinx.coroutines.delay(3000)
-
-        // Especies más comunes en Argentina con probabilidades
-        val commonSpecies = listOf(
-            Triple("Dorado", "Salminus brasiliensis", 85),
-            Triple("Surubí", "Pseudoplatystoma corruscans", 78),
-            Triple("Pacú", "Piaractus mesopotamicus", 82),
-            Triple("Pejerrey", "Odontesthes bonariensis", 75),
-            Triple("Tararira", "Hoplias malabaricus", 80),
-            Triple("Sábalo", "Prochilodus lineatus", 77),
-            Triple("Boga", "Leporinus obtusidens", 73)
-        )
-
-        // Seleccionar especie aleatoria (simula análisis de IA)
-        val selectedSpecies = commonSpecies.random()
-        val (commonName, scientificName, confidence) = selectedSpecies
-
-        // Buscar información local
-        val localFishInfo = fishDatabase.findLocalFishInfo(scientificName, commonName)
-
-        // Registrar identificación
-        saveIdentifiedSpecies(scientificName, commonName, confidence)
-
-        return buildIdentificationResponse(commonName, scientificName, confidence, localFishInfo)
-    }
-
-    private fun buildIdentificationResponse(
-        commonName: String,
-        scientificName: String,
-        confidence: Int,
-        localInfo: FishInfo?
-    ): String {
-        val confidenceLevel = when {
-            confidence >= 80 -> "Alta"
-            confidence >= 70 -> "Media-Alta"
-            confidence >= 60 -> "Media"
-            else -> "Baja"
-        }
-
-        return if (localInfo != null) {
-            """
-🔬 **Identificación con IA Local**
-
-🐟 **Especie identificada:** ${localInfo.name}
-🧬 **Nombre científico:** $scientificName
-📊 **Confianza:** $confidence% ($confidenceLevel)
-
-📋 **Información de pesca:**
-🏞️ **Hábitat:** ${localInfo.habitat}
-🎣 **Mejores carnadas:** ${localInfo.bestBaits.joinToString(", ")}
-⏰ **Mejor horario:** ${localInfo.bestTime}
-🎯 **Técnica:** ${localInfo.technique}
-📏 **Tamaño promedio:** ${localInfo.avgSize}
-📅 **Temporada:** ${localInfo.season}
-
-¡Excelente captura! 🏆
-
-*Nota: Identificación basada en análisis local inteligente*
-            """.trimIndent()
-        } else {
-            """
-🔬 **Identificación con IA Local**
-
-🐟 **Especie:** $commonName
-🧬 **Nombre científico:** $scientificName
-📊 **Confianza:** $confidence% ($confidenceLevel)
-
-ℹ️ Esta parece ser una especie común en aguas argentinas.
-
-¿Podrías contarme dónde la pescaste y qué carnada usaste? Me ayuda a mejorar mis análisis futuros. 🎣
-
-*Nota: Identificación basada en análisis local inteligente*
-            """.trimIndent()
-        }
-    }
-
-    private fun saveIdentifiedSpecies(scientificName: String, commonName: String, confidence: Int) {
-        try {
-            val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
-            val logEntry = "$timestamp | $commonName ($scientificName) - Confianza: $confidence% [LOCAL_AI]\n"
-            speciesLogFile.appendText(logEntry)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-}
-
-// ================================================
-// VERSIÓN ALTERNATIVA CON API KEY (SI LA CONSEGUIS)
-// ================================================
-
-/*
-class FishIdentifierWithAPI(private val application: Application) {
-
-    private val httpClient = OkHttpClient()
-    private val fishDatabase = FishDatabase()
-
-    // Tu API key de iNaturalist aquí
-    private val INATURALIST_API_KEY = "TU_API_KEY_AQUI"
-    private val INATURALIST_API_URL = "https://api.inaturalist.org/v1/computervision/score_image"
+    // 🔧 CORRECCIÓN CRÍTICA:
+    // Tu cuenta no tiene acceso a 'gemini-1.5-flash', pero SÍ tiene 'gemini-2.0-flash'.
+    // Usamos este modelo que vimos en tu lista de Python.
+    private val generativeModel = GenerativeModel(
+        modelName = "gemini-2.0-flash",
+        apiKey = API_KEY
+    )
 
     suspend fun identifyFish(imagePath: String): String = withContext(Dispatchers.IO) {
         try {
-            // Convertir imagen a base64
-            val imageBase64 = convertImageToBase64(imagePath)
+            android.util.Log.d("FISH_ID", "Iniciando análisis con Gemini: $imagePath")
 
-            val requestBody = JSONObject().apply {
-                put("image", imageBase64)
-                put("taxon_id", 47178) // Peces
+            // 1. Cargar imagen optimizada
+            val bitmap = decodeBitmapFromFile(imagePath)
+
+            if (bitmap == null) {
+                return@withContext "❌ Error: No se pudo leer el archivo de imagen."
             }
 
-            val request = Request.Builder()
-                .url(INATURALIST_API_URL)
-                .addHeader("Authorization", "Bearer $INATURALIST_API_KEY")
-                .addHeader("Content-Type", "application/json")
-                .post(requestBody.toString().toRequestBody("application/json".toMediaType()))
-                .build()
+            // 2. Prompt de Experto en Pesca
+            val prompt = """
+                Actúa como un guía de pesca experto local y biólogo marino. 
+                Analiza la foto de este pez y dame un reporte útil para un pescador deportivo.
+                
+                Estructura tu respuesta en estos 4 puntos clave, usa emojis:
+                
+                1. 🆔 **Identificación:**
+                   - Nombre común.
+                   - Nombre científico.
+                
+                2. 🎣 **Técnica de Pesca:**
+                   - ¿Cuál es la mejor carnada o señuelo?
+                   - ¿Dónde buscarlo (fondo, superficie, palos)?
+                
+                3. 🍽️ **Cocina:**
+                   - ¿Es buena carne? ¿Tiene muchas espinas?
+                   - Recomendación: ¿Frito, Parrilla o Chupín?
+                
+                4. ⚠️ **Cuidados:**
+                   - ¿Tiene dientes, chuzas o espinas peligrosas?
+                   - Advertencia sobre veda si aplica.
 
-            val response = httpClient.newCall(request).execute()
-            // ... resto del código para procesar respuesta real
+                Si la imagen NO es un pez, responde con humor que eso no se pesca.
+            """.trimIndent()
+
+            val inputContent = content {
+                image(bitmap)
+                text(prompt)
+            }
+
+            // 3. Llamada a la IA
+            val response = generativeModel.generateContent(inputContent)
+
+            return@withContext response.text ?: "La IA no devolvió texto."
 
         } catch (e: Exception) {
-            throw e
+            // Manejo de errores REAL
+            val errorMsg = e.localizedMessage ?: "Error desconocido"
+            android.util.Log.e("FISH_ID", "Error Gemini: $errorMsg")
+
+            // Si sigue fallando por el error de serialización, damos un mensaje claro
+            if (errorMsg.contains("MissingFieldException")) {
+                return@withContext "⚠️ Error de Modelo: El servidor rechazó la conexión (404). Verifica que tu API Key sea válida y tenga permisos para 'gemini-2.0-flash'."
+            }
+
+            return@withContext "⚠️ Ocurrió un error al consultar la IA:\n\n$errorMsg"
         }
     }
+
+    private fun decodeBitmapFromFile(path: String): Bitmap? {
+        return try {
+            val options = BitmapFactory.Options()
+            options.inJustDecodeBounds = true
+            BitmapFactory.decodeFile(path, options)
+
+            // Reducimos un poco más la calidad para asegurar que suba rápido
+            options.inSampleSize = calculateInSampleSize(options, 800, 800)
+
+            options.inJustDecodeBounds = false
+            BitmapFactory.decodeFile(path, options)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    private fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {
+        val (height: Int, width: Int) = options.run { outHeight to outWidth }
+        var inSampleSize = 1
+        if (height > reqHeight || width > reqWidth) {
+            val halfHeight: Int = height / 2
+            val halfWidth: Int = width / 2
+            while (halfHeight / inSampleSize >= reqHeight && halfWidth / inSampleSize >= reqWidth) {
+                inSampleSize *= 2
+            }
+        }
+        return inSampleSize
+    }
 }
-*/

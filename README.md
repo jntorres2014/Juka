@@ -18,7 +18,7 @@ Sigue estos pasos para compilar y ejecutar el proyecto en tu máquina local:
 
 Clonar el repositorio:
 
-git clone https://github.com/tu-usuario/Huka.git
+git clone https://github.com/jntorres2014/Huka.git
 Abrir en Android Studio: Abre el proyecto clonado con la última versión de Android Studio.
 
 Configurar Firebase:

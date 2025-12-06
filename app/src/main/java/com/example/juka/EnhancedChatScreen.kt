@@ -2,8 +2,10 @@
 package com.example.juka
 
 import android.net.Uri
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.RequiresApi
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
@@ -23,6 +25,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.juka.viewmodel.ChatMessage
 import kotlinx.coroutines.delay
 
+@RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EnhancedChatScreen(
@@ -33,12 +36,14 @@ fun EnhancedChatScreen(
     val listState = rememberLazyListState()
 
     // Estados del ViewModel
-    val currentMode by viewModel.currentMode.collectAsState()
+    //val currentMode by viewModel.currentMode.collectAsState()
     val generalMessages by viewModel.generalMessages.collectAsState()
     val parteSession by viewModel.parteSession.collectAsState()
     val isTyping by viewModel.isTyping.collectAsState()
     val isAnalyzing by viewModel.isAnalyzing.collectAsState()
     val firebaseStatus by viewModel.firebaseStatus.collectAsState()
+    val currentMode by viewModel.currentMode.collectAsState()
+    val chatEnabled by viewModel.chatEnabled.collectAsState()
 
 
     // NUEVOS estados
@@ -67,6 +72,7 @@ fun EnhancedChatScreen(
     val currentMessages = when (currentMode) {
         ChatMode.GENERAL -> generalMessages
         ChatMode.CREAR_PARTE -> parteSession?.messages ?: emptyList()
+
     }
 
     // Launcher para imágenes
@@ -106,8 +112,11 @@ fun EnhancedChatScreen(
                 val stats = viewModel.getConversationStats()
                 android.widget.Toast.makeText(context, stats, android.widget.Toast.LENGTH_LONG)
                     .show()
-            }
+            },  // ← CERRAR EL onInfoClick AQUÍ
+            showMenuButton = chatEnabled && currentMode == ChatMode.GENERAL,  // ← ESTOS VAN FUERA
+            onMenuClick = { viewModel.volverAlMenuPrincipal() }  // ← ESTOS VAN FUERA
         )
+
 
         // ================== PROGRESO DEL PARTE (SI APLICA) ==================
         if (currentMode == ChatMode.CREAR_PARTE && parteSession != null) {
@@ -161,8 +170,12 @@ fun EnhancedChatScreen(
                 // ✅ USANDO COMPONENTE CENTRALIZADO
                 MessageBubble(
                     message = message,
-                    currentMode = currentMode
+                    currentMode = currentMode,
+                    onOptionClick = { option ->  // ← AGREGAR ESTE HANDLER
+                        viewModel.handleOptionClick(option)
+                    }
                 )
+
             }
 
             // Indicadores de estado
@@ -187,42 +200,53 @@ fun EnhancedChatScreen(
         }
 
         // ================== INPUT MEJORADO ==================
-        if (currentMode == ChatMode.CREAR_PARTE) {
-            SimpleParteInput(
-                messageText = messageText,
-                onMessageChange = { messageText = it },
-                onSendMessage = {
-                    if (messageText.isNotBlank()) {
-                        viewModel.sendTextMessage(messageText.trim())
-                        messageText = ""
+                when {
+                    // Si estamos en modo crear parte, mostrar input de parte
+                    currentMode == ChatMode.CREAR_PARTE -> {
+                        SimpleParteInput(
+                            messageText = messageText,
+                            onMessageChange = { messageText = it },
+                            onSendMessage = {
+                                if (messageText.isNotBlank()) {
+                                    viewModel.sendTextMessage(messageText.trim())
+                                    messageText = ""
+                                }
+                            },
+                            onSendAudio = { transcript ->
+                                viewModel.sendAudioTranscript(transcript)
+                            },
+                            isWaitingForResponse = currentFieldInProgress != null,
+                            currentField = currentFieldInProgress
+                        )
                     }
-                },
-                onSendAudio = { transcript ->
-                    viewModel.sendAudioTranscript(transcript)
-                },
-                isWaitingForResponse = currentFieldInProgress != null,
-                currentField = currentFieldInProgress
-            )
-        } else {
-            EnhancedMessageInput(
-                messageText = messageText,
-                onMessageChange = { messageText = it },
-                onSendMessage = {
-                    if (messageText.isNotBlank()) {
-                        viewModel.sendTextMessage(messageText.trim())
-                        messageText = ""
+
+                    // Si el chat está habilitado en modo general, mostrar input
+                    currentMode == ChatMode.GENERAL -> {
+                        EnhancedMessageInput(
+                            messageText = messageText,
+                            onMessageChange = { messageText = it },
+                            onSendMessage = {
+                                if (messageText.isNotBlank()) {
+                                    viewModel.sendTextMessage(messageText.trim())
+                                    messageText = ""
+                                }
+                            },
+                            onSendImage = { imagePickerLauncher.launch("image/*") },
+                            onSendAudio = { transcript -> viewModel.sendAudioTranscript(transcript) },
+                            onSendLocation = { showMapPicker = true },
+                            currentMode = currentMode,
+                            isProcessing = isTyping || isAnalyzing,
+                            onCreateParte = { viewModel.iniciarCrearParte() }
+                        )
                     }
-                },
-                onSendImage = { imagePickerLauncher.launch("image/*") },
-                onSendAudio = { transcript -> viewModel.sendAudioTranscript(transcript) },
-                // Nuevas props para el mapa
-                onSendLocation = { showMapPicker = true },
-                currentMode = currentMode,
-                isProcessing = isTyping || isAnalyzing,
-                onCreateParte = { viewModel.iniciarCrearParte() }
-            )
-        }
-    }
+
+                    // Si no, no mostrar input (solo botones del menú)
+                    else -> {
+                        // Espacio vacío para mantener el layout consistente
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+                }
+            }
     // Trigger para selector de imágenes
     LaunchedEffect(showImagePickerFromViewModel) {
         if (showImagePickerFromViewModel) {
@@ -242,7 +266,9 @@ fun EnhancedChatHeader(
     firebaseStatus: String?,
     onModeChange: (ChatMode) -> Unit,
     onCancelarParte: () -> Unit,
-    onInfoClick: () -> Unit
+    onInfoClick: () -> Unit,
+    showMenuButton: Boolean = false,  // ← NUEVO PARÁMETRO
+    onMenuClick: () -> Unit = {}      // ← NUEVO PARÁMETRO
 ) {
     Surface(
         shadowElevation = 4.dp,
@@ -320,6 +346,15 @@ fun EnhancedChatHeader(
                             )
                         }
                     }
+                    if (showMenuButton) {
+                    IconButton(onClick = onMenuClick) {
+                        Icon(
+                            Icons.Default.Menu,
+                            contentDescription = "Volver al menú",
+                            tint = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
+                }
 
                     // Botón de cancelar (solo en modo parte)
                     if (currentMode == ChatMode.CREAR_PARTE) {
@@ -536,6 +571,7 @@ fun EnhancedMessageInput(
                 ) {
                     OutlinedButton(
                         onClick = onSendLocation,
+                        
                         modifier = Modifier.fillMaxWidth(0.8f),
                         shape = RoundedCornerShape(24.dp)
                     ) {

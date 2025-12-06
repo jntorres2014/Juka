@@ -1,6 +1,7 @@
 // ChatModes.kt - Estructura para manejar dos tipos de chat
 package com.example.juka
 
+import com.example.juka.data.ChatOption
 import com.example.juka.viewmodel.ChatMessage
 import com.example.juka.viewmodel.MessageType
 import com.google.firebase.firestore.GeoPoint
@@ -15,7 +16,8 @@ interface IMessage {
 // Enum para los diferentes modos de chat
 enum class ChatMode {
     GENERAL,    // Chat normal - consejos, identificación, etc.
-    CREAR_PARTE // Chat específico para crear un parte de pesca
+    CREAR_PARTE, // Chat específico para crear un parte de pesca
+
 }
 
 // Data class para mensajes con contexto de modo
@@ -25,6 +27,8 @@ data class ChatMessageWithMode(
     override val type: MessageType,
     override val timestamp: String,
     val mode: ChatMode,
+    val options: List<ChatOption>? = null,
+
     // NUEVO: Metadata para información adicional
     val metadata: Map<String, String> = emptyMap()
 ) : IMessage

@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.gms.google-services")
+    id("org.jetbrains.kotlin.plugin.serialization") version "1.9.0"
 }
 
 android {
@@ -132,4 +133,6 @@ dependencies {
 
     // ML Kit Smart Reply
     implementation("com.google.mlkit:smart-reply:17.0.2")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
+    implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
 }

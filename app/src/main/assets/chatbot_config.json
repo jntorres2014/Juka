@@ -1,0 +1,112 @@
+
+{
+  "nodes": {
+    "main_menu": {
+      "id": "main_menu",
+      "message": "¡Hola pescador! 🎣 ¿En qué puedo ayudarte hoy?",
+      "type": "MENU",
+      "options": [
+        {
+          "label": " Consultar a Huka",
+          "icon": "💬",
+          "action": "ENABLE_CHAT",
+          "data": {
+            "chat_type": "general_assistant"
+          }
+        },
+        {
+          "label": " Información de Mareas",
+          "icon": "🌊",
+          "action": "NAVIGATE",
+          "target": "tides_menu"
+        },
+        {
+          "label": " Lugares de Pesca",
+          "icon": "📍",
+          "action": "NAVIGATE",
+          "target": "locations_menu"
+        },
+        {
+          "label": " Especies y Regulaciones",
+          "icon": "🐟",
+          "action": "NAVIGATE",
+          "target": "species_menu"
+        },
+        {
+          "label": " Mis Estadísticas",
+          "icon": "📊",
+          "action": "OPEN_SCREEN",
+          "data": {
+            "screen": "statistics"
+          }
+        }
+      ]
+    },
+    "tides_menu": {
+      "id": "tides_menu",
+      "message": "📊 Información de mareas disponible:",
+      "type": "MENU",
+      "options": [
+        {
+          "label": "📅 Tabla de Mareas Mensual",
+          "action": "DOWNLOAD",
+          "data": {
+            "type": "tide_table",
+            "format": "pdf"
+          }
+        },
+        {
+          "label": "🌊 Marea Actual",
+          "action": "NAVIGATE",
+          "target": "current_tide"
+        },
+        {
+          "label": "📍 Mareas por Zona",
+          "action": "SHOW_MAP",
+          "data": {
+            "layer": "tides"
+          }
+        },
+        {
+          "label": "🔙 Volver",
+          "action": "BACK"
+        }
+      ]
+    },
+    "species_menu": {
+      "id": "species_menu",
+      "message": "🐟 ¿Qué información necesitas sobre especies?",
+      "type": "MENU",
+      "options": [
+        {
+          "label": "📖 Guía de Especies",
+          "action": "OPEN_SCREEN",
+          "data": {
+            "screen": "species_guide"
+          }
+        },
+        {
+          "label": "⚖️ Tallas Mínimas",
+          "action": "NAVIGATE",
+          "target": "minimum_sizes"
+        },
+        {
+          "label": "🚫 Vedas Vigentes",
+          "action": "NAVIGATE",
+          "target": "fishing_bans"
+        },
+        {
+          "label": "📋 Permisos Necesarios",
+          "action": "EXTERNAL_LINK",
+          "data": {
+            "url": "https://permisos-pesca.gob.ar"
+          }
+        },
+        {
+          "label": "🔙 Volver",
+          "action": "BACK"
+        }
+      ]
+    }
+  }
+}

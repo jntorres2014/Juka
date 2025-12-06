@@ -1,6 +1,8 @@
 package com.example.juka.identificar
 
 import android.Manifest
+import android.app.Application
+import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -21,85 +23,115 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import coil.compose.rememberAsyncImagePainter
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
+import java.io.FileOutputStream
+import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.*
+import com.example.juka.FishIdentifier // Asegúrate de importar tu clase
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun IdentificarPezScreen() {
     var imageUri by remember { mutableStateOf<Uri?>(null) }
     var isAnalyzing by remember { mutableStateOf(false) }
+
+    // Aquí guardaremos la respuesta completa de Gemini
     var resultadoIdentificacion by remember { mutableStateOf<String?>(null) }
-    var mostrarDetalles by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // 🔥 FUNCIÓN SIMPLIFICADA QUE FUNCIONA INMEDIATAMENTE
-    fun crearUriTemporal(): Uri? {
+    // 🧠 INSTANCIAMOS EL CEREBRO DE GEMINI
+    // Usamos 'remember' para no crearlo cada vez que la pantalla parpadea
+    val fishIdentifier = remember {
+        FishIdentifier(context.applicationContext as Application)
+    }
+
+    // --- FUNCIONES AUXILIARES ---
+
+    // Función para convertir la URI de galería a un Archivo real que Gemini pueda leer
+    fun uriToFile(context: Context, uri: Uri): File? {
         return try {
-            val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-            val imageFileName = "JPEG_${timeStamp}_"
-
-            // Usar cache dir en lugar de external files
-            val storageDir = context.cacheDir
-
-            val imageFile = File.createTempFile(
-                imageFileName,
-                ".jpg",
-                storageDir
-            )
-
-            FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                imageFile
-            )
+            val inputStream: InputStream? = context.contentResolver.openInputStream(uri)
+            val tempFile = File.createTempFile("upload", ".jpg", context.cacheDir)
+            val outputStream = FileOutputStream(tempFile)
+            inputStream?.use { input ->
+                outputStream.use { output ->
+                    input.copyTo(output)
+                }
+            }
+            tempFile
         } catch (e: Exception) {
             e.printStackTrace()
             null
         }
     }
-    // 🎯 LAUNCHER MEJORADO CON MANEJO DE ERRORES
-    val cameraLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.TakePicture()
-    ) { success ->
-        if (success && imageUri != null) {
-            // Iniciar análisis
-            isAnalyzing = true
-            scope.launch {
-                try {
-                    // Simular análisis de IA (en tu caso usarías FishIdentifier)
-                    delay(3000)
-                    resultadoIdentificacion = "Pejerrey"
-                    mostrarDetalles = true
-                } catch (e: Exception) {
-                    resultadoIdentificacion = "Error identificando pez"
-                } finally {
-                    isAnalyzing = false
+
+    // Función que realiza el análisis real
+    fun analizarImagen(uri: Uri) {
+        isAnalyzing = true
+        resultadoIdentificacion = null // Limpiamos resultado anterior
+
+        scope.launch {
+            try {
+                // 1. Convertimos la URI a un archivo físico
+                val file = uriToFile(context, uri)
+
+                if (file != null) {
+                    // 2. 🔥 LLAMADA A LA IA (Aquí ocurre la magia)
+                    val respuestaIA = fishIdentifier.identifyFish(file.absolutePath)
+
+                    // 3. Guardamos la respuesta
+                    resultadoIdentificacion = respuestaIA
+                } else {
+                    resultadoIdentificacion = "Error: No se pudo procesar el archivo de imagen."
                 }
+            } catch (e: Exception) {
+                resultadoIdentificacion = "Error al conectar con el guía de pesca: ${e.localizedMessage}"
+            } finally {
+                isAnalyzing = false
             }
-        } else {
-            // Si falló la captura, limpiar URI
-            imageUri = null
         }
     }
 
-    // 📱 LAUNCHER PARA PERMISOS
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
+    // --- LAUNCHERS ---
+
+    fun crearUriTemporal(): Uri? {
+        return try {
+            val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+            val imageFileName = "JPEG_${timeStamp}_"
+            val storageDir = context.cacheDir
+            val imageFile = File.createTempFile(imageFileName, ".jpg", storageDir)
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", imageFile)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        if (success && imageUri != null) {
+            // Si sacó la foto, analizamos inmediatamente
+            analizarImagen(imageUri!!)
+        }
+    }
+
+    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        uri?.let {
+            imageUri = it
+            // Si eligió de galería, analizamos inmediatamente
+            analizarImagen(it)
+        }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
         if (isGranted) {
-            // Permiso otorgado, abrir cámara
             val uri = crearUriTemporal()
             if (uri != null) {
                 imageUri = uri
@@ -108,49 +140,19 @@ fun IdentificarPezScreen() {
         }
     }
 
-    // Lanzador para seleccionar de galería
-    val galleryLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        uri?.let {
-            imageUri = it
-            isAnalyzing = true
-            scope.launch {
-                try {
-                    delay(3000)
-                    resultadoIdentificacion = "Dorado"
-                    mostrarDetalles = true
-                } catch (e: Exception) {
-                    resultadoIdentificacion = "Error identificando pez"
-                } finally {
-                    isAnalyzing = false
-                }
+    fun abrirCamara() {
+        if (context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            val uri = crearUriTemporal()
+            if (uri != null) {
+                imageUri = uri
+                cameraLauncher.launch(uri)
             }
+        } else {
+            permissionLauncher.launch(Manifest.permission.CAMERA)
         }
     }
 
-    // 📸 FUNCIÓN PARA ABRIR CÁMARA CON VERIFICACIÓN DE PERMISOS
-    fun abrirCamara() {
-        // Verificar permiso primero
-        when {
-            context.checkSelfPermission(Manifest.permission.CAMERA) ==
-                    PackageManager.PERMISSION_GRANTED -> {
-                // Permiso ya otorgado, crear URI y abrir cámara
-                val uri = crearUriTemporal()
-                if (uri != null) {
-                    imageUri = uri
-                    cameraLauncher.launch(uri)
-                } else {
-                    // Manejar error de creación de URI
-                    println("Error: No se pudo crear URI temporal")
-                }
-            }
-            else -> {
-                // Solicitar permiso
-                permissionLauncher.launch(Manifest.permission.CAMERA)
-            }
-        }
-    }
+    // --- INTERFAZ DE USUARIO (UI) ---
 
     Column(
         modifier = Modifier
@@ -168,70 +170,37 @@ fun IdentificarPezScreen() {
         )
 
         Text(
-            text = "Sube una foto y te digo qué especie es",
+            text = "Sube una foto y el guía virtual la analizará",
             fontSize = 16.sp,
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
         )
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Botones de captura
+        // Si NO hay imagen seleccionada, mostramos botones grandes
         if (imageUri == null) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                )
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
             ) {
                 Column(
                     modifier = Modifier.padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Icon(
-                        Icons.Default.PhotoCamera,
-                        contentDescription = null,
-                        modifier = Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-
+                    Icon(Icons.Default.PhotoCamera, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.height(16.dp))
-
-                    Text(
-                        text = "¿Qué pez pescaste?",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Text(
-                        text = "Toma una foto y te ayudo a identificar la especie",
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                    )
-
+                    Text("¿Qué pez pescaste?", fontSize = 20.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onPrimaryContainer)
                     Spacer(modifier = Modifier.height(20.dp))
 
-                    // Botones
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Button(
-                            onClick = { abrirCamara() }, // 🔥 FUNCIÓN CORREGIDA
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Default.Camera, contentDescription = null)
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Button(onClick = { abrirCamara() }, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.Camera, null)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Tomar Foto")
+                            Text("Cámara")
                         }
-
-                        OutlinedButton(
-                            onClick = { galleryLauncher.launch("image/*") },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Default.PhotoLibrary, contentDescription = null)
+                        OutlinedButton(onClick = { galleryLauncher.launch("image/*") }, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.PhotoLibrary, null)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("Galería")
                         }
@@ -240,7 +209,7 @@ fun IdentificarPezScreen() {
             }
         }
 
-        // Imagen seleccionada
+        // Si HAY imagen, mostramos la foto y el resultado
         imageUri?.let { uri ->
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -249,65 +218,42 @@ fun IdentificarPezScreen() {
                 Column {
                     Image(
                         painter = rememberAsyncImagePainter(uri),
-                        contentDescription = "Pez a identificar",
+                        contentDescription = "Captura",
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(300.dp)
+                            .height(250.dp)
                             .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)),
                         contentScale = ContentScale.Crop
                     )
 
-                    // Estado del análisis
+                    // Área de Estado / Resultado
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(
-                                if (isAnalyzing) MaterialTheme.colorScheme.secondaryContainer
-                                else if (resultadoIdentificacion != null) MaterialTheme.colorScheme.primaryContainer
-                                else MaterialTheme.colorScheme.surfaceVariant
-                            )
-                            .padding(16.dp),
-                        contentAlignment = Alignment.Center
+                            .background(MaterialTheme.colorScheme.surface)
+                            .padding(16.dp)
                     ) {
-                        when {
-                            isAnalyzing -> {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                                    Text(
-                                        "Analizando imagen con IA...",
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                }
+                        if (isAnalyzing) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                                CircularProgressIndicator()
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text("Consultando al experto...", fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
                             }
-
-                            resultadoIdentificacion != null -> {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.CheckCircle,
-                                        contentDescription = null,
-                                        tint = Color(0xFF4CAF50)
-                                    )
-                                    Text(
-                                        "Identificado: $resultadoIdentificacion",
-                                        fontSize = 18.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
+                        } else if (resultadoIdentificacion != null) {
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Reporte del Guía:", fontWeight = FontWeight.Bold, fontSize = 18.sp)
                                 }
-                            }
+                                Spacer(modifier = Modifier.height(12.dp))
 
-                            else -> {
+                                // 🔥 AQUI MOSTRAMOS LA RESPUESTA DE GEMINI
                                 Text(
-                                    "Presiona 'Identificar' para analizar",
-                                    fontSize = 14.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    text = resultadoIdentificacion!!,
+                                    fontSize = 15.sp,
+                                    lineHeight = 22.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
                         }
@@ -317,117 +263,31 @@ fun IdentificarPezScreen() {
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Botones de acción
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                OutlinedButton(
-                    onClick = {
-                        imageUri = null
-                        resultadoIdentificacion = null
-                        mostrarDetalles = false
-                        isAnalyzing = false
-                    },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Default.Refresh, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Nueva Foto")
-                }
-
-                if (resultadoIdentificacion != null && !isAnalyzing) {
-                    Button(
+            // Botones de acción final
+            if (!isAnalyzing) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(
                         onClick = {
-                            // Reiniciar análisis con la misma imagen
-                            isAnalyzing = true
-                            scope.launch {
-                                try {
-                                    delay(3000)
-                                    resultadoIdentificacion = "Trucha arcoíris"
-                                    mostrarDetalles = true
-                                } catch (e: Exception) {
-                                    resultadoIdentificacion = "Error identificando pez"
-                                } finally {
-                                    isAnalyzing = false
-                                }
-                            }
+                            imageUri = null
+                            resultadoIdentificacion = null
                         },
                         modifier = Modifier.weight(1f)
                     ) {
-                        Icon(Icons.Default.Search, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Re-identificar")
+                        Text("Otra Foto")
+                    }
+
+                    if (resultadoIdentificacion != null) {
+                        Button(
+                            onClick = { analizarImagen(uri) }, // Reintentar
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.Refresh, null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Reintentar")
+                        }
                     }
                 }
             }
         }
-
-        // Detalles del pez identificado
-        if (mostrarDetalles && resultadoIdentificacion != null && !isAnalyzing) {
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(20.dp)
-                ) {
-                    Text(
-                        text = resultadoIdentificacion!!,
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-
-                    Text(
-                        text = "Odontesthes bonariensis",
-                        fontSize = 14.sp,
-                        fontStyle = FontStyle.Italic,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                    )
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Información del pez
-                    InfoSection1("Hábitat", "Lagunas y embalses de agua dulce")
-                    InfoSection1("Carnadas", "Lombriz, cascarudos, artificiales pequeños")
-                    InfoSection1("Mejor horario", "Todo el día, especialmente mañana")
-                    InfoSection1("Técnica", "Pesca con boya o spinning liviano")
-                    InfoSection1("Tamaño promedio", "200g - 1kg")
-
-                    Spacer(modifier = Modifier.height(20.dp))
-
-                    // Botón para agregar al reporte
-                    Button(
-                        onClick = { /* Agregar al reporte actual */ },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Agregar a Mi Reporte")
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun InfoSection1(titulo: String, contenido: String) {
-    Column(modifier = Modifier.padding(vertical = 4.dp)) {
-        Text(
-            text = titulo,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.primary
-        )
-        Text(
-            text = contenido,
-            fontSize = 14.sp,
-            color = MaterialTheme.colorScheme.onSurface,
-            lineHeight = 18.sp
-        )
-        Spacer(modifier = Modifier.height(8.dp))
     }
 }

@@ -25,6 +25,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.rememberAsyncImagePainter
 import com.example.juka.ChatMode
+import com.example.juka.data.ActionType
+import com.example.juka.data.ChatOption
 import com.example.juka.viewmodel.ChatMessage
 import com.example.juka.viewmodel.MessageType
 import kotlinx.coroutines.delay
@@ -39,6 +41,7 @@ import kotlinx.coroutines.delay
 fun MessageBubble(
     message: IMessage,
     currentMode: ChatMode = ChatMode.GENERAL,
+    onOptionClick: (ChatOption) -> Unit = {},  // ← AGREGAR ESTE PARÁMETRO
     modifier: Modifier = Modifier
 ) {
     val isUser = message.isFromUser
@@ -94,6 +97,17 @@ fun MessageBubble(
                 }
             }
 
+            // ← AGREGAR AQUÍ LOS BOTONES INTERACTIVOS
+            // Mostrar botones si es un mensaje del bot con opciones
+            if (!isUser && message is ChatMessageWithMode && message.options != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                InteractiveOptionsGrid(
+                    options = message.options!!,
+                    onOptionClick = onOptionClick,
+                    //modifier = Modifier.widthIn(max = 320.dp)
+                )
+            }
+
             // Timestamp
             Row(
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
@@ -125,7 +139,6 @@ fun MessageBubble(
         }
     }
 }
-
 // ==================== AVATARS ====================
 
 @Composable
@@ -548,3 +561,49 @@ private fun getTextColor(isUser: Boolean): Color {
         MaterialTheme.colorScheme.onSurfaceVariant
     }
 }
+@Composable
+fun InteractiveOptionsGrid(
+    options: List<ChatOption>,
+    onOptionClick: (ChatOption) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        options.forEach { option ->
+            FilledTonalButton(
+                onClick = { onOptionClick(option) },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = when (option.action) {
+                        ActionType.START_PARTE -> MaterialTheme.colorScheme.tertiaryContainer
+                        ActionType.DOWNLOAD -> MaterialTheme.colorScheme.secondaryContainer
+                        else -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                    }
+                )
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(vertical = 6.dp)
+                ) {
+                    option.icon?.let {
+                        Text(it, fontSize = 20.sp, modifier = Modifier.padding(end = 10.dp))
+                    }
+
+                    Text(
+                        text = option.label,
+                        fontWeight = if (option.action == ActionType.START_PARTE) FontWeight.Bold else FontWeight.Medium,
+                        fontSize = 15.sp
+                    )
+
+                    Spacer(Modifier.weight(1f))
+
+                    if (option.action == ActionType.EXTERNAL_LINK) {
+                        Icon(
+                            Icons.Filled.OpenInNew,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }}

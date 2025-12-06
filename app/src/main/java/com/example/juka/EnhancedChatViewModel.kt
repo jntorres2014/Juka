@@ -1,12 +1,20 @@
 // EnhancedChatViewModel.kt - ViewModel mejorado con dos modos de chat
 package com.example.juka
 
+import GeminiChatService
 import android.app.Application
+import android.os.Build
 import android.util.Log
+import androidx.annotation.RequiresApi
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.juka.data.ActionResult
+import com.example.juka.data.ChatBotActionHandler
+import com.example.juka.data.ChatBotManager
+import com.example.juka.data.ChatOption
 import com.example.juka.data.firebase.FirebaseManager
 import com.example.juka.data.firebase.FirebaseResult
+import com.example.juka.domain.chat.ChatQuotaManager
 import com.example.juka.viewmodel.ChatMessage
 import com.example.juka.viewmodel.MessageType
 import com.google.firebase.firestore.GeoPoint
@@ -20,11 +28,14 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 class EnhancedChatViewModel(application: Application) : AndroidViewModel(application) {
-
+    private val quotaManager = ChatQuotaManager(application)
+    private val geminiService = GeminiChatService()
+    val quotaState = quotaManager.quotaState
     // Estados principales
     private val _currentMode = MutableStateFlow(ChatMode.GENERAL)
     val currentMode: StateFlow<ChatMode> = _currentMode.asStateFlow()
-
+    private val _chatEnabled = MutableStateFlow(false)
+    val chatEnabled: StateFlow<Boolean> = _chatEnabled.asStateFlow()
     // Chat general (como antes)
     private val _generalMessages = MutableStateFlow<List<ChatMessageWithMode>>(emptyList())
     val generalMessages: StateFlow<List<ChatMessageWithMode>> = _generalMessages.asStateFlow()
@@ -48,6 +59,116 @@ class EnhancedChatViewModel(application: Application) : AndroidViewModel(applica
     private val fishDatabase = FishDatabase(getApplication())
     private val intelligentResponses = IntelligentResponses(fishDatabase)
     private val firebaseManager = FirebaseManager(getApplication())
+    // ================== CHATBOT MANAGERS ==================
+    private val chatBotManager = ChatBotManager(application)
+    private val chatBotActionHandler = ChatBotActionHandler(application).apply {
+        // Configurar callbacks
+        onStartParte = { iniciarCrearParte() }
+        onDownloadFile = { data -> handleDownload(data) }
+    }
+
+    // Exponer estados del chatbot
+/*    val showMapPicker = chatBotActionHandler.showMapPicker
+    val showImagePicker = chatBotActionHandler.showImagePicker
+    val navigationEvent = chatBotActionHandler.navigationEvent*/
+    private val _showMapPicker = MutableStateFlow(false)
+    val showMapPicker: StateFlow<Boolean> = _showMapPicker.asStateFlow()  // ← este es el bueno
+
+    private val _showImagePicker = MutableStateFlow(false)
+    val showImagePicker: StateFlow<Boolean> = _showImagePicker.asStateFlow()  // ← este es el bueno
+
+    fun dismissMapPicker() {
+        _showMapPicker.value = false
+    }
+
+    fun dismissImagePicker() {
+        _showImagePicker.value = false
+    }
+
+    // ================== FUNCIONES DEL CHATBOT (SIMPLIFICADAS) ==================
+
+    fun showMainMenu() {
+        val node = chatBotManager.getMainMenu()
+        val message = ChatMessageWithMode(
+            content = node.message,
+            isFromUser = false,
+            type = MessageType.TEXT,
+            timestamp = getCurrentTimestamp(),
+            mode = ChatMode.GENERAL,
+            options = node.options
+        )
+        addMessageToGeneralChat(message)
+    }
+
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    fun handleOptionClick(option: ChatOption) {
+        // Agregar mensaje del usuario
+        val userMessage = ChatMessageWithMode(
+            content = option.label.removePrefix(option.icon ?: "").trim(),
+            isFromUser = true,
+            type = MessageType.TEXT,
+            timestamp = getCurrentTimestamp(),
+            mode = ChatMode.GENERAL
+        )
+        addMessageToGeneralChat(userMessage)
+
+        // Procesar la acción
+        when (val result = chatBotActionHandler.handleAction(option)) {
+            is ActionResult.Navigate -> {
+                chatBotManager.currentNode.value?.id?.let {
+                    chatBotManager.pushToNavigationStack(it)
+                }
+                chatBotManager.navigateToNode(result.nodeId)?.let { node ->
+                    addBotMessage(node.message, node.options)
+                }
+            }
+
+            is ActionResult.Back -> {
+                chatBotManager.navigateBack()?.let { node ->
+                    addBotMessage(node.message, node.options)
+                }
+            }
+
+            is ActionResult.Home -> {
+                showMainMenu()
+            }
+
+            is ActionResult.Error -> {
+                addBotMessage("❌ ${result.message}")
+            }
+
+            // Otros casos ya se manejan en los callbacks
+            else -> {
+                // NUEVO: Verificar si es la opción de habilitar chat
+                if (option.label.contains("Consultar a Huka") ||
+                    option.label.contains("Consultar") ||
+                    option.label.contains("Chat")) {
+                    habilitarChat()
+                }
+            }
+        }
+    }
+
+    private fun addBotMessage(content: String, options: List<ChatOption>? = null) {
+        val message = ChatMessageWithMode(
+            content = content,
+            isFromUser = false,
+            type = MessageType.TEXT,
+            timestamp = getCurrentTimestamp(),
+            mode = ChatMode.GENERAL,
+            options = options
+        )
+        addMessageToGeneralChat(message)
+    }
+
+    private fun handleDownload(data: Map<String, String>?) {
+        // Tu lógica de descarga
+        addBotMessage("📥 Iniciando descarga...")
+    }
+
+//    fun dismissMapPicker() = chatBotActionHandler.dismissMapPicker()
+  //  fun dismissImagePicker() = chatBotActionHandler.dismissImagePicker()
+
 
     // Archivos
     private val generalChatFile =
@@ -60,41 +181,39 @@ class EnhancedChatViewModel(application: Application) : AndroidViewModel(applica
     }
 
     init {
-        android.util.Log.d(TAG, "✅ Inicializando EnhancedChatViewModel con dos modos")
+        android.util.Log.d(TAG, "✅ Inicializando EnhancedChatViewModel con botones tipo Telegram")
 
         // Inicializar base de datos
         viewModelScope.launch {
             try {
                 fishDatabase.initialize()
                 android.util.Log.i(TAG, "✅ Base de datos de peces inicializada")
+
                 val resultadoEncuesta = firebaseManager.verificarEncuestaCompletada()
                 val encuestaCompleta = when (resultadoEncuesta) {
                     is FirebaseResult.Success -> true
                     is FirebaseResult.Error -> false
                     is FirebaseResult.Loading -> false
                 }
-                if (encuestaCompleta) {
-                    // Agregar mensaje sugiriendo completar encuesta
-                    //addWelcomeMessageWithSurvey()
+
+                if (!encuestaCompleta) {
                     Log.i(TAG, "✅ Mensaje de bienvenida con encuesta")
-                } else {
-                    addWelcomeMessage() // Tu mensaje actual
                 }
+
             } catch (e: Exception) {
                 android.util.Log.e(TAG, "❌ Error inicializando base de datos: ${e.message}")
             }
-
         }
+        _chatEnabled.value = true
 
         // Cargar historial del chat general
         loadGeneralChatHistory()
 
-        // Agregar mensaje de bienvenida si no hay mensajes
+        // Mostrar menú principal si no hay mensajes
         if (_generalMessages.value.isEmpty()) {
-            addWelcomeMessage()
+            showMainMenu()  // Esto muestra el menú con botones
         }
     }
-
     // ================== FUNCIONES DE NAVEGACIÓN ENTRE MODOS ==================
 
     /**
@@ -142,7 +261,7 @@ Contame todo sobre tu pesca:
     fun volverAChatGeneral() {
         android.util.Log.d(TAG, "🔙 Volviendo a modo GENERAL")
         _currentMode.value = ChatMode.GENERAL
-
+        showMainMenu()
         // Mantener la sesión de parte para poder retomarla después
         // No la eliminamos, solo cambiamos el modo
     }
@@ -150,6 +269,9 @@ Contame todo sobre tu pesca:
     /**
      * Cancelar la creación del parte actual
      */
+    fun openMapPicker() {
+        _showMapPicker.value = true
+    }
     fun cancelarParte() {
         android.util.Log.d(TAG, "❌ Cancelando parte actual")
 
@@ -210,8 +332,12 @@ Contame todo sobre tu pesca:
 
     // ================== CHAT GENERAL ==================
 
-    private fun sendGeneralTextMessage(content: String) {
+   /* private fun sendGeneralTextMessage(content: String) {
         android.util.Log.d(TAG, "💬 Mensaje general: '$content'")
+        if (chatBotManager.isMenuRequest(content)) {
+            showMainMenu()
+            return
+        }
 
         val userMessage = ChatMessageWithMode(
             content = content,
@@ -244,8 +370,53 @@ Contame todo sobre tu pesca:
             saveGeneralMessageToFile(botMessage)
         }
     }
+*/
+   private fun sendGeneralTextMessage(content: String) {
+       if (chatBotManager.isMenuRequest(content)) {
+           showMainMenu()
+           return
+       }
 
-    private fun sendGeneralAudioMessage(transcript: String) {
+       // Agregar mensaje del usuario
+       addUserMessage(content)
+
+       // Verificar quota
+       if (!quotaManager.canMakeQuery()) {
+           addBotMessage(quotaManager.getQuotaMessage())
+           return
+       }
+
+       // Procesar con Gemini
+       processWithGemini(content)
+   }
+    private fun processWithGemini(content: String) {
+        _isTyping.value = true
+
+        viewModelScope.launch {
+            when (val result = geminiService.processUserMessage(content)) {
+                is ChatResult.Success -> {
+                    quotaManager.consumeQuery()
+                    val responseWithQuota = """
+                        ${result.message}
+                        
+                        _${quotaManager.getQuotaMessage()}_
+                    """.trimIndent()
+                    addBotMessage(responseWithQuota)
+                }
+
+                is ChatResult.Error -> {
+                    if (result.shouldConsumeQuota) {
+                        quotaManager.consumeQuery()
+                    }
+                    addBotMessage(result.message)
+                }
+            }
+            _isTyping.value = false
+        }
+    }
+
+
+    /*private fun sendGeneralAudioMessage(transcript: String) {
         val userMessage = ChatMessageWithMode(
             content = "🎤 \"$transcript\"",
             isFromUser = true,
@@ -276,6 +447,61 @@ Contame todo sobre tu pesca:
             addMessageToGeneralChat(botMessage)
             saveGeneralMessageToFile(botMessage)
         }
+    }*/
+    private fun sendGeneralAudioMessage(transcript: String) {
+        addUserMessage("🎤 \"$transcript\"", MessageType.AUDIO)
+
+        if (!quotaManager.canMakeQuery()) {
+            addBotMessage(quotaManager.getQuotaMessage())
+            return
+        }
+
+        _isTyping.value = true
+
+        viewModelScope.launch {
+            when (val result = geminiService.processAudioMessage(transcript)) {
+                is ChatResult.Success -> {
+                    quotaManager.consumeQuery()
+                    val responseWithQuota = """
+                        👂 Procesé tu audio:
+                        
+                        ${result.message}
+                        
+                        _${quotaManager.getQuotaMessage()}_
+                    """.trimIndent()
+                    addBotMessage(responseWithQuota)
+                }
+
+                is ChatResult.Error -> {
+                    addBotMessage(result.message)
+                }
+            }
+            _isTyping.value = false
+        }
+    }
+    private fun addUserMessage(
+        content: String,
+        type: MessageType = MessageType.TEXT
+    ) {
+        val message = ChatMessageWithMode(
+            content = content,
+            isFromUser = true,
+            type = type,
+            timestamp = getCurrentTimestamp(),
+            mode = ChatMode.GENERAL
+        )
+        addMessageToGeneralChat(message)
+    }
+
+    private fun addBotMessage(content: String) {
+        val message = ChatMessageWithMode(
+            content = content,
+            isFromUser = false,
+            type = MessageType.TEXT,
+            timestamp = getCurrentTimestamp(),
+            mode = ChatMode.GENERAL
+        )
+        addMessageToGeneralChat(message)
     }
 
     private fun sendGeneralImageMessage(imagePath: String) {
@@ -559,7 +785,8 @@ ${generarResumenProgreso(_parteSession.value?.parteData)}
             "hora_inicio" to datos.horaInicio,
             "hora_fin" to datos.horaFin,
             "numero de cañas" to datos.numeroCanas?.toString(),
-            "imagenes" to if (datos.imagenes.isNotEmpty()) "completado" else null
+            "imagenes" to if (datos.imagenes.isNotEmpty()) "completado" else null,
+            "ubicacion" to datos.nombreLugar  // hace que aparezca en chips si falta
         )
 
         val obligatoriosCompletos = camposObligatorios.count { it.second != null }
@@ -649,6 +876,7 @@ ${generarResumenProgreso(_parteSession.value?.parteData)}
                     "especies" -> "¿Qué especies capturaste?"
                     "provincia" -> "¿En qué provincia?"
                     "hora_inicio" -> "¿A qué hora empezaste?"
+                    "ubicacion" -> "¿Dónde pescaste exactamente?"  // ≪≪≪ NUEVO ≫≫≫
                     "hora_fin" -> "¿A qué hora terminaste?"
                     else -> "¿Podés completar $campo?"
                 }
@@ -787,73 +1015,6 @@ ${generarResumenProgreso(_parteSession.value?.parteData)}
         addMessageToGeneralChat(welcomeMessage)
     }
 
-    // Reemplazar las funciones existentes en tu EnhancedChatViewModel
-
-    /*    private fun guardarParteSession(session: ParteSessionChat) {
-        viewModelScope.launch {
-            try {
-                val resultado = firebaseManager.guardarParteSession(session)
-                when (resultado) {
-                    is FirebaseResult.Success -> {
-                        android.util.Log.i(TAG, "✅ Sesión guardada exitosamente")
-                    }
-                    is FirebaseResult.Error -> {
-                        android.util.Log.e(TAG, "❌ Error guardando sesión: ${resultado.message}")
-                    }
-                    else -> {}
-                }
-            } catch (e: Exception) {
-                android.util.Log.e(TAG, "💥 Error en guardarParteSession: ${e.message}")
-            }
-        }
-    }*/
-    /*
-    fun guardarParteBorrador() {
-        _parteSession.value?.let { session ->
-            val sessionBorrador = session.copy()
-
-            _firebaseStatus.value = "Guardando borrador..."
-
-            viewModelScope.launch {
-                try {
-                    val resultado = firebaseManager.guardarParteSession(sessionBorrador)
-
-                    when (resultado) {
-                        is FirebaseResult.Success -> {
-                            _parteSession.value = sessionBorrador
-                            _firebaseStatus.value = "Borrador guardado en Firebase"
-
-                            // Mensaje en el chat
-                            val mensajeBorrador = ChatMessageWithMode(
-                                content = "💾 **Borrador guardado automáticamente**\n\nTu progreso está seguro en Firebase. Podés continuar después desde donde lo dejaste.",
-                                isFromUser = false,
-                                type = MessageType.TEXT,
-                                timestamp = getCurrentTimestamp(),
-                                mode = ChatMode.CREAR_PARTE
-                            )
-                            addMessageToParteSession(mensajeBorrador)
-
-                            delay(3000)
-                            _firebaseStatus.value = null
-                        }
-                        is FirebaseResult.Error -> {
-                            _firebaseStatus.value = "Error guardando borrador"
-                            android.util.Log.e(TAG, "Error: ${resultado.message}")
-                            delay(3000)
-                            _firebaseStatus.value = null
-                        }
-                        else -> {}
-                    }
-
-                } catch (e: Exception) {
-                    _firebaseStatus.value = "Error guardando borrador"
-                    android.util.Log.e(TAG, "Error en guardarParteBorrador: ${e.message}")
-                    delay(3000)
-                    _firebaseStatus.value = null
-                }
-            }
-        }
-    }*/
 
     fun completarYEnviarParte() {
         _parteSession.value?.let { session ->
@@ -956,6 +1117,32 @@ ${session.parteData.camposFaltantes.joinToString("\n") { "• $it" }}
             }
         }
     }
+    fun habilitarChat() {
+        _chatEnabled.value = true
+
+        val welcomeMessage = ChatMessageWithMode(
+            content = """
+            💬 **Chat con Huka activado**
+            
+            ¡Hola! Soy Huka, tu asistente de pesca 🎣
+            
+            Podés preguntarme lo que necesites sobre pesca.
+            
+            ¿En qué te puedo ayudar?
+        """.trimIndent(),
+            isFromUser = false,
+            type = MessageType.TEXT,
+            timestamp = getCurrentTimestamp(),
+            mode = ChatMode.GENERAL
+        )
+
+        addMessageToGeneralChat(welcomeMessage)
+    }
+    fun volverAlMenuPrincipal() {
+        _chatEnabled.value = false
+        _currentMode.value = ChatMode.GENERAL
+        showMainMenu()
+    }
     // ================== NUEVA FUNCIÓN PARA GUARDAR UBICACIÓN ==================
 
     fun saveLocation(latitude: Double, longitude: Double, name: String?) {
@@ -1055,6 +1242,7 @@ Continuando desde donde lo dejaste:
 
     // NUEVO: Función para manejar selección de campo
     fun onCampoParteSelected(campo: CampoParte) {
+        Log.d(TAG, "🔵 onCampoParteSelected - Campo seleccionado: ${campo.name}")
         _currentFieldInProgress.value = campo
         _waitingForFieldResponse.value = campo
 
@@ -1262,12 +1450,16 @@ Continuando desde donde lo dejaste:
 
         // Si es ubicación, abrir directamente el mapa
         if (campo == CampoParte.UBICACION) {
+            Log.d(TAG, "🗺️ Campo UBICACION detectado - Intentando abrir mapa")
+
+
             // Esto triggereará el MapPicker en la UI
             _showMapPicker.value = true
         }
 
         // Si es fotos, abrir selector de imágenes
         if (campo == CampoParte.FOTOS) {
+            Log.d(TAG, "📸 Campo FOTOS detectado - Intentando abrir selector")
             _showImagePicker.value = true
         }
     }
@@ -1570,19 +1762,23 @@ Continuando desde donde lo dejaste:
     }
 
     // Nuevos estados para triggers de UI
-    private val _showMapPicker = MutableStateFlow(false)
-    val showMapPicker: StateFlow<Boolean> = _showMapPicker.asStateFlow()
+    //private val _showMapPicker = MutableStateFlow(false)
 
-    private val _showImagePicker = MutableStateFlow(false)
-    val showImagePicker: StateFlow<Boolean> = _showImagePicker.asStateFlow()
+    val showMapPickerForParte: StateFlow<Boolean> = _showMapPicker.asStateFlow()
 
-    fun dismissMapPicker() {
-        _showMapPicker.value = false
-    }
+    /*private val _showImagePicker = MutableStateFlow(false)
+        val showImagePickerForParte: StateFlow<Boolean> = _showImagePicker.asStateFlow()
 
-    fun dismissImagePicker() {
-        _showImagePicker.value = false
-    }
+        fun dismissMapPicker() {
+            Log.d(TAG, "❌ dismissMapPicker - Estado actual: ${_showMapPicker.value}")
+            _showMapPicker.value = false
+        }
+
+
+        fun dismissImagePicker() {
+            _showImagePicker.value = false
+        }
+*/
 
     // ACTUALIZAR: Actualizar datos del parte según el campo (más estricto)
     private fun actualizarDatosPartePorCampo(
