@@ -222,7 +222,7 @@ class ChatBotManager(private val application: Application) {
      * Verifica si el mensaje del usuario es una solicitud de menú
      */
     fun isMenuRequest(message: String): Boolean {
-        val menuKeywords = listOf("menu", "menú", "ayuda", "opciones", "inicio", "volver")
+        val menuKeywords = listOf("menu", "menú", "inicio", "volver")
         return menuKeywords.any { message.lowercase().contains(it) }
     }
 }

@@ -2,6 +2,7 @@
 package com.example.juka
 
 import android.util.Log
+import com.example.juka.domain.model.MLKitEntity
 import java.util.regex.Pattern
 
 

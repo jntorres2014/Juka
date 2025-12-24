@@ -1,5 +1,5 @@
 // WorkingAudioButton.kt - VERSIÓN QUE SÍ FUNCIONA
-package com.example.juka
+package com.example.juka.component
 
 import android.Manifest
 import android.content.Context
@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.*
@@ -26,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.delay
 
 @Composable
 fun WorkingAudioButton(
@@ -41,7 +43,7 @@ fun WorkingAudioButton(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var speechRecognizer by remember { mutableStateOf<SpeechRecognizer?>(null) }
 
-    android.util.Log.d("🎤 WorkingAudio", "Renderizando WorkingAudioButton")
+    Log.d("🎤 WorkingAudio", "Renderizando WorkingAudioButton")
 
     // Animación
     val scale by animateFloatAsState(
@@ -53,27 +55,27 @@ fun WorkingAudioButton(
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
-        android.util.Log.d("🎤 WorkingAudio", "Permisos: $isGranted")
+        Log.d("🎤 WorkingAudio", "Permisos: $isGranted")
         if (isGranted) {
             startRecording(
                 context = context,
                 onRecording = {
-                    android.util.Log.d("🎤 WorkingAudio", "🎤 GRABANDO")
+                    Log.d("🎤 WorkingAudio", "🎤 GRABANDO")
                     isRecording = true
                 },
                 onProcessing = {
-                    android.util.Log.d("🎤 WorkingAudio", "⚡ PROCESANDO")
+                    Log.d("🎤 WorkingAudio", "⚡ PROCESANDO")
                     isRecording = false
                     isProcessing = true
                 },
                 onResult = { result ->
-                    android.util.Log.d("🎤 WorkingAudio", "✅ RESULTADO: '$result'")
+                    Log.d("🎤 WorkingAudio", "✅ RESULTADO: '$result'")
                     isProcessing = false
                     errorMessage = null
                     onAudioTranscribed(result)
                 },
                 onError = { error ->
-                    android.util.Log.e("🎤 WorkingAudio", "❌ ERROR: $error")
+                    Log.e("🎤 WorkingAudio", "❌ ERROR: $error")
                     isRecording = false
                     isProcessing = false
                     errorMessage = error
@@ -89,7 +91,7 @@ fun WorkingAudioButton(
     // Cleanup
     DisposableEffect(Unit) {
         onDispose {
-            android.util.Log.d("🎤 WorkingAudio", "🧹 Cleanup SpeechRecognizer")
+            Log.d("🎤 WorkingAudio", "🧹 Cleanup SpeechRecognizer")
             speechRecognizer?.destroy()
         }
     }
@@ -101,45 +103,45 @@ fun WorkingAudioButton(
         // Botón principal
         FloatingActionButton(
             onClick = {
-                android.util.Log.d("🎤 WorkingAudio", "👆 BOTÓN TOCADO")
-                android.util.Log.d("🎤 WorkingAudio", "Estado: Recording=$isRecording, Processing=$isProcessing")
+                Log.d("🎤 WorkingAudio", "👆 BOTÓN TOCADO")
+                Log.d("🎤 WorkingAudio", "Estado: Recording=$isRecording, Processing=$isProcessing")
 
                 // Reset error
                 errorMessage = null
 
                 when {
                     isRecording -> {
-                        android.util.Log.d("🎤 WorkingAudio", "🛑 Deteniendo grabación...")
+                        Log.d("🎤 WorkingAudio", "🛑 Deteniendo grabación...")
                         speechRecognizer?.stopListening()
                         isRecording = false
                         isProcessing = true
                     }
                     isProcessing -> {
-                        android.util.Log.d("🎤 WorkingAudio", "⏳ Procesando... no hacer nada")
+                        Log.d("🎤 WorkingAudio", "⏳ Procesando... no hacer nada")
                         // No hacer nada
                     }
                     else -> {
-                        android.util.Log.d("🎤 WorkingAudio", "🚀 Iniciando grabación...")
+                        Log.d("🎤 WorkingAudio", "🚀 Iniciando grabación...")
                         if (hasAudioPermission(context)) {
                             startRecording(
                                 context = context,
                                 onRecording = {
-                                    android.util.Log.d("🎤 WorkingAudio", "🎤 GRABANDO (directo)")
+                                    Log.d("🎤 WorkingAudio", "🎤 GRABANDO (directo)")
                                     isRecording = true
                                 },
                                 onProcessing = {
-                                    android.util.Log.d("🎤 WorkingAudio", "⚡ PROCESANDO (directo)")
+                                    Log.d("🎤 WorkingAudio", "⚡ PROCESANDO (directo)")
                                     isRecording = false
                                     isProcessing = true
                                 },
                                 onResult = { result ->
-                                    android.util.Log.d("🎤 WorkingAudio", "✅ RESULTADO (directo): '$result'")
+                                    Log.d("🎤 WorkingAudio", "✅ RESULTADO (directo): '$result'")
                                     isProcessing = false
                                     errorMessage = null
                                     onAudioTranscribed(result)
                                 },
                                 onError = { error ->
-                                    android.util.Log.e("🎤 WorkingAudio", "❌ ERROR (directo): $error")
+                                    Log.e("🎤 WorkingAudio", "❌ ERROR (directo): $error")
                                     isRecording = false
                                     isProcessing = false
                                     errorMessage = error
@@ -148,7 +150,7 @@ fun WorkingAudioButton(
                                 onSpeechRecognizerSet = { speechRecognizer = it }
                             )
                         } else {
-                            android.util.Log.w("🎤 WorkingAudio", "🔒 Solicitando permisos...")
+                            Log.w("🎤 WorkingAudio", "🔒 Solicitando permisos...")
                             permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                         }
                     }
@@ -220,7 +222,7 @@ fun WorkingAudioButton(
         // Auto-limpiar errores
         if (errorMessage != null) {
             LaunchedEffect(errorMessage) {
-                kotlinx.coroutines.delay(4000)
+                delay(4000)
                 errorMessage = null
             }
         }
@@ -234,7 +236,7 @@ private fun hasAudioPermission(context: Context): Boolean {
         Manifest.permission.RECORD_AUDIO
     ) == PackageManager.PERMISSION_GRANTED
 
-    android.util.Log.d("🎤 WorkingAudio", "🔒 Permisos: $hasPermission")
+    Log.d("🎤 WorkingAudio", "🔒 Permisos: $hasPermission")
     return hasPermission
 }
 
@@ -248,16 +250,16 @@ private fun startRecording(
     speechRecognizer: SpeechRecognizer?,
     onSpeechRecognizerSet: (SpeechRecognizer) -> Unit
 ) {
-    android.util.Log.d("🎤 WorkingAudio", "🚀 === INICIANDO GRABACIÓN ===")
+    Log.d("🎤 WorkingAudio", "🚀 === INICIANDO GRABACIÓN ===")
 
     try {
         // Verificar disponibilidad PRIMERO
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-            android.util.Log.e("🎤 WorkingAudio", "❌ SpeechRecognizer NO disponible")
+            Log.e("🎤 WorkingAudio", "❌ SpeechRecognizer NO disponible")
             onError("Reconocimiento de voz no disponible en este dispositivo")
             return
         }
-        android.util.Log.d("🎤 WorkingAudio", "✅ SpeechRecognizer disponible")
+        Log.d("🎤 WorkingAudio", "✅ SpeechRecognizer disponible")
 
         // Destruir recognizer anterior si existe
         speechRecognizer?.destroy()
@@ -266,19 +268,19 @@ private fun startRecording(
         val recognizer = try {
             SpeechRecognizer.createSpeechRecognizer(context)
         } catch (e: Exception) {
-            android.util.Log.e("🎤 WorkingAudio", "❌ Error creando SpeechRecognizer: ${e.message}")
+            Log.e("🎤 WorkingAudio", "❌ Error creando SpeechRecognizer: ${e.message}")
             onError("Error creando reconocedor de voz")
             return
         }
 
         if (recognizer == null) {
-            android.util.Log.e("🎤 WorkingAudio", "❌ SpeechRecognizer es null")
+            Log.e("🎤 WorkingAudio", "❌ SpeechRecognizer es null")
             onError("No se pudo crear el reconocedor")
             return
         }
 
         onSpeechRecognizerSet(recognizer)
-        android.util.Log.d("🎤 WorkingAudio", "✅ SpeechRecognizer creado")
+        Log.d("🎤 WorkingAudio", "✅ SpeechRecognizer creado")
 
         // Intent configurado para Argentina
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -292,32 +294,32 @@ private fun startRecording(
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 200000L)
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 5000L)
         }
-        android.util.Log.d("🎤 WorkingAudio", "✅ Intent configurado")
+        Log.d("🎤 WorkingAudio", "✅ Intent configurado")
 
         // Listener simplificado y robusto
         recognizer.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
-                android.util.Log.i("🎤 WorkingAudio", "🎙️ LISTO - Micrófono activo")
+                Log.i("🎤 WorkingAudio", "🎙️ LISTO - Micrófono activo")
                 onRecording()
             }
 
             override fun onBeginningOfSpeech() {
-                android.util.Log.i("🎤 WorkingAudio", "🗣️ VOZ DETECTADA")
+                Log.i("🎤 WorkingAudio", "🗣️ VOZ DETECTADA")
             }
 
             override fun onRmsChanged(rmsdB: Float) {
                 // Log de volumen solo cada segundo para no saturar
                 if (System.currentTimeMillis() % 1000 < 50) {
-                    android.util.Log.v("🎤 WorkingAudio", "🔊 Volumen: ${rmsdB.toInt()}dB")
+                    Log.v("🎤 WorkingAudio", "🔊 Volumen: ${rmsdB.toInt()}dB")
                 }
             }
 
             override fun onBufferReceived(buffer: ByteArray?) {
-                android.util.Log.v("🎤 WorkingAudio", "📡 Buffer: ${buffer?.size} bytes")
+                Log.v("🎤 WorkingAudio", "📡 Buffer: ${buffer?.size} bytes")
             }
 
             override fun onEndOfSpeech() {
-                android.util.Log.i("🎤 WorkingAudio", "🔚 FIN DE VOZ - Procesando...")
+                Log.i("🎤 WorkingAudio", "🔚 FIN DE VOZ - Procesando...")
                 onProcessing()
             }
 
@@ -334,51 +336,51 @@ private fun startRecording(
                     SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No se detectó voz - Intenta de nuevo"
                     else -> "Error desconocido ($error)"
                 }
-                android.util.Log.e("🎤 WorkingAudio", "💥 ERROR: $errorMsg (código: $error)")
+                Log.e("🎤 WorkingAudio", "💥 ERROR: $errorMsg (código: $error)")
                 onError(errorMsg)
             }
 
             override fun onResults(results: Bundle?) {
-                android.util.Log.i("🎤 WorkingAudio", "🏆 === RESULTADOS ===")
+                Log.i("🎤 WorkingAudio", "🏆 === RESULTADOS ===")
 
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                android.util.Log.d("🎤 WorkingAudio", "📝 Total resultados: ${matches?.size}")
+                Log.d("🎤 WorkingAudio", "📝 Total resultados: ${matches?.size}")
 
                 matches?.forEachIndexed { index, match ->
-                    android.util.Log.d("🎤 WorkingAudio", "  $index: '$match'")
+                    Log.d("🎤 WorkingAudio", "  $index: '$match'")
                 }
 
                 val bestResult = matches?.firstOrNull()?.trim() ?: ""
 
-                android.util.Log.i("🎤 WorkingAudio", "🎯 MEJOR RESULTADO: '$bestResult'")
+                Log.i("🎤 WorkingAudio", "🎯 MEJOR RESULTADO: '$bestResult'")
 
                 if (bestResult.isNotBlank()) {
-                    android.util.Log.i("🎤 WorkingAudio", "✅ ÉXITO - Enviando resultado")
+                    Log.i("🎤 WorkingAudio", "✅ ÉXITO - Enviando resultado")
                     onResult(bestResult)
                 } else {
-                    android.util.Log.w("🎤 WorkingAudio", "⚠️ Resultado vacío")
+                    Log.w("🎤 WorkingAudio", "⚠️ Resultado vacío")
                     onError("No se detectó texto claro")
                 }
             }
 
             override fun onPartialResults(partialResults: Bundle?) {
                 val partial = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                android.util.Log.d("🎤 WorkingAudio", "🔄 Parcial: '${partial?.firstOrNull() ?: ""}'")
+                Log.d("🎤 WorkingAudio", "🔄 Parcial: '${partial?.firstOrNull() ?: ""}'")
             }
 
             override fun onEvent(eventType: Int, params: Bundle?) {
-                android.util.Log.v("🎤 WorkingAudio", "🎭 Evento: $eventType")
+                Log.v("🎤 WorkingAudio", "🎭 Evento: $eventType")
             }
         })
 
         // INICIAR reconocimiento
-        android.util.Log.i("🎤 WorkingAudio", "🎬 INICIANDO reconocimiento...")
+        Log.i("🎤 WorkingAudio", "🎬 INICIANDO reconocimiento...")
         recognizer.startListening(intent)
-        android.util.Log.i("🎤 WorkingAudio", "🚀 ¡RECONOCIMIENTO ACTIVO!")
+        Log.i("🎤 WorkingAudio", "🚀 ¡RECONOCIMIENTO ACTIVO!")
 
 
     } catch (e: Exception) {
-        android.util.Log.e("🎤 WorkingAudio", "💥 Excepción: ${e.message}", e)
+        Log.e("🎤 WorkingAudio", "💥 Excepción: ${e.message}", e)
         onError("Error iniciando grabación: ${e.localizedMessage}")
     }
 }

@@ -1,5 +1,6 @@
 package com.example.juka.auth
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -12,11 +13,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavController
 import coil.compose.AsyncImage
+import com.example.juka.data.Achievement
+import com.example.juka.data.AchievementsViewModel
 import com.example.juka.data.AuthManager
+import com.example.juka.navigation.JukaAppWithUser
+import com.example.juka.ui.theme.logros.AchievementItem
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.launch
@@ -40,17 +48,22 @@ data class UserProfileData(
 )
 
 // ✅ PANTALLA DE PERFIL MEJORADA - TOMA DATOS DE GOOGLE AUTOMÁTICAMENTE
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SimpleProfileScreen(
     user: FirebaseUser,
-    authManager: AuthManager
+    authManager: AuthManager,
+    navController: NavController, // 👈 Agregá esto
+    achievementsViewModel: AchievementsViewModel = viewModel()
 ) {
     var isEditing by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     var profileData by remember { mutableStateOf<UserProfileData?>(null) }
     val coroutineScope = rememberCoroutineScope()
     val db = FirebaseFirestore.getInstance()
+    val achievements by achievementsViewModel.uiState.collectAsState()
+    var selectedAchievement by remember { mutableStateOf<Achievement?>(null) }
+    val context = LocalContext.current
 
     // Estados para campos editables
     var birthDate by remember { mutableStateOf("") }
@@ -196,260 +209,329 @@ fun SimpleProfileScreen(
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        // 👤 NOMBRE DE GOOGLE
-                        Text(
-                            text = user.displayName ?: "Usuario sin nombre",
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-
-                        // 📧 EMAIL DE GOOGLE
-                        Text(
-                            text = user.email ?: "Sin email",
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                        )
-
-                        // 🎯 PROVEEDOR DE AUTENTICACIÓN
-                        Row(
-                            modifier = Modifier.padding(top = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            )
                         ) {
-                            Icon(
-                                Icons.Default.Verified,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Verificado con Google",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // ✅ BOTÓN DE EDITAR
-                if (!isEditing) {
-                    Button(
-                        onClick = { isEditing = true },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.Edit, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Completar Perfil")
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // ✅ INFORMACIÓN ADICIONAL
-                Card(
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp)
-                    ) {
-                        Text(
-                            text = "Información Personal",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(bottom = 12.dp)
-                        )
-
-                        if (isEditing) {
-                            // 🖊️ MODO EDICIÓN
-                            OutlinedTextField(
-                                value = birthDate,
-                                onValueChange = { birthDate = it },
-                                label = { Text("Fecha de nacimiento") },
-                                placeholder = { Text("dd/mm/aaaa") },
-                                leadingIcon = {
-                                    Icon(Icons.Default.CalendarToday, contentDescription = null)
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            OutlinedTextField(
-                                value = phoneNumber,
-                                onValueChange = { phoneNumber = it },
-                                label = { Text("Teléfono") },
-                                leadingIcon = {
-                                    Icon(Icons.Default.Phone, contentDescription = null)
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            OutlinedTextField(
-                                value = location,
-                                onValueChange = { location = it },
-                                label = { Text("Ubicación") },
-                                leadingIcon = {
-                                    Icon(Icons.Default.LocationOn, contentDescription = null)
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            OutlinedTextField(
-                                value = occupation,
-                                onValueChange = { occupation = it },
-                                label = { Text("Ocupación") },
-                                leadingIcon = {
-                                    Icon(Icons.Default.Work, contentDescription = null)
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            OutlinedTextField(
-                                value = bio,
-                                onValueChange = { bio = it },
-                                label = { Text("Biografía") },
-                                leadingIcon = {
-                                    Icon(Icons.Default.Info, contentDescription = null)
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                minLines = 3
-                            )
-
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            // BOTONES DE GUARDAR/CANCELAR
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                OutlinedButton(
-                                    onClick = {
-                                        isEditing = false
-                                        // Restaurar valores originales
-                                        birthDate = profileData?.birthDate ?: ""
-                                        phoneNumber = profileData?.phoneNumber ?: ""
-                                        bio = profileData?.bio ?: ""
-                                        location = profileData?.location ?: ""
-                                        occupation = profileData?.occupation ?: ""
+                            // Asegúrate de pasar navController como parámetro a SimpleProfileScreen
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp)
+                                    .clickable {
+                                        // 🚀 Navega a la pantalla de estampitas
+                                        navController.navigate("achievements_screen")
                                     },
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text("Cancelar")
-                                }
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                                        alpha = 0.4f
+                                    )
+                                )
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Colección de Estampitas",
+                                            fontSize = 18.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
 
-                                Button(
-                                    onClick = { saveProfile() },
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Icon(Icons.Default.Save, contentDescription = null)
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Guardar")
+                                        // Icono que indica que se puede hacer clic
+                                        Icon(
+                                            imageVector = Icons.Default.ArrowForwardIos,
+                                            contentDescription = "Ver álbum completo",
+                                            modifier = Modifier.size(16.dp),
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    Text("Logros cargados: ${achievements.size}")
+
+                                    Spacer(modifier = Modifier.height(12.dp))
+
+                                    // Vista previa de tus círculos
+                                    FlowRow(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        maxItemsInEachRow = 3
+                                    ) {
+                                        // Mostramos solo los primeros 3 para que no ocupe todo el perfil
+                                        achievements.take(3).forEach { achievement ->
+                                            AchievementItem(
+                                                achievement = achievement,
+                                                onItemClick = {
+                                                    // Al tocar la figurita, también navegamos o abrimos detalle
+                                                    navController.navigate("achievements_screen")
+                                                }
+                                            )
+                                        }
+                                    }
                                 }
                             }
 
-                        } else {
-                            // 👁️ MODO VISTA
-                            InfoRow(
-                                icon = Icons.Default.CalendarToday,
-                                label = "Fecha de nacimiento",
-                                value = profileData?.birthDate ?: "No especificada"
+                            Spacer(modifier = Modifier.height(16.dp))
+                            // 👤 NOMBRE DE GOOGLE
+                            Text(
+                                text = user.displayName ?: "Usuario sin nombre",
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+
+                            // 📧 EMAIL DE GOOGLE
+                            Text(
+                                text = user.email ?: "Sin email",
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                            )
+
+                            // 🎯 PROVEEDOR DE AUTENTICACIÓN
+                            Row(
+                                modifier = Modifier.padding(top = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Verified,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Verificado con Google",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // ✅ BOTÓN DE EDITAR
+                    if (!isEditing) {
+                        Button(
+                            onClick = { isEditing = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Edit, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Completar Perfil")
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // ✅ INFORMACIÓN ADICIONAL
+                    Card(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp)
+                        ) {
+                            Text(
+                                text = "Información Personal",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(bottom = 12.dp)
+                            )
+
+                            if (isEditing) {
+                                // 🖊️ MODO EDICIÓN
+                                OutlinedTextField(
+                                    value = birthDate,
+                                    onValueChange = { birthDate = it },
+                                    label = { Text("Fecha de nacimiento") },
+                                    placeholder = { Text("dd/mm/aaaa") },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.CalendarToday, contentDescription = null)
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                OutlinedTextField(
+                                    value = phoneNumber,
+                                    onValueChange = { phoneNumber = it },
+                                    label = { Text("Teléfono") },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Phone, contentDescription = null)
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                OutlinedTextField(
+                                    value = location,
+                                    onValueChange = { location = it },
+                                    label = { Text("Ubicación") },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.LocationOn, contentDescription = null)
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                OutlinedTextField(
+                                    value = occupation,
+                                    onValueChange = { occupation = it },
+                                    label = { Text("Ocupación") },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Work, contentDescription = null)
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                OutlinedTextField(
+                                    value = bio,
+                                    onValueChange = { bio = it },
+                                    label = { Text("Biografía") },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Info, contentDescription = null)
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    minLines = 3
+                                )
+
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                // BOTONES DE GUARDAR/CANCELAR
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            isEditing = false
+                                            // Restaurar valores originales
+                                            birthDate = profileData?.birthDate ?: ""
+                                            phoneNumber = profileData?.phoneNumber ?: ""
+                                            bio = profileData?.bio ?: ""
+                                            location = profileData?.location ?: ""
+                                            occupation = profileData?.occupation ?: ""
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text("Cancelar")
+                                    }
+
+                                    Button(
+                                        onClick = { saveProfile() },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.Save, contentDescription = null)
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Guardar")
+                                    }
+                                }
+
+                            } else {
+                                // 👁️ MODO VISTA
+                                InfoRow(
+                                    icon = Icons.Default.CalendarToday,
+                                    label = "Fecha de nacimiento",
+                                    value = profileData?.birthDate ?: "No especificada"
+                                )
+
+                                InfoRow(
+                                    icon = Icons.Default.Phone,
+                                    label = "Teléfono",
+                                    value = profileData?.phoneNumber ?: "No especificado"
+                                )
+
+                                InfoRow(
+                                    icon = Icons.Default.LocationOn,
+                                    label = "Ubicación",
+                                    value = profileData?.location ?: "No especificada"
+                                )
+
+                                InfoRow(
+                                    icon = Icons.Default.Work,
+                                    label = "Ocupación",
+                                    value = profileData?.occupation ?: "No especificada"
+                                )
+
+                                InfoRow(
+                                    icon = Icons.Default.Info,
+                                    label = "Biografía",
+                                    value = profileData?.bio ?: "Sin biografía"
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // ✅ INFORMACIÓN DE LA CUENTA
+                    Card(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp)
+                        ) {
+                            Text(
+                                text = "Información de la cuenta",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(bottom = 12.dp)
                             )
 
                             InfoRow(
-                                icon = Icons.Default.Phone,
-                                label = "Teléfono",
-                                value = profileData?.phoneNumber ?: "No especificado"
+                                icon = Icons.Default.Key,
+                                label = "ID de usuario",
+                                value = user.uid.take(20) + "..."
                             )
 
                             InfoRow(
-                                icon = Icons.Default.LocationOn,
-                                label = "Ubicación",
-                                value = profileData?.location ?: "No especificada"
+                                icon = Icons.Default.DateRange,
+                                label = "Miembro desde",
+                                value = profileData?.createdAt?.let {
+                                    SimpleDateFormat("dd MMMM yyyy", Locale("es")).format(Date(it))
+                                } ?: "Desconocido"
                             )
 
                             InfoRow(
-                                icon = Icons.Default.Work,
-                                label = "Ocupación",
-                                value = profileData?.occupation ?: "No especificada"
-                            )
-
-                            InfoRow(
-                                icon = Icons.Default.Info,
-                                label = "Biografía",
-                                value = profileData?.bio ?: "Sin biografía"
+                                icon = Icons.Default.AccessTime,
+                                label = "Último acceso",
+                                value = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("es"))
+                                    .format(Date(user.metadata?.lastSignInTimestamp ?: 0))
                             )
                         }
                     }
-                }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(24.dp))
 
-                // ✅ INFORMACIÓN DE LA CUENTA
-                Card(
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp)
+                    // ✅ BOTÓN DE CERRAR SESIÓN
+                    Button(
+                        onClick = { authManager.signOut() },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error
+                        )
                     ) {
-                        Text(
-                            text = "Información de la cuenta",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(bottom = 12.dp)
-                        )
-
-                        InfoRow(
-                            icon = Icons.Default.Key,
-                            label = "ID de usuario",
-                            value = user.uid.take(20) + "..."
-                        )
-
-                        InfoRow(
-                            icon = Icons.Default.DateRange,
-                            label = "Miembro desde",
-                            value = profileData?.createdAt?.let {
-                                SimpleDateFormat("dd MMMM yyyy", Locale("es")).format(Date(it))
-                            } ?: "Desconocido"
-                        )
-
-                        InfoRow(
-                            icon = Icons.Default.AccessTime,
-                            label = "Último acceso",
-                            value = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("es"))
-                                .format(Date(user.metadata?.lastSignInTimestamp ?: 0))
-                        )
+                        Icon(Icons.Default.Logout, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Cerrar Sesión")
                     }
+
+                    Spacer(modifier = Modifier.height(32.dp))
                 }
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // ✅ BOTÓN DE CERRAR SESIÓN
-                Button(
-                    onClick = { authManager.signOut() },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Icon(Icons.Default.Logout, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Cerrar Sesión")
-                }
-
-                Spacer(modifier = Modifier.height(32.dp))
             }
         }
     }
 }
+
 
 // ✅ COMPONENTE PARA MOSTRAR UNA FILA DE INFORMACIÓN
 @Composable

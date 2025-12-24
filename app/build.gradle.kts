@@ -1,10 +1,12 @@
 import java.util.Properties
-plugins {
 
+plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.gms.google-services")
     id("org.jetbrains.kotlin.plugin.serialization") version "1.9.0"
+    id("com.google.devtools.ksp") version "1.9.0-1.0.13"
+
 }
 
 android {
@@ -83,7 +85,7 @@ dependencies {
     implementation("com.google.firebase:firebase-analytics-ktx:21.6.2")
     implementation("com.google.firebase:firebase-auth-ktx:22.3.1")
     implementation("com.google.android.gms:play-services-auth:20.7.0")
-
+    implementation("com.google.firebase:firebase-storage-ktx:20.3.0")
     // Core
     implementation("androidx.core:core-ktx:1.13.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.3")
@@ -122,10 +124,7 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
-
     // maps
-
-
     implementation("org.osmdroid:osmdroid-android:6.1.18")
     // Para obtener la ubicación actual del dispositivo (opcional pero recomendado)
     implementation("com.google.android.gms:play-services-location:21.2.0")
@@ -147,4 +146,9 @@ dependencies {
     implementation("com.google.mlkit:smart-reply:17.0.2")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
     implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
+
+    implementation("androidx.room:room-runtime:2.6.1")
+    implementation("androidx.room:room-ktx:2.6.1")
+    ksp("androidx.room:room-compiler:2.6.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
 }

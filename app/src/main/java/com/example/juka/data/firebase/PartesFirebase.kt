@@ -1,18 +1,20 @@
 package com.example.juka.data.firebase
 
 import android.util.Log
-import com.example.juka.FishingData
-import com.example.juka.data.firebase.FirebaseManager.Companion.COLLECTION_PARTES
-import com.example.juka.data.firebase.FirebaseManager.Companion.SUBCOLLECTION_PARTES
+import com.example.juka.domain.usecase.FishingData
+
 import com.example.juka.data.firebase.UtilsFirebase.convertirAPartePesca
 import com.example.juka.data.firebase.UtilsFirebase.esParteValido
 import com.example.juka.data.firebase.UtilsFirebase.generarIdParte
+import com.example.juka.util.Constants
+import com.example.juka.util.Constants.Firebase.PARTES_COLLECTION
+import com.example.juka.util.Constants.Firebase.SUBCOLLECTION_PARTES
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.tasks.await
 
 class PartesFirebase(private val manager: FirebaseManager) {
-    private val TAG = "${FirebaseManager.TAG} - Partes"
+    private val TAG = "${Constants.Firebase.TAG} - Partes"
 
     suspend fun guardarParteAutomatico(fishingData: FishingData, transcripcion: String): FirebaseResult {
         return try {
@@ -40,7 +42,7 @@ class PartesFirebase(private val manager: FirebaseManager) {
             }
 
             // Guardar en Firestore con estructura basada en usuario
-            val documentPath = "$COLLECTION_PARTES/$userId/$SUBCOLLECTION_PARTES/$parteId"
+            val documentPath = "$PARTES_COLLECTION/$userId/$SUBCOLLECTION_PARTES/$parteId"
 
             manager.firestore.document(documentPath)
                 .set(parte, SetOptions.merge())
@@ -72,7 +74,7 @@ class PartesFirebase(private val manager: FirebaseManager) {
             Log.d(TAG, "📋 Obteniendo partes para usuario: $userId")
 
             val query = manager.firestore
-                .collection("$COLLECTION_PARTES/$userId/$SUBCOLLECTION_PARTES")
+                .collection("$PARTES_COLLECTION/$userId/$SUBCOLLECTION_PARTES")
                 .orderBy("timestamp", Query.Direction.DESCENDING)
                 .limit(limite.toLong())
 

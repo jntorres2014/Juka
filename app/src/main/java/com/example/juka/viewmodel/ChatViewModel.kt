@@ -1,72 +1,38 @@
-// viewmodel/ChatViewModel.kt - VERSIÓN OPTIMIZADA
 package com.example.juka.viewmodel
 
-import android.app.Application
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.juka.IMessage
 import com.example.juka.data.repository.ChatRepository
-import com.example.juka.data.local.LocalStorageHelper
-import com.example.juka.data.firebase.FirebaseManager
+import com.example.juka.domain.model.IMessage
 import com.example.juka.usecase.SendMessageUseCase
-import com.example.juka.FishDatabase
-import com.example.juka.IntelligentResponses
-import com.example.juka.FishingDataExtractor
-import com.example.juka.data.firebase.PartePesca
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
-
 import kotlinx.coroutines.launch
 
 /**
- * ViewModel optimizado con Repository Pattern y Use Cases
- * Responsabilidades:
- * - Manejo de estado UI
- * - Coordinación de casos de uso
- * - Observación de datos del Repository
+ * ✅ ViewModel Refactorizado (Clean Architecture)
+ * Ya no crea sus herramientas, las recibe en el constructor (Inyección de Dependencias).
  */
-class ChatViewModel(application: Application) : AndroidViewModel(application) {
-
-    // ================== DEPENDENCIES ==================
-    private val localStorageHelper = LocalStorageHelper(application)
-    private val firebaseManager = FirebaseManager(application)
-    private val repository = ChatRepository(firebaseManager, localStorageHelper)
-
-    private val fishDatabase = FishDatabase(application)
-    private val intelligentResponses = IntelligentResponses(fishDatabase)
-    private val dataExtractor = FishingDataExtractor(application)
-
-    private val sendMessageUseCase = SendMessageUseCase(
-        repository,
-        intelligentResponses,
-        dataExtractor
-    )
+class ChatViewModel(
+    private val chatRepository: ChatRepository,
+    private val sendMessageUseCase: SendMessageUseCase
+) : ViewModel() {
 
     // ================== UI STATE ==================
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
-    // Backward compatibility (puedes remover después)
-    val messages: StateFlow<List<IMessage>> = repository.messages.stateIn(
+    // Los mensajes fluyen directamente desde el Repositorio
+    val messages: StateFlow<List<IMessage>> = chatRepository.messages.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
         emptyList()
     )
-    val isTyping: StateFlow<Boolean> = _uiState.map { it.isTyping }.stateIn(
-        viewModelScope,
-        SharingStarted.WhileSubscribed(5000),
-        false
-    )
-    val isAnalyzing: StateFlow<Boolean> = _uiState.map { it.isAnalyzing }.stateIn(
-        viewModelScope,
-        SharingStarted.WhileSubscribed(5000),
-        false
-    )
-    val firebaseStatus: StateFlow<String?> = _uiState.map { it.firebaseStatus }.stateIn(
-        viewModelScope,
-        SharingStarted.WhileSubscribed(5000),
-        null
-    )
+
+    // Helpers de estado para la UI (Mantenidos para compatibilidad con tu UI actual)
+    val isTyping: StateFlow<Boolean> = _uiState.map { it.isTyping }.stateIn(viewModelScope, SharingStarted.Lazily, false)
+    val isAnalyzing: StateFlow<Boolean> = _uiState.map { it.isAnalyzing }.stateIn(viewModelScope, SharingStarted.Lazily, false)
+    val firebaseStatus: StateFlow<String?> = _uiState.map { it.firebaseStatus }.stateIn(viewModelScope, SharingStarted.Lazily, null)
 
     // ================== INITIALIZATION ==================
     init {
@@ -76,11 +42,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private fun initializeViewModel() {
         viewModelScope.launch {
             try {
-                // Inicializar base de datos
-                fishDatabase.initialize()
-
-                // Cargar mensajes locales
-                val localMessages = repository.loadLocalMessages()
+                val localMessages = chatRepository.loadLocalMessages()
 
                 // Si no hay mensajes, agregar bienvenida
                 if (localMessages.isEmpty()) {
@@ -98,19 +60,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _uiState.update { it.copy(isTyping = true) }
 
-            delay(kotlin.random.Random.nextLong(1000, 3000))
-
+            // Usamos el UseCase inyectado
             sendMessageUseCase.sendTextMessage(content)
                 .onSuccess {
                     _uiState.update { it.copy(isTyping = false, error = null) }
                 }
                 .onFailure { error ->
-                    _uiState.update {
-                        it.copy(
-                            isTyping = false,
-                            error = error.message
-                        )
-                    }
+                    _uiState.update { it.copy(isTyping = false, error = error.message) }
                 }
         }
     }
@@ -119,19 +75,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _uiState.update { it.copy(isTyping = true) }
 
-            delay(kotlin.random.Random.nextLong(1000, 2500))
-
+            // Usamos el UseCase inyectado
             sendMessageUseCase.sendAudioMessage(transcript)
                 .onSuccess {
                     _uiState.update { it.copy(isTyping = false, error = null) }
                 }
                 .onFailure { error ->
-                    _uiState.update {
-                        it.copy(
-                            isTyping = false,
-                            error = error.message
-                        )
-                    }
+                    _uiState.update { it.copy(isTyping = false, error = error.message) }
                 }
         }
     }
@@ -140,26 +90,20 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _uiState.update { it.copy(isAnalyzing = true) }
 
-            delay(kotlin.random.Random.nextLong(2000, 4000))
-
+            // Usamos el UseCase inyectado
             sendMessageUseCase.sendImageMessage(imagePath)
                 .onSuccess {
                     _uiState.update { it.copy(isAnalyzing = false, error = null) }
                 }
                 .onFailure { error ->
-                    _uiState.update {
-                        it.copy(
-                            isAnalyzing = false,
-                            error = error.message
-                        )
-                    }
+                    _uiState.update { it.copy(isAnalyzing = false, error = error.message) }
                 }
         }
     }
 
     fun clearMessages() {
         viewModelScope.launch {
-            repository.clearMessages()
+            chatRepository.clearMessages()
             addWelcomeMessage()
         }
     }
@@ -170,7 +114,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val userMessages = currentMessages.count { it.isFromUser }
         val botMessages = totalMessages - userMessages
 
-        return "📊 Total: $totalMessages | Usuario: $userMessages | Bot: $botMessages | Firebase: Activo"
+        return "📊 Total: $totalMessages | Usuario: $userMessages | Bot: $botMessages"
     }
 
     // ================== PRIVATE HELPERS ==================
@@ -189,14 +133,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             """.trimIndent(),
             isFromUser = false,
             type = MessageType.TEXT,
-            timestamp = repository.getCurrentTimestamp()
+            timestamp = chatRepository.getCurrentTimestamp()
         )
-        repository.saveMessageLocally(welcomeMessage)
+        chatRepository.saveMessageLocally(welcomeMessage)
     }
 }
-
-
-// ================== UI STATE ==================
 
 data class ChatUiState(
     val isTyping: Boolean = false,
@@ -205,31 +146,15 @@ data class ChatUiState(
     val error: String? = null
 )
 
-// ================== DATA CLASSES (mantener compatibilidad) ==================
-
 data class ChatMessage(
     override val content: String,
     override val isFromUser: Boolean,
     override val type: MessageType,
-    override val timestamp: String
+    override val timestamp: String,
+    val options: List<String> = emptyList()
+
 ) : IMessage
 
 enum class MessageType {
     TEXT, AUDIO, IMAGE
 }
-/**
- * Obtiene estadísticas de Firebase
- */
-/*
-suspend fun obtenerEstadisticasFirebase(): Map<String, Any> {
-    return firebaseManager.obtenerEstadisticas()
-}
-
-*/
-/**
- * Obtiene mis partes desde Firebase
- *//*
-
-suspend fun obtenerMisPartes(): List<PartePesca> {
-    return firebaseManager.obtenerMisPartes()
-}*/

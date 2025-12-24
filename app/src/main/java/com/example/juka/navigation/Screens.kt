@@ -49,7 +49,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.juka.WorkingAudioButton
+import com.example.juka.component.WorkingAudioButton
 import com.example.juka.chat.AnalyzingIndicator
 import com.example.juka.chat.MessageBubble
 import com.example.juka.chat.TypingIndicator

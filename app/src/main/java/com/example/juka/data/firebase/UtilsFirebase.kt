@@ -4,11 +4,11 @@ import android.content.Context
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
-import com.example.juka.ChatMessageWithMode
-import com.example.juka.EspecieCapturada
-import com.example.juka.FishingData
-import com.example.juka.ParteEnProgreso
-import com.example.juka.ParteSessionChat
+import com.example.juka.domain.model.ChatMessageWithMode
+import com.example.juka.domain.model.EspecieCapturada
+import com.example.juka.domain.usecase.FishingData
+import com.example.juka.domain.model.ParteEnProgreso
+import com.example.juka.domain.model.ParteSessionChat
 import com.google.firebase.Timestamp
 import java.text.SimpleDateFormat
 import java.util.*
@@ -274,8 +274,8 @@ object UtilsFirebase {
      */
     fun convertirAPartePesca(data: FishingData, transcripcion: String, userId: String, context: Context): PartePesca {
         Log.d(TAG, "🔄 Convirtiendo transcripción a parte de pesca para usuario: $userId")
-
-        val peces = extraerEspeciesDeTranscripcionMejorado(transcripcion, data.fishCount ?: 0)
+        val especiesDetectadas = extraerEspeciesDeTranscripcionMejorado(transcripcion, data.fishCount ?: 0)
+        //val peces = extraerEspeciesDeTranscripcionMejorado(transcripcion, data.fishCount ?: 0)
         val duracion = if (data.startTime != null && data.endTime != null) {
             calcularDuracion(data.startTime!!, data.endTime!!)
         } else null
@@ -288,10 +288,17 @@ object UtilsFirebase {
             horaInicio = data.startTime,
             horaFin = data.endTime,
             duracionHoras = duracion,
-            peces = peces,
+            //peces = peces,
+            peces = especiesDetectadas.map { pez ->
+                Captura(
+                    especie = pez.especie,
+                    cantidad = pez.cantidad,
+                    pesoAproximado = 0.0 // Valor por defecto
+                )
+            },
             cantidadTotal = data.fishCount ?: 0,
             tipo = data.type,
-            canas = data.rodsCount,
+            numeroCanas = data.rodsCount,
             ubicacion = null,
             fotos = if (data.photoUri != null) listOf(data.photoUri!!) else emptyList(),
             transcripcionOriginal = transcripcion,

@@ -1,16 +1,13 @@
 package com.example.juka.data.firebase
 
-import android.os.Build
 import android.util.Log
-import androidx.annotation.RequiresApi
-import com.example.juka.ParteSessionChat
-import com.example.juka.data.firebase.FirebaseManager.Companion.COLLECTION_PARTES
-import com.example.juka.data.firebase.FirebaseManager.Companion.SUBCOLLECTION_PARTES
 import com.google.firebase.firestore.Query
+import com.example.juka.util.Constants
+import com.example.juka.util.Constants.Firebase.SUBCOLLECTION_PARTES
 import kotlinx.coroutines.tasks.await
 
 class EstadisticasFirebase(private val manager: FirebaseManager) {
-    private val TAG = "${FirebaseManager.TAG} - Estadísticas"
+    private val TAG = "${Constants.Firebase.TAG} - Estadísticas"
 
     suspend fun obtenerEstadisticas(): Map<String, Any> {
         return try {
@@ -19,7 +16,7 @@ class EstadisticasFirebase(private val manager: FirebaseManager) {
             Log.d(TAG, "📊 Obteniendo estadísticas para usuario: $userId")
 
             val query = manager.firestore
-                .collection("$COLLECTION_PARTES/$userId/$SUBCOLLECTION_PARTES")
+                .collection("$Constants.COLLECTION_PARTES/$userId/$SUBCOLLECTION_PARTES")
                 .orderBy("timestamp", Query.Direction.DESCENDING)
 
             val snapshot = query.get().await()

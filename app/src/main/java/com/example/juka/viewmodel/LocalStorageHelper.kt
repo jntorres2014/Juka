@@ -1,103 +1,251 @@
-// data/local/LocalStorageHelper.kt
 package com.example.juka.data.local
 
 import android.content.Context
-import com.example.juka.IMessage
-import com.example.juka.viewmodel.ChatMessage
+import android.content.SharedPreferences
+import com.example.juka.data.local.room.ChatMessageDao
+import com.example.juka.data.local.room.ChatMessageEntity
+import com.example.juka.domain.model.ChatMessageWithMode
+import com.example.juka.domain.model.ChatMode
+import com.example.juka.domain.model.ParteEnProgreso
+import com.example.juka.domain.model.EspecieCapturada
 import com.example.juka.viewmodel.MessageType
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * Helper para manejo de archivos locales
- * Separa lógica de archivos del ViewModel
+ * Helper unificado: Maneja Room (Chat), Archivos (Borradores) y Preferencias
  */
-class LocalStorageHelper(private val context: Context) {
+class LocalStorageHelper(
+    private val context: Context,
+    private val chatDao: ChatMessageDao
+) {
 
-    private val chatFile = File(context.filesDir, "fishing_chat_history.txt")
-    private val conversationLogFile = File(context.filesDir, "conversation_log.txt")
+    // Herramientas
+    private val gson = Gson()
+    private val fileName = "borrador_parte.json"
 
-    /**
-     * Carga mensajes desde archivo
-     */
-    fun loadMessages(): List<IMessage> {
-        if (!chatFile.exists()) return emptyList()
+    // SharedPreferences para datos pequeños y rápidos
+    private val sharedPreferences: SharedPreferences by lazy {
+        context.getSharedPreferences("JukaPreferences", Context.MODE_PRIVATE)
+    }
 
-        return try {
-            chatFile.readLines()
-                .takeLast(50)
-                .mapNotNull { line -> parseMessageLine(line) }
+    // ==========================================
+    // 🏛️ SECCIÓN 1: CHAT HISTORY (ROOM DB)
+    // ==========================================
+
+    suspend fun loadChatHistory(): List<ChatMessageWithMode> = withContext(Dispatchers.IO) {
+        try {
+            val entities = chatDao.getAllMessages()
+            entities.map { entity ->
+                ChatMessageWithMode(
+                    content = entity.content,
+                    isFromUser = entity.isFromUser,
+                    type = try {
+                        MessageType.valueOf(entity.type)
+                    } catch (e: Exception) {
+                        MessageType.TEXT
+                    },
+                    timestamp = entity.timestamp,
+                    mode = ChatMode.GENERAL
+                )
+            }
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()
         }
     }
 
-    /**
-     * Guarda mensaje en archivo
-     */
-    fun saveMessage(message: IMessage, customContent: String? = null) {
+    suspend fun saveChatMessage(message: ChatMessageWithMode) = withContext(Dispatchers.IO) {
         try {
-            val messageText = "${message.timestamp} - " +
-                    "${if (message.isFromUser) "USER" else "BOT"}: " +
-                    "${customContent ?: message.content}\n"
-            chatFile.appendText(messageText)
+            val entity = ChatMessageEntity(
+                content = message.content,
+                isFromUser = message.isFromUser,
+                type = message.type.name,
+                timestamp = message.timestamp
+            )
+            chatDao.insertMessage(entity)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    suspend fun clearHistory() = withContext(Dispatchers.IO) {
+        chatDao.clearHistory()
+    }
+
+    // ==========================================
+    // 📁 SECCIÓN 2: BORRADOR OFFLINE (FILES)
+    // ==========================================
+
+    fun saveParteBorrador(parte: ParteEnProgreso) {
+        try {
+            val jsonString = gson.toJson(parte)
+            val file = File(context.filesDir, fileName)
+            file.writeText(jsonString)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun getParteBorrador(): ParteEnProgreso? {
+        val file = File(context.filesDir, fileName)
+        if (!file.exists()) return null
+
+        return try {
+            val jsonString = file.readText()
+            gson.fromJson(jsonString, ParteEnProgreso::class.java)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    fun clearBorrador() {
+        try {
+            val file = File(context.filesDir, fileName)
+            if (file.exists()) {
+                file.delete()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun hasBorrador(): Boolean {
+        return File(context.filesDir, fileName).exists()
+    }
+
+    // ==========================================
+    // ⚙️ SECCIÓN 3: PREFERENCIAS (SharedPreferences)
+    // ==========================================
+
+    /**
+     * Guarda una preferencia string
+     */
+    fun savePreference(key: String, value: String) {
+        sharedPreferences.edit().apply {
+            putString(key, value)
+            apply()
+        }
+    }
+
+    /**
+     * Obtiene una preferencia string
+     */
+    fun getPreference(key: String, defaultValue: String? = null): String? {
+        return sharedPreferences.getString(key, defaultValue)
+    }
+
+    /**
+     * Elimina una preferencia
+     */
+    fun removePreference(key: String) {
+        sharedPreferences.edit().apply {
+            remove(key)
+            apply()
+        }
+    }
+
+    /**
+     * Guarda una preferencia boolean
+     */
+    fun saveBooleanPreference(key: String, value: Boolean) {
+        sharedPreferences.edit().apply {
+            putBoolean(key, value)
+            apply()
+        }
+    }
+
+    /**
+     * Obtiene una preferencia boolean
+     */
+    fun getBooleanPreference(key: String, defaultValue: Boolean = false): Boolean {
+        return sharedPreferences.getBoolean(key, defaultValue)
+    }
+
+    /**
+     * Guarda una preferencia int
+     */
+    fun saveIntPreference(key: String, value: Int) {
+        sharedPreferences.edit().apply {
+            putInt(key, value)
+            apply()
+        }
+    }
+
+    /**
+     * Obtiene una preferencia int
+     */
+    fun getIntPreference(key: String, defaultValue: Int = 0): Int {
+        return sharedPreferences.getInt(key, defaultValue)
+    }
+
+    // ==========================================
+    // 🐟 SECCIÓN 4: CONTADOR DE PECES ESPECÍFICO
+    // ==========================================
+
+    /**
+     * Guarda el contador de peces usando Gson
+     */
+    fun saveContadorPeces(especies: List<EspecieCapturada>) {
+        try {
+            val jsonString = gson.toJson(especies)
+            savePreference("contador_peces_backup", jsonString)
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 
     /**
-     * Guarda log de conversación
+     * Restaura el contador de peces usando Gson
      */
-    fun saveConversationLog(sender: String, content: String, timestamp: String) {
-        try {
-            val logText = "$timestamp - $sender: $content\n"
-            conversationLogFile.appendText(logText)
+    fun getContadorPeces(): List<EspecieCapturada>? {
+        return try {
+            val jsonString = getPreference("contador_peces_backup")
+            if (!jsonString.isNullOrEmpty()) {
+                val type = object : TypeToken<List<EspecieCapturada>>() {}.type
+                gson.fromJson(jsonString, type)
+            } else {
+                null
+            }
         } catch (e: Exception) {
             e.printStackTrace()
+            null
         }
     }
 
     /**
-     * Limpia mensajes
+     * Limpia el contador de peces guardado
      */
-    fun clearMessages() {
-        try {
-            if (chatFile.exists()) chatFile.delete()
-            if (conversationLogFile.exists()) conversationLogFile.delete()
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+    fun clearContadorPeces() {
+        removePreference("contador_peces_backup")
     }
 
     /**
-     * Parsea línea de archivo a mensaje
+     * Verifica si hay un contador guardado
      */
-    private fun parseMessageLine(line: String): IMessage? {
-        if (line.isBlank()) return null
+    fun hasContadorPecesGuardado(): Boolean {
+        return getPreference("contador_peces_backup") != null
+    }
 
-        val parts = line.split(" - ", limit = 2)
-        if (parts.size != 2) return null
+    // ==========================================
+    // 🔧 UTILIDADES ADICIONALES
+    // ==========================================
 
-        val timestamp = parts[0]
-        val content = parts[1]
+    /**
+     * Limpia todas las preferencias (útil para logout)
+     */
+    fun clearAllPreferences() {
+        sharedPreferences.edit().clear().apply()
+    }
 
-        return when {
-            content.startsWith("USER: AUDIO_TRANSCRIPT:") -> {
-                val transcript = content.removePrefix("USER: AUDIO_TRANSCRIPT: ")
-                ChatMessage("🎤 \"$transcript\"", true, MessageType.AUDIO, timestamp)
-            }
-            content.startsWith("USER: IMAGE:") -> {
-                val imagePath = content.removePrefix("USER: IMAGE: ")
-                ChatMessage(imagePath, true, MessageType.IMAGE, timestamp)
-            }
-            content.startsWith("USER: ") -> {
-                ChatMessage(content.removePrefix("USER: "), true, MessageType.TEXT, timestamp)
-            }
-            content.startsWith("BOT: ") -> {
-                ChatMessage(content.removePrefix("BOT: "), false, MessageType.TEXT, timestamp)
-            }
-            else -> null
-        }
+    /**
+     * Obtiene todas las claves guardadas (para debug)
+     */
+    fun getAllPreferenceKeys(): Set<String> {
+        return sharedPreferences.all.keys
     }
 }

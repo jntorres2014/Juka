@@ -5,8 +5,7 @@ import android.content.Intent
 import android.util.Log
 import com.example.juka.R
 import com.example.juka.data.encuesta.RespuestaPregunta
-import com.example.juka.data.firebase.EncuestaFirebase
-import com.example.juka.data.firebase.FirebaseManager
+
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.android.gms.auth.api.signin.GoogleSignInClient

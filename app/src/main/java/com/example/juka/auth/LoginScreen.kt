@@ -3,11 +3,12 @@ package com.example.juka.auth
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.*
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,75 +19,48 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavController
 import com.example.juka.R
 import com.example.juka.data.AuthManager
 import com.example.juka.data.AuthState
-import androidx.navigation.NavController
-import com.example.juka.Screen
+import com.example.juka.viewmodel.AppViewModelProvider
+import com.example.juka.viewmodel.LoginViewModel
 import kotlinx.coroutines.launch
 
-// 2. CORRIGE LoginScreen.kt
 @Composable
 fun LoginScreen(
     authManager: AuthManager,
-    navController: NavController
+    navController: NavController,
+    loginViewModel: LoginViewModel = viewModel(factory = AppViewModelProvider.Factory)
 ) {
+    // Usamos este scope SOLO para iniciar el intento (el click del botón), no para procesar el resultado
     val scope = rememberCoroutineScope()
+
     val authState by authManager.authState.collectAsState()
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
+    // 1. EL LANZADOR (El que recibe la respuesta de Google)
     val signInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        scope.launch {
-            try {
-                authManager.handleSignInResult(result.data)
-            } catch (e: Exception) {
-                Log.e("LOGIN", "Error handling sign in result", e)
-                isLoading = false
-                errorMessage = "Error procesando login: ${e.message}"
-            }
-        }
+        isLoading = true
+        loginViewModel.handleSignInResult(result.data)
     }
-
     LaunchedEffect(authState) {
-        Log.d("LOGIN_DEBUG", "AuthState: ${authState::class.simpleName}")
         when (authState) {
-            is AuthState.Authenticated -> {
-                isLoading = false
-                errorMessage = null
-
-// ✅ Verificar si completó la encuesta antes de navegar
-                Log.d("LOGIN_DEBUG", "Verificando encuesta...")
-
-// Verificar si el usuario ya completó la encuesta
-                val encuestaCompleta = authManager.verificarEncuestaCompletada()
-
-                Log.d("LOGIN_DEBUG", "Encuesta completada: $encuestaCompleta")
-
-                if (encuestaCompleta) {
-                    Log.d("LOGIN_DEBUG", "Navegando a home")
-                    navController.navigate("home") {
-                        popUpTo("login") { inclusive = true }
-                    }
-                } else {
-                    Log.d("LOGIN_DEBUG", "Navegando a encuesta")
-                    navController.navigate("encuesta") {
-                        popUpTo("login") { inclusive = true }
-                    }
-                }
-            }
-            is AuthState.Error -> {
-                isLoading = false
-                errorMessage = (authState as AuthState.Error).message
-                Log.e("LOGIN_DEBUG", "Auth error: ${(authState as AuthState.Error).message}")
-            }
             is AuthState.Loading -> {
                 isLoading = true
                 errorMessage = null
             }
-            is AuthState.Unauthenticated -> {
+            is AuthState.Error -> {
+                isLoading = false
+                errorMessage = (authState as AuthState.Error).message
+            }
+            else -> {
+                // Si es Authenticated, no hacemos nada.
+                // AppWithAuth se encargará de navegar.
                 isLoading = false
             }
         }
@@ -111,7 +85,7 @@ fun LoginScreen(
                 Image(
                     painter = painterResource(id = R.drawable.logohuka1),
                     contentDescription = "Logo Huka",
-                    modifier = Modifier.size(120.dp) // Reducido para mejor rendimiento
+                    modifier = Modifier.size(120.dp)
                 )
                 Text(
                     text = "Huka",
@@ -128,6 +102,7 @@ fun LoginScreen(
 
                 Spacer(modifier = Modifier.height(32.dp))
 
+                // Mostrar error si existe
                 errorMessage?.let { error ->
                     Card(
                         colors = CardDefaults.cardColors(
@@ -165,9 +140,12 @@ fun LoginScreen(
                     }
                 }
 
+                // Botón de Google
                 Button(
                     onClick = {
                         Log.d("LOGIN_DEBUG", "Botón presionado")
+                        // Aquí SÍ usamos el scope local, porque solo estamos ABRIENDO el diálogo.
+                        // Si el usuario cancela o cierra la app aquí, no pasa nada grave.
                         scope.launch {
                             try {
                                 isLoading = true
@@ -202,6 +180,7 @@ fun LoginScreen(
                         Row(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            // Puedes cambiar la "G" por un icono real de Google si tienes el recurso
                             Text("G", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                             Spacer(modifier = Modifier.width(12.dp))
                             Text(

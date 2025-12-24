@@ -4,12 +4,14 @@ package com.example.juka
 import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -40,6 +42,7 @@ import com.google.firebase.FirebaseApp
 class MainActivity : ComponentActivity() {
     private val RECORD_AUDIO_PERMISSION = 1001
 
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -55,20 +58,10 @@ class MainActivity : ComponentActivity() {
         setContent {
             HukaTheme {
                 // ✅ NUEVA ESTRUCTURA CON AUTH
+
                 AppWithAuth()
             }
         }
     }
 }
-
-sealed class Screen(val route: String, val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    object Identificar : Screen("identificar", "Identificar", Icons.Default.PhotoCamera)
-    object Chat : Screen("chat", "Chat", Icons.Default.Chat)
-    object Encuesta : Screen("encuesta", "Encuesta", Icons.Default.Assignment)
-    object Reportes : Screen("reportes", "Reportes", Icons.Default.Book)
-    object Profile : Screen("profile", "Perfil", Icons.Default.Person) // ✅ NUEVA
-}
-
-
-
 

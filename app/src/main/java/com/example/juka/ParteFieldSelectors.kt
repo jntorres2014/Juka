@@ -1,6 +1,6 @@
 package com.example.juka
 
-import androidx.compose.animation.*
+import android.app.Application
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -13,12 +13,17 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.example.juka.data.AuthManager
+import com.example.juka.data.firebase.FirebaseManager
+import com.example.juka.data.local.LocalStorageHelper
+import com.example.juka.data.repository.ChatRepository
+import com.example.juka.data.repository.FishingRepository
+import com.example.juka.domain.model.ModalidadPesca
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -317,3 +322,4 @@ fun NumeroButton(
         }
     }
 }
+

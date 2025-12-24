@@ -1,15 +1,15 @@
-package com.example.juka.data
+package com.example.juka.data.remote
 
-import com.google.ai.client.generativeai.BuildConfig
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.ai.client.generativeai.type.content
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 class GeminiPescaService {
-    // ⚠️ PEGA TU API KEY AQUÍ DE NUEVO (se borró al actualizar)
+
     private val generativeModel = GenerativeModel(
-        modelName = "gemini-2.0-flash",
+        modelName = "gemini-2.5-flash",
+
         apiKey = com.example.juka.BuildConfig.GEMINI_API_KEY  // Usa esto en lugar del hardcoded
     )
 

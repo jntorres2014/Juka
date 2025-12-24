@@ -1,11 +1,9 @@
 package com.example.juka
 import androidx.compose.animation.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -13,12 +11,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.juka.ParteEnProgreso
+import com.example.juka.domain.model.ParteEnProgreso
 
 // Enum para los diferentes campos del parte
 enum class CampoParte(
@@ -72,18 +73,20 @@ enum class CampoParte(
         "¿Alguna observación adicional sobre tu jornada?"
     )
 }
-
 @Composable
 fun ParteQuickActions(
     parteData: ParteEnProgreso,
     onCampoSelected: (CampoParte) -> Unit,
     currentFieldInProgress: CampoParte? = null,
-    onGuardarBorrador: () -> Unit,  // NUEVO
-    onCompletarParte: () -> Unit,   // NUEVO
-    firebaseStatus: String?,        // NUEVO
+    onGuardarBorrador: () -> Unit,
+    onCompletarParte: () -> Unit,
+    firebaseStatus: String?,
     modifier: Modifier = Modifier
 ) {
-    // Determinar qué campos ya están completos
+    // Estado para colapsar/expandir el panel manualmente
+    var isExpanded by remember { mutableStateOf(true) }
+
+    // Calculamos campos completos
     val camposCompletos = remember(parteData) {
         mutableSetOf<CampoParte>().apply {
             if (parteData.fecha != null) add(CampoParte.FECHA)
@@ -100,266 +103,313 @@ fun ParteQuickActions(
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-        )
+            containerColor = MaterialTheme.colorScheme.surface,
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        shape = RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp) // Solo redondeado abajo
     ) {
         Column(
             modifier = Modifier.padding(12.dp)
         ) {
-            // Título con progreso
+            // --- ENCABEZADO COMPACTO ---
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isExpanded = !isExpanded }, // Tocar el título colapsa
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    "Completá tu parte",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                // Indicador de progreso visual
-                Text(
-                    "${camposCompletos.size}/8 campos",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Grid de botones
-            /*LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
-                modifier = Modifier.height(180.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(CampoParte.values().toList()) { campo ->
-                    ParteActionButton(
-                        campo = campo,
-                        isCompleted = camposCompletos.contains(campo),
-                        isInProgress = currentFieldInProgress == campo,
-                        onClick = { onCampoSelected(campo) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Resumen del Parte",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
                     )
-                }
-            }*/
-            Column(
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                // Primera fila - 4 campos principales
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    listOf(
-                        CampoParte.FECHA,
-                        CampoParte.HORARIOS,
-                        CampoParte.UBICACION,
-                        CampoParte.ESPECIES
-                    ).forEach { campo ->
-                        Box(modifier = Modifier.weight(1f)) {
-                            CompactParteButton(
-                                campo = campo,
-                                isCompleted = camposCompletos.contains(campo),
-                                isInProgress = currentFieldInProgress == campo,
-                                onClick = { onCampoSelected(campo) },
-                                // Para especies, mostrar el total si hay
-                                additionalInfo = if (campo == CampoParte.ESPECIES && parteData.especiesCapturadas.isNotEmpty()) {
-                                    "${parteData.especiesCapturadas.sumOf { it.numeroEjemplares }}"
-                                } else null
-                            )
-                        }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    // Chip pequeño de progreso
+                    Surface(
+                        color = if (parteData.porcentajeCompletado >= 70) Color(0xFFE8F5E9) else MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(
+                            text = "${parteData.porcentajeCompletado}%",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (parteData.porcentajeCompletado >= 70) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
                     }
                 }
 
-                // Segunda fila - 4 campos secundarios
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    listOf(
-                        CampoParte.MODALIDAD,
-                        CampoParte.FOTOS,
-                        CampoParte.CANAS,
-                        CampoParte.OBSERVACIONES
-                    ).forEach { campo ->
-                        Box(modifier = Modifier.weight(1f)) {
-                            CompactParteButton(
-                                campo = campo,
-                                isCompleted = camposCompletos.contains(campo),
-                                isInProgress = currentFieldInProgress == campo,
-                                onClick = { onCampoSelected(campo) },
-                                additionalInfo = null
-                            )
-                        }
-                    }
-                }
+                // Icono de colapsar
+                Icon(
+                    if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (isExpanded) "Colapsar" else "Expandir",
+                    modifier = Modifier.size(24.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
+
+            // --- CONTENIDO EXPANDIBLE ---
             AnimatedVisibility(
-                visible = parteData.porcentajeCompletado >= 30, // Mostrar cuando hay algo de progreso
+                visible = isExpanded,
                 enter = expandVertically() + fadeIn(),
                 exit = shrinkVertically() + fadeOut()
             ) {
                 Column {
                     Spacer(modifier = Modifier.height(12.dp))
-                    Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                    Spacer(modifier = Modifier.height(12.dp))
 
-                    // Título de sección
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            "📊 Acciones del parte",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                    // GRILLA COMPACTA (4 Columnas x 2 Filas)
+                    val campos = CampoParte.values().toList()
+                    val filas = campos.chunked(4) // 4 elementos por fila
 
-                        // Indicador de estado de Firebase
-                        firebaseStatus?.let { status ->
-                            Surface(
-                                color = when {
-                                    status.contains("Guardado") || status.contains("exitosamente") -> Color(0xFF4CAF50)
-                                    status.contains("Error") -> Color(0xFFFF5722)
-                                    else -> Color(0xFFFF9800)
-                                }.copy(alpha = 0.2f),
-                                shape = RoundedCornerShape(12.dp)
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        filas.forEach { filaCampos ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween // Distribuye uniformemente
                             ) {
-                                Text(
-                                    text = when {
-                                        status.contains("Guardando") -> "⏳ Guardando..."
-                                        status.contains("Guardado") -> "✅ Guardado"
-                                        status.contains("Completando") -> "📤 Enviando..."
-                                        status.contains("completado") -> "✅ Enviado"
-                                        status.contains("Error") -> "❌ Error"
-                                        else -> "⏳"
-                                    },
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    fontSize = 12.sp
-                                )
+                                filaCampos.forEach { campo ->
+                                    Box(modifier = Modifier.weight(1f)) {
+                                        CompactItem(
+                                            campo = campo,
+                                            isCompleted = camposCompletos.contains(campo),
+                                            isInProgress = currentFieldInProgress == campo,
+                                            onClick = { onCampoSelected(campo) }
+                                        )
+                                    }
+                                }
+                                // Rellenar espacio si la fila no está completa (aunque aquí son 8 exactos)
+                                repeat(4 - filaCampos.size) {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Botones de acción
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        // Botón guardar borrador
-                        OutlinedButton(
-                            onClick = onGuardarBorrador,
-                            modifier = Modifier.weight(1f),
-                            enabled = parteData.porcentajeCompletado >= 30 &&
-                                    firebaseStatus?.contains("Guardando") != true,
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = MaterialTheme.colorScheme.primary
-                            )
-                        ) {
-                            Icon(
-                                Icons.Default.Save,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                "Guardar Borrador",
-                                fontSize = 13.sp
-                            )
-                        }
-
-                        // Botón completar y enviar
-                        Button(
-                            onClick = onCompletarParte,
-                            modifier = Modifier.weight(1f),
-                            enabled = parteData.porcentajeCompletado >= 70 &&
-                                    firebaseStatus?.contains("Completando") != true,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = when {
-                                    parteData.porcentajeCompletado >= 90 -> Color(0xFF4CAF50)
-                                    parteData.porcentajeCompletado >= 70 -> Color(0xFFFF9800)
-                                    else -> MaterialTheme.colorScheme.surfaceVariant
-                                },
-                                disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
-                            )
-                        ) {
-                            Icon(
-                                Icons.Default.CloudUpload,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                                tint = if (parteData.porcentajeCompletado >= 70)
-                                    Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                "Crear parte",
-                                fontSize = 13.sp,
-                                color = if (parteData.porcentajeCompletado >= 70)
-                                    Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    // Mensaje de ayuda
-                    if (parteData.porcentajeCompletado < 70) {
+                    // --- ACCIONES FINALES ---
+                    if (parteData.porcentajeCompletado >= 10) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            "ℹ️ Completá al menos el 70% para poder enviar el parte",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                            modifier = Modifier.padding(horizontal = 4.dp)
-                        )
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            // Status texto
+                            Text(
+                                text = firebaseStatus ?: if(parteData.porcentajeCompletado >= 70) "Listo para enviar" else "Falta información",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                modifier = Modifier.weight(1f)
+                            )
+
+                            // Botones pequeños
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(
+                                    onClick = onGuardarBorrador,
+                                    contentPadding = PaddingValues(horizontal = 12.dp),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Text("Borrador", fontSize = 11.sp)
+                                }
+
+                                Button(
+                                    onClick = onCompletarParte,
+                                    enabled = parteData.porcentajeCompletado >= 70,
+                                    contentPadding = PaddingValues(horizontal = 12.dp),
+                                    modifier = Modifier.height(32.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFF4CAF50)
+                                    )
+                                ) {
+                                    Text("Enviar", fontSize = 11.sp)
+                                }
+                            }
+                        }
                     }
                 }
             }
+        }
+    }
+}
 
-            // Sugerencias inteligentes
-            AnimatedVisibility(
-                visible = camposCompletos.size < 4,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
+/**
+ * Item ultra-compacto: Icono arriba, texto abajo.
+ * Ocupa muy poco espacio.
+ */
+@Composable
+fun CompactItem(
+    campo: CampoParte,
+    isCompleted: Boolean,
+    isInProgress: Boolean,
+    onClick: () -> Unit
+) {
+    val iconColor = when {
+        isInProgress -> MaterialTheme.colorScheme.primary
+        isCompleted -> Color(0xFF2E7D32) // Verde
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    val bgColor = when {
+        isInProgress -> MaterialTheme.colorScheme.primaryContainer
+        isCompleted -> Color(0xFFE8F5E9) // Verde muy claro
+        else -> Color.Transparent
+    }
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(bgColor)
+            .clickable(onClick = onClick)
+            .padding(vertical = 4.dp) // Padding interno mínimo
+    ) {
+        // Contenedor del Icono
+        Box(
+            modifier = Modifier.size(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = campo.icon,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = iconColor
+            )
+
+            // Puntito indicador si es obligatorio y falta
+            if (campo.obligatorio && !isCompleted && !isInProgress) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .background(Color(0xFFFF5252), CircleShape)
+                        .align(Alignment.TopEnd)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(2.dp))
+
+        // Texto
+        Text(
+            text = campo.displayName.replace(Regex("[^a-zA-Záéíóúñ ]"), "").trim(), // Quitamos emojis del nombre
+            fontSize = 10.sp,
+            fontWeight = if(isInProgress) FontWeight.Bold else FontWeight.Normal,
+            color = if(isInProgress) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+/**
+ * Tarjeta mejorada: Más ancha, usa iconos vectoriales y tiene mejor jerarquía visual.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ParteFieldCard(
+    campo: CampoParte,
+    isCompleted: Boolean,
+    isInProgress: Boolean,
+    extraInfo: String? = null,
+    onClick: () -> Unit
+) {
+    // Definición de colores según estado
+    val (bgColor, iconColor, textColor) = when {
+        isInProgress -> Triple(
+            MaterialTheme.colorScheme.primaryContainer,
+            MaterialTheme.colorScheme.primary,
+            MaterialTheme.colorScheme.onPrimaryContainer
+        )
+        isCompleted -> Triple(
+            Color(0xFFE8F5E9), // Verde muy suave
+            Color(0xFF2E7D32), // Verde oscuro
+            Color(0xFF1B5E20)
+        )
+        else -> Triple(
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            MaterialTheme.colorScheme.onSurfaceVariant,
+            MaterialTheme.colorScheme.onSurface
+        )
+    }
+
+    Card(
+        onClick = onClick,
+        colors = CardDefaults.cardColors(containerColor = bgColor),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.height(72.dp) // Altura fija cómoda para el dedo
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 1. Icono (con fondo circular)
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(iconColor.copy(alpha = 0.1f)), // Fondo suave para el icono
+                contentAlignment = Alignment.Center
             ) {
-                Column {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                    Spacer(modifier = Modifier.height(8.dp))
+                Icon(
+                    imageVector = campo.icon, // ✅ Usamos el icono vectorial real
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = iconColor
+                )
+            }
 
-                    Text(
-                        "💡 Sugerencia rápida",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+            Spacer(modifier = Modifier.width(12.dp))
 
-                    Spacer(modifier = Modifier.height(4.dp))
+            // 2. Textos
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.Center
+            ) {
+                // Limpiamos el nombre para quitar emojis si el enum los tiene en el texto
+                // (Asumiendo que campo.displayName es "📅 Fecha", tomamos solo "Fecha")
+                val cleanName = campo.displayName.replace(Regex("[^a-zA-ZáéíóúÁÉÍÓÚñÑ ]"), "").trim()
 
-                    // Botón de carga rápida
-                    OutlinedButton(
-                        onClick = { onCampoSelected(getSugerenciaProximoCampo(camposCompletos)) },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = MaterialTheme.colorScheme.primary
-                        )
-                    ) {
-                        Icon(
-                            Icons.Default.AutoAwesome,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            "Completar ${getSugerenciaProximoCampo(camposCompletos).displayName}",
-                            fontSize = 13.sp
-                        )
-                    }
-                }
+                Text(
+                    text = cleanName,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = textColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                // Subtítulo: Muestra valor ("3 peces") o estado ("Pendiente")
+                Text(
+                    text = when {
+                        isInProgress -> "Editando..."
+                        extraInfo != null -> extraInfo
+                        isCompleted -> "Listo"
+                        campo.obligatorio -> "Requerido"
+                        else -> "Opcional"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = textColor.copy(alpha = 0.7f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            // 3. Indicador final (Check o Chevron)
+            if (isCompleted) {
+                Icon(
+                    Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = Color(0xFF2E7D32)
+                )
             }
         }
     }

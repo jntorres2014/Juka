@@ -1,5 +1,5 @@
 // ChatModes.kt - Estructura para manejar dos tipos de chat
-package com.example.juka
+package com.example.juka.domain.model
 
 import com.example.juka.data.ChatOption
 import com.example.juka.viewmodel.ChatMessage
@@ -36,7 +36,7 @@ data class ChatMessageWithMode(
 // Data class para sesiones de chat de partes
 data class ParteSessionChat(
     //val sessionId: String = "",
-    val messages: List<ChatMessage> = emptyList(),
+    val messages: List<ChatMessageWithMode> = emptyList(),
     val estado: EstadoParte = EstadoParte.BORRADOR,
     val fechaCreacion: String = getCurrentTimestamp(),
     val parteData: ParteEnProgreso = ParteEnProgreso(),

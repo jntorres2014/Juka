@@ -3,24 +3,23 @@ package com.example.juka.data.firebase
 import android.os.Build
 import android.util.Log
 import androidx.annotation.RequiresApi
-import com.example.juka.ChatMessageWithMode
-import com.example.juka.EstadoParte
-import com.example.juka.ParteSessionChat
-import com.example.juka.data.firebase.FirebaseManager.Companion.COLLECTION_PARTES
-import com.example.juka.viewmodel.ChatMessage
+import com.example.juka.domain.model.ChatMessageWithMode
+import com.example.juka.domain.model.EstadoParte
+import com.example.juka.domain.model.ParteSessionChat
+import com.example.juka.util.Constants
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.tasks.await
 
 class SesionesFirebase(private val manager: FirebaseManager) {
 
-    private val TAG = "${FirebaseManager.TAG} - Sesiones"
+    private val TAG = "${Constants.Firebase.TAG} - Sesiones"
 
     suspend fun guardarParteSession(session: ParteSessionChat): FirebaseResult {
         return try {
             val userId = manager.getCurrentUserId() ?: return FirebaseResult.Error("Usuario no autenticado")
 //            Log.d(TAG, "💾 Guardando sesión: ${session.sessionId} - Estado: ${session.estado}")
-            val sessionPath = "${FirebaseManager.COLLECTION_PARTES}/$userId/"
+            val sessionPath = "${Constants.Firebase.PARTES_COLLECTION}/$userId/"
             //val sessionPath = "${FirebaseManager.COLLECTION_PARTES}/$userId/sesiones/${session.sessionId}"
             manager.firestore.document(sessionPath)
                 .set(session, SetOptions.merge())
@@ -63,15 +62,28 @@ class SesionesFirebase(private val manager: FirebaseManager) {
                 horaInicio = parteData.horaInicio,
                 horaFin = parteData.horaFin,
                 duracionHoras = UtilsFirebase.calcularDuracionFromSession(parteData),
-                peces = UtilsFirebase.convertirEspeciesCapturadas(parteData.especiesCapturadas),
+                peces = session.parteData.especiesCapturadas.map { pez ->
+                    Captura(
+                        especie = pez.nombre,  // (o pez.nombre, verifica qué campo tiene PezCapturado)
+                        cantidad = pez.numeroEjemplares, // (o pez.numeroEjemplares)
+
+                        pesoAproximado = 0.0    // Valor por defecto si no lo tienes
+                    )
+                },
                 cantidadTotal = parteData.especiesCapturadas.sumOf { it.numeroEjemplares },
                 tipo = parteData.modalidad?.displayName?.lowercase(),
-                canas = parteData.numeroCanas,
-                ubicacion = ubicacionPesca,
+                numeroCanas = parteData.numeroCanas,
+                ubicacion = session.parteData.ubicacion?.let { ubi ->
+                    UbicacionParte(
+                        latitud = ubi.latitude ?: 0.0,
+                        longitud = ubi.longitude ?: 0.0,
+                        //nombre = ubi.
+                    )
+                },
                 //ubicacion = parteData.lugar?.let { UbicacionPesca(nombre = it, zona = parteData.provincia?.displayName) },
                 fotos = parteData.imagenes,
                 transcripcionOriginal = UtilsFirebase.extraerTranscripcionFromSession(session),
-                //deviceInfo = UtilsFirebase.getDeviceInfo(),
+                deviceInfo = UtilsFirebase.getDeviceInfo(),
                 userInfo = manager.getCurrentUserInfo(),
                 timestamp = Timestamp.now(),
                 estado = session.estado.name.lowercase(),
@@ -79,13 +91,13 @@ class SesionesFirebase(private val manager: FirebaseManager) {
 
             )
 
-            val partePath = "${FirebaseManager.COLLECTION_PARTES}/$userId/${FirebaseManager.SUBCOLLECTION_PARTES}/$parteId"
+            val partePath = "${Constants.Firebase.PARTES_COLLECTION}/$userId/${Constants.Firebase.SUBCOLLECTION_PARTES}/$parteId"
             manager.firestore.document(partePath)
                 .set(parte, SetOptions.merge())
                 .await()
 
             // Construir la ruta del documento de sesión correctamente
-            val sessionPath = "${FirebaseManager.COLLECTION_PARTES}/$userId/"
+            val sessionPath = "${Constants.Firebase.PARTES_COLLECTION}/$userId/"
 
             Log.d(TAG, "🔍 Actualizando sesión en ruta: $sessionPath")
 
@@ -148,7 +160,7 @@ class SesionesFirebase(private val manager: FirebaseManager) {
             Log.d(TAG, "📜 Obteniendo historial de chat: $sessionId")
 
             val sessionDoc = manager.firestore
-                .document("$COLLECTION_PARTES/$userId/sesiones/$sessionId")
+                .document("$Constants.Firebase.COLLECTION_PARTES/$userId/sesiones/$sessionId")
                 .get()
                 .await()
 
@@ -253,7 +265,7 @@ class SesionesFirebase(private val manager: FirebaseManager) {
             Log.d(TAG, "🔍 Buscando chat para parte: $parteId")
 
             val query = manager.firestore
-                .collection("$COLLECTION_PARTES/$userId/sesiones")
+                .collection("$Constants.Firebase.COLLECTION_PARTES/$userId/sesiones")
                 .whereEqualTo("parteData.id", parteId)
                 .limit(1)
 
@@ -279,7 +291,7 @@ class SesionesFirebase(private val manager: FirebaseManager) {
         return try {
             val userId = manager.getCurrentUserId() ?: return FirebaseResult.Error("Usuario no autenticado")
 
-            val sessionPath = "$COLLECTION_PARTES/$userId/sesiones/$sessionId"
+            val sessionPath = "$Constants.Firebase.COLLECTION_PARTES/$userId/sesiones/$sessionId"
             manager.firestore.document(sessionPath)
                 .update("estado", nuevoEstado.name)
                 .await()
@@ -296,7 +308,7 @@ class SesionesFirebase(private val manager: FirebaseManager) {
         return try {
             val userId = manager.getCurrentUserId() ?: return FirebaseResult.Error("Usuario no autenticado")
 
-            val sessionPath = "$COLLECTION_PARTES/$userId/sesiones/$sessionId"
+            val sessionPath = "$Constants.Firebase.COLLECTION_PARTES/$userId/sesiones/$sessionId"
             manager.firestore.document(sessionPath)
                 .delete()
                 .await()

@@ -1,4 +1,4 @@
-package com.example.juka
+package com.example.juka.domain.usecase
 
 import android.app.Application
 import java.io.File
@@ -41,6 +41,7 @@ class FishingDataExtractor(private val application: Application) {
         "hoy" to getTodayDate(),
         "ayer" to getYesterdayDate(),
         "anteayer" to getDaysAgo(2),
+        "antes de ayer" to getDaysAgo(2),
         "el lunes" to getLastWeekday(Calendar.MONDAY),
         "el martes" to getLastWeekday(Calendar.TUESDAY),
         "el miércoles" to getLastWeekday(Calendar.WEDNESDAY),

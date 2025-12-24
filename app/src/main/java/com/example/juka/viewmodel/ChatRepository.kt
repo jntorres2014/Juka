@@ -1,60 +1,97 @@
-// data/repository/ChatRepository.kt
 package com.example.juka.data.repository
 
-import com.example.juka.FishingData
-import com.example.juka.IMessage
 import com.example.juka.data.firebase.FirebaseManager
-import com.example.juka.data.firebase.FirebaseResult
+import com.example.juka.data.firebase.FirebaseResult // Asegúrate de tener este import
+import com.example.juka.data.firebase.PartePesca
 import com.example.juka.data.local.LocalStorageHelper
-import kotlinx.coroutines.flow.Flow
+import com.example.juka.domain.model.ChatMessageWithMode
+import com.example.juka.domain.model.ChatMode
+import com.example.juka.domain.model.IMessage
+import com.example.juka.domain.usecase.FishingData
+import com.google.common.reflect.TypeToken
+import com.google.gson.Gson
 import kotlinx.coroutines.flow.MutableStateFlow
-import java.io.File
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
 
-/**
- * Repository centralizado para el chat
- * Maneja persistencia local y Firebase
- */
 class ChatRepository(
     private val firebaseManager: FirebaseManager,
     private val localStorageHelper: LocalStorageHelper
 ) {
 
     private val _messages = MutableStateFlow<List<IMessage>>(emptyList())
-    val messages: Flow<List<IMessage>> = _messages
+    val messages: StateFlow<List<IMessage>> = _messages.asStateFlow()
 
     /**
-     * Carga mensajes desde storage local
+     * Carga mensajes de la base de datos local
      */
     suspend fun loadLocalMessages(): List<IMessage> {
-        return localStorageHelper.loadMessages()
+        val history = localStorageHelper.loadChatHistory()
+        _messages.value = history
+        return history
     }
+    // Agrega esto al final de ChatRepository.kt
+    data class EspecieJson(
+        val nombre: String,
+        val sinonimos: List<String>? = null
+    )
+    // En ChatRepository.kt
 
+    fun obtenerListaDePeces(): List<EspecieJson> {
+        return try {
+            // Leemos el archivo peces.json
+            val jsonString = firebaseManager.context.assets.open("peces.json")
+                .bufferedReader()
+                .use { it.readText() }
+
+            // Convertimos JSON a objetos Kotlin
+            val listType = object : TypeToken<List<EspecieJson>>() {}.type
+            Gson().fromJson(jsonString, listType)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            // Lista de respaldo por si falla la lectura del archivo
+            listOf(
+                EspecieJson("Dorado", listOf("tigre del río")),
+                EspecieJson("Surubí", listOf("pintado", "atigrado"))
+            )
+        }
+    }
     /**
-     * Guarda mensaje localmente
+     * Guarda un mensaje
      */
     suspend fun saveMessageLocally(message: IMessage) {
-        localStorageHelper.saveMessage(message)
-        _messages.value = _messages.value + message
+        val messageWithMode = if (message is ChatMessageWithMode) {
+            message
+        } else {
+            ChatMessageWithMode(
+                content = message.content,
+                isFromUser = message.isFromUser,
+                type = message.type,
+                timestamp = message.timestamp,
+                mode = ChatMode.GENERAL
+            )
+        }
+
+        localStorageHelper.saveChatMessage(messageWithMode)
+
+        val currentList = _messages.value.toMutableList()
+        currentList.add(messageWithMode)
+        _messages.value = currentList
     }
 
-    /**
-     * Guarda parte en Firebase
-     */
-    suspend fun saveParteToFirebase(extractedData: Any, transcript: String): FirebaseResult {
-        return firebaseManager.guardarParteAutomatico(extractedData as FishingData, transcript)
-    }
-
-    /**
-     * Limpia mensajes
-     */
     suspend fun clearMessages() {
-        localStorageHelper.clearMessages()
+        localStorageHelper.clearHistory()
         _messages.value = emptyList()
     }
 
     fun getCurrentTimestamp(): String {
         return SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+    }
+
+    suspend fun saveParteToFirebase(parte: PartePesca): FirebaseResult {
+        return firebaseManager.guardarParte(parte)
     }
 }

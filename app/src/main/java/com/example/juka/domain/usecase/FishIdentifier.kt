@@ -1,8 +1,9 @@
-package com.example.juka
+package com.example.juka.domain.usecase
 
 import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.util.Log
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.ai.client.generativeai.type.content
 import kotlinx.coroutines.Dispatchers
@@ -13,7 +14,8 @@ class FishIdentifier(private val application: Application) {
 
     // ⚠️ PEGA TU API KEY AQUÍ DE NUEVO (se borró al actualizar)
     private val generativeModel = GenerativeModel(
-        modelName = "gemini-2.0-flash",
+        modelName = "gemini-2.5-flash",
+        //modelName = "gemini-2.5-flash-tts",
         apiKey = BuildConfig.GEMINI_API_KEY  // Usa esto en lugar del hardcoded
     )
 
@@ -27,7 +29,7 @@ class FishIdentifier(private val application: Application) {
 
     suspend fun identifyFish(imagePath: String): String = withContext(Dispatchers.IO) {
         try {
-            android.util.Log.d("FISH_ID", "Iniciando análisis con Gemini: $imagePath")
+            Log.d("FISH_ID", "Iniciando análisis con Gemini: $imagePath")
 
             // 1. Cargar imagen optimizada
             val bitmap = decodeBitmapFromFile(imagePath)
@@ -56,7 +58,7 @@ class FishIdentifier(private val application: Application) {
                    - Recomendación: ¿Frito, Parrilla o Chupín?
                 
                 4. ⚠️ **Cuidados:**
-                   - ¿Tiene dientes, chuzas o espinas peligrosas?
+                   - ¿Tiene dientes o espinas peligrosas?
                    - Advertencia sobre veda si aplica.
 
                 Si la imagen NO es un pez, responde con humor que eso no se pesca.
@@ -75,7 +77,7 @@ class FishIdentifier(private val application: Application) {
         } catch (e: Exception) {
             // Manejo de errores REAL
             val errorMsg = e.localizedMessage ?: "Error desconocido"
-            android.util.Log.e("FISH_ID", "Error Gemini: $errorMsg")
+            Log.e("FISH_ID", "Error Gemini: $errorMsg")
 
             // Si sigue fallando por el error de serialización, damos un mensaje claro
             if (errorMsg.contains("MissingFieldException")) {

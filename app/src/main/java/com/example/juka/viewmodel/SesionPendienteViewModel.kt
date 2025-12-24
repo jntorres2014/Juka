@@ -5,8 +5,8 @@ package com.example.juka.viewmodels
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.juka.EstadoParte
-import com.example.juka.ParteSessionChat
+import com.example.juka.domain.model.EstadoParte
+import com.example.juka.domain.model.ParteSessionChat
 import com.example.juka.data.firebase.FirebaseManager
 import com.example.juka.data.firebase.FirebaseResult
 import kotlinx.coroutines.flow.MutableStateFlow

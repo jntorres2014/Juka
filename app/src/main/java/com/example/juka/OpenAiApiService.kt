@@ -1,3 +1,4 @@
+/*
 package com.example.juka
 
 import android.graphics.Bitmap
@@ -98,4 +99,4 @@ fun encodeImageToBase64(imagePath: String): String {
     val baos = ByteArrayOutputStream()
     bitmap.compress(Bitmap.CompressFormat.JPEG, 80, baos)
     return Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
-}
+}*/

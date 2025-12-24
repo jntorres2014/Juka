@@ -29,7 +29,7 @@
     </queries>
 
     <application
-        android:allowBackup="true"
+        android:name=".JukaApplication"  android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@drawable/hukalogo4"
@@ -59,6 +59,7 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
     </application>
 
 </manifest>

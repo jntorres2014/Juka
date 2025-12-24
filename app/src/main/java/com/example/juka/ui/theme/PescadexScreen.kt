@@ -1,6 +1,7 @@
 // PescadexScreen.kt - Pantalla integrada con tu diseño
-package com.example.juka
+package com.example.juka.ui.theme
 
+import android.util.Log
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
@@ -14,10 +15,15 @@ import androidx.compose.ui.*
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.juka.EspecieConEstado
+import com.example.juka.EstadisticasPescadex
+import com.example.juka.PescadexManager
+import com.example.juka.RegistroResult
 import com.example.juka.viewmodel.ChatViewModel
 import kotlinx.coroutines.launch
 
@@ -43,7 +49,7 @@ fun PescadexScreen(
                 especies = pescadexManager.obtenerEspeciesConEstado()
                 estadisticas = pescadexManager.obtenerEstadisticasPescadex()
             } catch (e: Exception) {
-                android.util.Log.e("PESCADEX", "Error cargando: ${e.message}")
+                Log.e("PESCADEX", "Error cargando: ${e.message}")
             } finally {
                 isLoading = false
             }
@@ -113,7 +119,7 @@ fun PescadexScreen(
                         }
                         is RegistroResult.Error -> {
                             // Mostrar error (podrías usar SnackBar)
-                            android.util.Log.e("PESCADEX", "Error: ${resultado.mensaje}")
+                            Log.e("PESCADEX", "Error: ${resultado.mensaje}")
                         }
                     }
                     especieSeleccionada = null
@@ -437,7 +443,7 @@ fun EspecieDetalleModal(
                 Text(
                     text = especie.nombreCientifico,
                     style = MaterialTheme.typography.bodyMedium,
-                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                    fontStyle = FontStyle.Italic,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                 )
 
@@ -613,7 +619,7 @@ fun CelebracionNuevaEspecieModal(
                     Text(
                         text = resultado.especieInfo.nombreCientifico,
                         style = MaterialTheme.typography.bodyMedium,
-                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                        fontStyle = FontStyle.Italic,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                     )
 

@@ -3,6 +3,12 @@ package com.example.juka
 
 import android.content.Context
 import android.util.Log
+import com.example.juka.domain.model.EspecieCapturada
+import com.example.juka.domain.model.MLKitEntity
+import com.example.juka.domain.model.MLKitExtractionResult
+import com.example.juka.domain.model.ModalidadPesca
+import com.example.juka.domain.model.ParteEnProgreso
+import com.example.juka.domain.model.Provincia
 import com.google.mlkit.nl.entityextraction.*
 import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
@@ -89,15 +95,20 @@ class MLKitManager(private val context: Context) {
     suspend fun extraerInformacionPesca(texto: String): MLKitExtractionResult {
         return try {
             Log.d(TAG, "🔍 Extrayendo información de: '$texto'")
-
-            // Usar ML Kit para entidades básicas
-            val entitiesMLKit = extraerEntidadesMLKit(texto)
-
             // Agregar entidades específicas de pesca
             val entidadesPesca = extraerEntidadesPesca(texto)
+            // Usar ML Kit para entidades básicas
 
+            val entitiesMLKit = extraerEntidadesMLKit(texto)
+
+            val posicionesOcupadas = entidadesPesca.map { it.posicionInicio..it.posicionFin }
+            val mlKitFiltrado = entitiesMLKit.filter { mlEntity ->
+                posicionesOcupadas.none { ocupada ->
+                    mlEntity.posicionInicio in ocupada || mlEntity.posicionFin in ocupada
+                }
+            }
             // Combinar y ordenar por posición en el texto (clave para asociaciones)
-            val todasEntidades = (entitiesMLKit + entidadesPesca).sortedBy { it.posicionInicio }
+            val todasEntidades = (entidadesPesca + mlKitFiltrado).sortedBy { it.posicionInicio }
 
             val resultado = MLKitExtractionResult(
                 textoExtraido = texto,
@@ -504,7 +515,8 @@ class MLKitManager(private val context: Context) {
                         }
                         parteData = parteData.copy(especiesCapturadas = newList)
                     } else {
-                        val nuevaEspecie = EspecieCapturada(nombre = entity.valor, numeroEjemplares = cantidad)
+                        val nuevaEspecie =
+                            EspecieCapturada(nombre = entity.valor, numeroEjemplares = cantidad)
                         parteData = parteData.copy(
                             especiesCapturadas = parteData.especiesCapturadas + nuevaEspecie
                         )

@@ -1,7 +1,6 @@
 // ChatComponents.kt - Componentes reutilizables para el chat
-package com.example.juka
+package com.example.juka.component
 
-import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -24,24 +23,20 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.rememberAsyncImagePainter
-import com.example.juka.ChatMode
+import com.example.juka.domain.model.ChatMode
 import com.example.juka.data.ActionType
 import com.example.juka.data.ChatOption
-import com.example.juka.viewmodel.ChatMessage
+import com.example.juka.domain.model.ChatMessageWithMode
+import com.example.juka.domain.model.IMessage
 import com.example.juka.viewmodel.MessageType
 import kotlinx.coroutines.delay
 
-// ==================== MESSAGE BUBBLE ====================
 
-/**
- * Burbuja de mensaje principal - Versión unificada mejorada
- * Soporta texto, audio e imágenes
- */
 @Composable
 fun MessageBubble(
     message: IMessage,
     currentMode: ChatMode = ChatMode.GENERAL,
-    onOptionClick: (ChatOption) -> Unit = {},  // ← AGREGAR ESTE PARÁMETRO
+    onOptionClick: (ChatOption) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val isUser = message.isFromUser
@@ -397,7 +392,7 @@ fun TypingIndicator(
                 Spacer(modifier = Modifier.width(8.dp))
 
                 Text(
-                    "Juka está escribiendo",
+                    "Huka está escribiendo",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 14.sp,
                     fontStyle = FontStyle.Italic
@@ -493,7 +488,7 @@ fun WelcomeMessage(
             )
 
             Text(
-                text = "Soy Juka, tu asistente de pesca inteligente",
+                text = "Soy Huka, tu asistente de pesca inteligente",
                 fontSize = 16.sp,
                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
                 textAlign = TextAlign.Center

@@ -3,14 +3,12 @@ package com.example.juka.viewmodels
 
 import android.util.Log
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import com.example.juka.data.firebase.FirebaseManager
 import com.example.juka.data.firebase.PartePesca
 import com.example.juka.viewmodel.ChatMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 
 data class ParteConChat(
     val parte: PartePesca,

@@ -1,7 +1,9 @@
 // IntelligentResponses.kt - Sistema de respuestas inteligentes COMPLETO
-package com.example.juka
+package com.example.juka.domain.usecase
 
-import kotlin.random.Random
+import com.example.juka.FishDatabase
+import com.example.juka.FishInfo
+import com.example.juka.FishingStoryAnalysis
 
 class IntelligentResponses(private val fishDatabase: FishDatabase) {
 

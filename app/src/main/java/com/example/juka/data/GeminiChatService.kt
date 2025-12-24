@@ -1,5 +1,5 @@
 import android.util.Log
-import com.example.juka.data.GeminiPescaService
+import com.example.juka.data.remote.GeminiPescaService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 

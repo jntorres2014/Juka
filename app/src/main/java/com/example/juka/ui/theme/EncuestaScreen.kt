@@ -1,7 +1,6 @@
 package com.example.juka.auth
 
 import android.app.DatePickerDialog
-import androidx.activity.result.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -31,10 +30,7 @@ import com.example.juka.data.encuesta.PreguntasEncuesta
 import com.example.juka.data.encuesta.RespuestaPregunta
 import com.example.juka.data.encuesta.TipoPregunta
 import com.example.juka.data.encuesta.ValidadorEncuesta
-import com.example.juka.data.firebase.FirebaseManager
-import com.example.juka.viewmodel.EncuestaViewModel
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
 import java.util.*
 
 @Composable

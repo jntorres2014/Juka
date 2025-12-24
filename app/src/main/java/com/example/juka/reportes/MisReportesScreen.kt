@@ -86,7 +86,7 @@ fun generarImagenReporte(reporte: PartePesca, context: Context): Bitmap {
     canvas.drawText("JORNADA DE PESCA", width / 2f, 120f, paint)
 
     paint.textSize = 36f
-    canvas.drawText(formatearFecha(reporte.fecha), width / 2f, 200f, paint)
+    reporte.fecha?.let { canvas.drawText(it, width / 2f, 200f, paint) }
 
     paint.textSize = 32f
     canvas.drawText("${reporte.horaInicio ?: "?"} - ${reporte.horaFin ?: "?"}", width / 2f, 260f, paint)
@@ -100,7 +100,7 @@ fun generarImagenReporte(reporte: PartePesca, context: Context): Bitmap {
 
     paint.textSize = 32f
     canvas.drawText("Tipo: ${reporte.tipo?.replaceFirstChar { it.uppercase() } ?: "?"}", width / 2f, 520f, paint)
-    canvas.drawText("Cañas: ${reporte.canas ?: 0}", width / 2f, 570f, paint)
+    canvas.drawText("Cañas: ${reporte.numeroCanas ?: 0}", width / 2f, 570f, paint)
 
     // Especies
     if (reporte.peces.isNotEmpty()) {
@@ -190,7 +190,7 @@ fun ReporteCard(
             ) {
                 Column {
                     Text(
-                        text = formatearFecha(reporte.fecha),
+                        text = reporte.fecha.toString(),
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
@@ -251,7 +251,7 @@ fun ReporteCard(
                 StatMiniCard(
                     icon = Icons.Default.SportsHockey,
                     titulo = "Cañas",
-                    valor = "${reporte.canas ?: 0}",
+                    valor = "${reporte.numeroCanas ?: 0}",
                     color = Color(0xFF8E44AD),
                     modifier = Modifier.weight(1f)
                 )
