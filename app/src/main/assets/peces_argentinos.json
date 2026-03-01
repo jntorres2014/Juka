@@ -429,6 +429,17 @@
     "sinonimos": ["pejerrey bonaerense", "pejerrey lagunero"]
   },
   {
+    "nombre": "Pejerrey",
+    "cientifico": "Odontesthes bonariensis",
+    "habitat": "Lagunas pampeanas y embalses",
+    "carnadas": ["lombriz", "cascarudos", "artificiales pequenios"],
+    "mejor_horario": "Todo el dia",
+    "tecnica": "Pesca con boya y spinning liviano",
+    "tamanio": "20-50 cm",
+    "temporada": "Marzo a noviembre",
+    "sinonimos": ["pejerrey bonaerense", "pejerrey lagunero"]
+  },
+  {
     "nombre": "Pejerrey de agua salada",
     "cientifico": "Odontesthes argentinensis",
     "habitat": "Aguas costeras del Atlantico",
@@ -660,6 +671,17 @@
     "sinonimos": ["salmon rey", "chinook"]
   },
   {
+    "nombre": "Salmon",
+    "cientifico": "Oncorhynchus tshawytscha",
+    "habitat": "Lagos y rios patagonicos (introducido)",
+    "carnadas": ["seniuelos grandes", "cucharas", "carnada viva"],
+    "mejor_horario": "Maniana temprano y atardecer",
+    "tecnica": "Trolling y spinning pesado",
+    "tamanio": "60-120 cm",
+    "temporada": "Noviembre a abril",
+    "sinonimos": ["salmon rey", "chinook"]
+  },
+  {
     "nombre": "Salmon Coho",
     "cientifico": "Oncorhynchus kisutch",
     "habitat": "Lagos patagonicos (introducido)",
@@ -748,7 +770,7 @@
     "sinonimos": ["trucha comun", "trucha europea"]
   },
   {
-    "nombre": "Trucha arco iris",
+    "nombre": "arcoiris",
     "cientifico": "Oncorhynchus mykiss",
     "habitat": "Lagos y rios patagonicos (introducida)",
     "carnadas": ["lombrices", "insectos", "cucharitas", "mosca"],
@@ -781,7 +803,7 @@
     "sinonimos": ["bocona", "lake trout"]
   },
   {
-    "nombre": "Trucha marron",
+    "nombre": "marron",
     "cientifico": "Salmo trutta",
     "habitat": "Rios y lagos patagonicos (introducida)",
     "carnadas": ["lombrices", "insectos grandes", "seniuelos oscuros"],

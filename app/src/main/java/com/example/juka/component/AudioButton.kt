@@ -1,4 +1,4 @@
-// WorkingAudioButton.kt - VERSIÓN QUE SÍ FUNCIONA
+// WorkingAudioButton.kt
 package com.example.juka.component
 
 import android.Manifest
@@ -27,7 +27,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import kotlinx.coroutines.delay
 
 @Composable
 fun WorkingAudioButton(
@@ -35,7 +34,6 @@ fun WorkingAudioButton(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
 
     var isRecording by remember { mutableStateOf(false) }
@@ -43,55 +41,157 @@ fun WorkingAudioButton(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var speechRecognizer by remember { mutableStateOf<SpeechRecognizer?>(null) }
 
-    Log.d("🎤 WorkingAudio", "Renderizando WorkingAudioButton")
+    // ✅ NUEVO: acumulador de texto entre sesiones
+    var accumulatedText by remember { mutableStateOf("") }
+    // ✅ Flag para saber si el usuario detuvo manualmente
+    var userStopped by remember { mutableStateOf(false) }
 
-    // Animación
     val scale by animateFloatAsState(
         targetValue = if (isRecording) 1.3f else 1.0f,
         animationSpec = tween(200)
     )
 
-    // Launcher para permisos
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        Log.d("🎤 WorkingAudio", "Permisos: $isGranted")
-        if (isGranted) {
-            startRecording(
-                context = context,
-                onRecording = {
-                    Log.d("🎤 WorkingAudio", "🎤 GRABANDO")
-                    isRecording = true
-                },
-                onProcessing = {
-                    Log.d("🎤 WorkingAudio", "⚡ PROCESANDO")
-                    isRecording = false
-                    isProcessing = true
-                },
-                onResult = { result ->
-                    Log.d("🎤 WorkingAudio", "✅ RESULTADO: '$result'")
-                    isProcessing = false
-                    errorMessage = null
-                    onAudioTranscribed(result)
-                },
-                onError = { error ->
-                    Log.e("🎤 WorkingAudio", "❌ ERROR: $error")
-                    isRecording = false
-                    isProcessing = false
-                    errorMessage = error
-                },
-                speechRecognizer = speechRecognizer,
-                onSpeechRecognizerSet = { speechRecognizer = it }
-            )
-        } else {
-            errorMessage = "Necesitas permisos de micrófono"
+    // ✅ Función de inicio extraída como lambda para poder llamarla recursivamente
+    val startContinuousRecording = remember<() -> Unit> {
+        {
+            // se define abajo en el LaunchedEffect / función local
         }
     }
 
-    // Cleanup
+    // Función local que relanza el recognizer acumulando texto
+    fun launchRecognizer() {
+        if (userStopped) return   // El usuario ya detuvo, no reiniciar
+
+        speechRecognizer?.destroy()
+
+        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+            isRecording = false
+            isProcessing = false
+            errorMessage = "Reconocimiento de voz no disponible"
+            return
+        }
+
+        val recognizer = SpeechRecognizer.createSpeechRecognizer(context) ?: run {
+            isRecording = false
+            errorMessage = "No se pudo crear el reconocedor"
+            return
+        }
+        speechRecognizer = recognizer
+
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "es-AR")
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "es-AR")
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2000L)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2000L)
+        }
+
+        recognizer.setRecognitionListener(object : RecognitionListener {
+            override fun onReadyForSpeech(params: Bundle?) {
+                Log.i("🎤", "Micrófono activo")
+                isRecording = true
+                isProcessing = false
+            }
+
+            override fun onBeginningOfSpeech() {}
+            override fun onRmsChanged(rmsdB: Float) {}
+            override fun onBufferReceived(buffer: ByteArray?) {}
+
+            override fun onEndOfSpeech() {
+                Log.i("🎤", "Fin de voz, procesando segmento...")
+                isProcessing = true
+            }
+
+            override fun onResults(results: Bundle?) {
+                val match = results
+                    ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    ?.firstOrNull()
+                    ?.trim()
+                    ?: ""
+
+                Log.i("🎤", "Segmento: '$match'")
+
+                if (match.isNotBlank()) {
+                    // ✅ Acumular texto con espacio entre segmentos
+                    accumulatedText = if (accumulatedText.isBlank()) match
+                    else "$accumulatedText $match"
+                }
+
+                if (userStopped) {
+                    // El usuario detuvo: entregar todo el texto acumulado
+                    isRecording = false
+                    isProcessing = false
+                    val finalText = accumulatedText.trim()
+                    accumulatedText = ""
+                    if (finalText.isNotBlank()) {
+                        onAudioTranscribed(finalText)
+                    } else {
+                        errorMessage = "No se detectó texto claro"
+                    }
+                } else {
+                    // ✅ Continuar grabando automáticamente
+                    Log.i("🎤", "Reiniciando segmento...")
+                    launchRecognizer()
+                }
+            }
+
+            override fun onError(error: Int) {
+                val isRecoverableError = error == SpeechRecognizer.ERROR_NO_MATCH ||
+                        error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+
+                Log.w("🎤", "Error código: $error, recuperable: $isRecoverableError")
+
+                if (isRecoverableError && !userStopped) {
+                    // ✅ Sin voz en este segmento → simplemente reiniciar
+                    launchRecognizer()
+                } else if (userStopped) {
+                    // Usuario detuvo durante un error: entregar lo acumulado
+                    isRecording = false
+                    isProcessing = false
+                    val finalText = accumulatedText.trim()
+                    accumulatedText = ""
+                    if (finalText.isNotBlank()) onAudioTranscribed(finalText)
+                    else errorMessage = "No se detectó texto claro"
+                } else {
+                    isRecording = false
+                    isProcessing = false
+                    accumulatedText = ""
+                    errorMessage = when (error) {
+                        SpeechRecognizer.ERROR_AUDIO -> "Error de audio"
+                        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Sin permisos de micrófono"
+                        SpeechRecognizer.ERROR_NETWORK,
+                        SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Sin conexión a internet"
+                        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Reconocedor ocupado, esperá un momento"
+                        SpeechRecognizer.ERROR_SERVER -> "Error del servidor de Google"
+                        else -> "Error desconocido ($error)"
+                    }
+                }
+            }
+
+            override fun onPartialResults(partialResults: Bundle?) {}
+            override fun onEvent(eventType: Int, params: Bundle?) {}
+        })
+
+        recognizer.startListening(intent)
+        Log.i("🎤", "Segmento de reconocimiento iniciado")
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            userStopped = false
+            accumulatedText = ""
+            launchRecognizer()
+        } else {
+            errorMessage = "Necesitás permisos de micrófono"
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose {
-            Log.d("🎤 WorkingAudio", "🧹 Cleanup SpeechRecognizer")
             speechRecognizer?.destroy()
         }
     }
@@ -100,65 +200,32 @@ fun WorkingAudioButton(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier
     ) {
-        // Botón principal
         FloatingActionButton(
             onClick = {
-                Log.d("🎤 WorkingAudio", "👆 BOTÓN TOCADO")
-                Log.d("🎤 WorkingAudio", "Estado: Recording=$isRecording, Processing=$isProcessing")
-
-                // Reset error
                 errorMessage = null
-
                 when {
-                    isRecording -> {
-                        Log.d("🎤 WorkingAudio", "🛑 Deteniendo grabación...")
-                        speechRecognizer?.stopListening()
-                        isRecording = false
+                    isRecording || isProcessing -> {
+                        // ✅ Usuario detiene: marcar flag y esperar onResults/onError
+                        Log.i("🎤", "Usuario detuvo grabación")
+                        userStopped = true
                         isProcessing = true
-                    }
-                    isProcessing -> {
-                        Log.d("🎤 WorkingAudio", "⏳ Procesando... no hacer nada")
-                        // No hacer nada
+                        isRecording = false
+                        speechRecognizer?.stopListening()
                     }
                     else -> {
-                        Log.d("🎤 WorkingAudio", "🚀 Iniciando grabación...")
-                        if (hasAudioPermission(context)) {
-                            startRecording(
-                                context = context,
-                                onRecording = {
-                                    Log.d("🎤 WorkingAudio", "🎤 GRABANDO (directo)")
-                                    isRecording = true
-                                },
-                                onProcessing = {
-                                    Log.d("🎤 WorkingAudio", "⚡ PROCESANDO (directo)")
-                                    isRecording = false
-                                    isProcessing = true
-                                },
-                                onResult = { result ->
-                                    Log.d("🎤 WorkingAudio", "✅ RESULTADO (directo): '$result'")
-                                    isProcessing = false
-                                    errorMessage = null
-                                    onAudioTranscribed(result)
-                                },
-                                onError = { error ->
-                                    Log.e("🎤 WorkingAudio", "❌ ERROR (directo): $error")
-                                    isRecording = false
-                                    isProcessing = false
-                                    errorMessage = error
-                                },
-                                speechRecognizer = speechRecognizer,
-                                onSpeechRecognizerSet = { speechRecognizer = it }
-                            )
+                        userStopped = false
+                        accumulatedText = ""
+                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+                            == PackageManager.PERMISSION_GRANTED
+                        ) {
+                            launchRecognizer()
                         } else {
-                            Log.w("🎤 WorkingAudio", "🔒 Solicitando permisos...")
                             permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                         }
                     }
                 }
             },
-            modifier = Modifier
-                .size(64.dp)
-                .scale(scale),
+            modifier = Modifier.size(64.dp).scale(scale),
             containerColor = when {
                 isProcessing -> MaterialTheme.colorScheme.tertiary
                 isRecording -> MaterialTheme.colorScheme.error
@@ -167,43 +234,34 @@ fun WorkingAudioButton(
             }
         ) {
             when {
-                isProcessing -> {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(28.dp),
-                        color = MaterialTheme.colorScheme.onTertiary,
-                        strokeWidth = 3.dp
-                    )
-                }
-                isRecording -> {
-                    Icon(
-                        Icons.Default.Stop,
-                        contentDescription = "Detener grabación",
-                        tint = MaterialTheme.colorScheme.onError,
-                        modifier = Modifier.size(32.dp)
-                    )
-                }
-                errorMessage != null -> {
-                    Icon(
-                        Icons.Default.ErrorOutline,
-                        contentDescription = "Error",
-                        tint = MaterialTheme.colorScheme.onError,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
-                else -> {
-                    Icon(
-                        Icons.Default.Mic,
-                        contentDescription = "Grabar audio",
-                        tint = MaterialTheme.colorScheme.onSecondary,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
+                isProcessing -> CircularProgressIndicator(
+                    modifier = Modifier.size(28.dp),
+                    color = MaterialTheme.colorScheme.onTertiary,
+                    strokeWidth = 3.dp
+                )
+                isRecording -> Icon(
+                    Icons.Default.Stop,
+                    contentDescription = "Detener grabación",
+                    tint = MaterialTheme.colorScheme.onError,
+                    modifier = Modifier.size(32.dp)
+                )
+                errorMessage != null -> Icon(
+                    Icons.Default.ErrorOutline,
+                    contentDescription = "Error",
+                    tint = MaterialTheme.colorScheme.onError,
+                    modifier = Modifier.size(28.dp)
+                )
+                else -> Icon(
+                    Icons.Default.Mic,
+                    contentDescription = "Grabar audio",
+                    tint = MaterialTheme.colorScheme.onSecondary,
+                    modifier = Modifier.size(28.dp)
+                )
             }
         }
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Estado
         Text(
             text = when {
                 isRecording -> "🎤 Grabando... Toca para detener"
@@ -219,168 +277,11 @@ fun WorkingAudioButton(
             fontWeight = if (errorMessage != null) FontWeight.Bold else FontWeight.Normal
         )
 
-        // Auto-limpiar errores
         if (errorMessage != null) {
             LaunchedEffect(errorMessage) {
-                delay(4000)
+                kotlinx.coroutines.delay(4000)
                 errorMessage = null
             }
         }
-    }
-}
-
-// Verificar permisos
-private fun hasAudioPermission(context: Context): Boolean {
-    val hasPermission = ContextCompat.checkSelfPermission(
-        context,
-        Manifest.permission.RECORD_AUDIO
-    ) == PackageManager.PERMISSION_GRANTED
-
-    Log.d("🎤 WorkingAudio", "🔒 Permisos: $hasPermission")
-    return hasPermission
-}
-
-// Función simplificada y robusta para grabación
-private fun startRecording(
-    context: Context,
-    onRecording: () -> Unit,
-    onProcessing: () -> Unit,
-    onResult: (String) -> Unit,
-    onError: (String) -> Unit,
-    speechRecognizer: SpeechRecognizer?,
-    onSpeechRecognizerSet: (SpeechRecognizer) -> Unit
-) {
-    Log.d("🎤 WorkingAudio", "🚀 === INICIANDO GRABACIÓN ===")
-
-    try {
-        // Verificar disponibilidad PRIMERO
-        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-            Log.e("🎤 WorkingAudio", "❌ SpeechRecognizer NO disponible")
-            onError("Reconocimiento de voz no disponible en este dispositivo")
-            return
-        }
-        Log.d("🎤 WorkingAudio", "✅ SpeechRecognizer disponible")
-
-        // Destruir recognizer anterior si existe
-        speechRecognizer?.destroy()
-
-        // Crear nuevo SpeechRecognizer
-        val recognizer = try {
-            SpeechRecognizer.createSpeechRecognizer(context)
-        } catch (e: Exception) {
-            Log.e("🎤 WorkingAudio", "❌ Error creando SpeechRecognizer: ${e.message}")
-            onError("Error creando reconocedor de voz")
-            return
-        }
-
-        if (recognizer == null) {
-            Log.e("🎤 WorkingAudio", "❌ SpeechRecognizer es null")
-            onError("No se pudo crear el reconocedor")
-            return
-        }
-
-        onSpeechRecognizerSet(recognizer)
-        Log.d("🎤 WorkingAudio", "✅ SpeechRecognizer creado")
-
-        // Intent configurado para Argentina
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "es-AR")
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "es-AR")
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
-            // Timeouts más largos para mejor captura
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 20000L)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 200000L)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 5000L)
-        }
-        Log.d("🎤 WorkingAudio", "✅ Intent configurado")
-
-        // Listener simplificado y robusto
-        recognizer.setRecognitionListener(object : RecognitionListener {
-            override fun onReadyForSpeech(params: Bundle?) {
-                Log.i("🎤 WorkingAudio", "🎙️ LISTO - Micrófono activo")
-                onRecording()
-            }
-
-            override fun onBeginningOfSpeech() {
-                Log.i("🎤 WorkingAudio", "🗣️ VOZ DETECTADA")
-            }
-
-            override fun onRmsChanged(rmsdB: Float) {
-                // Log de volumen solo cada segundo para no saturar
-                if (System.currentTimeMillis() % 1000 < 50) {
-                    Log.v("🎤 WorkingAudio", "🔊 Volumen: ${rmsdB.toInt()}dB")
-                }
-            }
-
-            override fun onBufferReceived(buffer: ByteArray?) {
-                Log.v("🎤 WorkingAudio", "📡 Buffer: ${buffer?.size} bytes")
-            }
-
-            override fun onEndOfSpeech() {
-                Log.i("🎤 WorkingAudio", "🔚 FIN DE VOZ - Procesando...")
-                onProcessing()
-            }
-
-            override fun onError(error: Int) {
-                val errorMsg = when (error) {
-                    SpeechRecognizer.ERROR_AUDIO -> "Error de audio - ¿Está conectado el micrófono?"
-                    SpeechRecognizer.ERROR_CLIENT -> "Error del cliente - Intenta de nuevo"
-                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Sin permisos de micrófono"
-                    SpeechRecognizer.ERROR_NETWORK -> "Sin conexión a internet"
-                    SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Timeout de red - Verifica tu conexión"
-                    SpeechRecognizer.ERROR_NO_MATCH -> "No se detectó voz clara - Intenta hablar más fuerte"
-                    SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Reconocedor ocupado - Espera un momento"
-                    SpeechRecognizer.ERROR_SERVER -> "Error del servidor de Google"
-                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No se detectó voz - Intenta de nuevo"
-                    else -> "Error desconocido ($error)"
-                }
-                Log.e("🎤 WorkingAudio", "💥 ERROR: $errorMsg (código: $error)")
-                onError(errorMsg)
-            }
-
-            override fun onResults(results: Bundle?) {
-                Log.i("🎤 WorkingAudio", "🏆 === RESULTADOS ===")
-
-                val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                Log.d("🎤 WorkingAudio", "📝 Total resultados: ${matches?.size}")
-
-                matches?.forEachIndexed { index, match ->
-                    Log.d("🎤 WorkingAudio", "  $index: '$match'")
-                }
-
-                val bestResult = matches?.firstOrNull()?.trim() ?: ""
-
-                Log.i("🎤 WorkingAudio", "🎯 MEJOR RESULTADO: '$bestResult'")
-
-                if (bestResult.isNotBlank()) {
-                    Log.i("🎤 WorkingAudio", "✅ ÉXITO - Enviando resultado")
-                    onResult(bestResult)
-                } else {
-                    Log.w("🎤 WorkingAudio", "⚠️ Resultado vacío")
-                    onError("No se detectó texto claro")
-                }
-            }
-
-            override fun onPartialResults(partialResults: Bundle?) {
-                val partial = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                Log.d("🎤 WorkingAudio", "🔄 Parcial: '${partial?.firstOrNull() ?: ""}'")
-            }
-
-            override fun onEvent(eventType: Int, params: Bundle?) {
-                Log.v("🎤 WorkingAudio", "🎭 Evento: $eventType")
-            }
-        })
-
-        // INICIAR reconocimiento
-        Log.i("🎤 WorkingAudio", "🎬 INICIANDO reconocimiento...")
-        recognizer.startListening(intent)
-        Log.i("🎤 WorkingAudio", "🚀 ¡RECONOCIMIENTO ACTIVO!")
-
-
-    } catch (e: Exception) {
-        Log.e("🎤 WorkingAudio", "💥 Excepción: ${e.message}", e)
-        onError("Error iniciando grabación: ${e.localizedMessage}")
     }
 }

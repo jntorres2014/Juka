@@ -53,7 +53,7 @@ fun TypingIndicator() {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "Juka está escribiendo",
+                    "Huka está escribiendo",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 14.sp,
                     fontStyle = androidx.compose.ui.text.font.FontStyle.Italic

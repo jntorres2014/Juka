@@ -11,6 +11,8 @@ import com.example.juka.data.repository.FishingRepository
 import com.example.juka.domain.chat.ChatQuotaManager
 import GeminiChatService // Asegurate de importar esto
 import com.example.juka.data.local.room.JukaRoomDatabase
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 
 class JukaApplication : Application() {
 
@@ -40,7 +42,12 @@ class JukaApplication : Application() {
     // ✅ NUEVOS INGREDIENTES PARA EL CHAT MEJORADO
     val geminiService by lazy { GeminiChatService() }
     val mlKitManager by lazy { MLKitManager(this) }
-    val chatQuotaManager by lazy { ChatQuotaManager(this) }
+    val chatQuotaManager by lazy {
+        ChatQuotaManager(
+            firestore = FirebaseFirestore.getInstance(),
+            auth = FirebaseAuth.getInstance()
+        )
+    }
     val chatBotManager by lazy { ChatBotManager(this) }
 
     // El ActionHandler necesita contexto

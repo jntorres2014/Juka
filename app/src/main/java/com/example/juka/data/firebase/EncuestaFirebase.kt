@@ -116,6 +116,8 @@ class EncuestaFirebase(private val firebaseManager: FirebaseManager) {
 
             val tieneRespuestas = encuestaDoc.exists() &&
                     encuestaDoc.getBoolean("completada") == true
+            Log.d(TAG, "********************************")
+            Log.d(TAG, "Tiene respuestas: $tieneRespuestas")
 
             if (tieneRespuestas) {
                 // Actualizar el flag principal si faltaba

@@ -25,6 +25,7 @@ import com.example.juka.data.AchievementsViewModel
 import com.example.juka.data.AuthManager
 import com.example.juka.navigation.JukaAppWithUser
 import com.example.juka.ui.theme.logros.AchievementItem
+import com.example.juka.ui.theme.logros.AchievementItemCompact
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.launch
@@ -250,7 +251,7 @@ fun SimpleProfileScreen(
                                             tint = MaterialTheme.colorScheme.primary
                                         )
                                     }
-                                    Text("Logros cargados: ${achievements.size}")
+                                    //Text("Logros cargados: ${achievements.size}")
 
                                     Spacer(modifier = Modifier.height(12.dp))
 
@@ -263,7 +264,7 @@ fun SimpleProfileScreen(
                                     ) {
                                         // Mostramos solo los primeros 3 para que no ocupe todo el perfil
                                         achievements.take(3).forEach { achievement ->
-                                            AchievementItem(
+                                            AchievementItemCompact(
                                                 achievement = achievement,
                                                 onItemClick = {
                                                     // Al tocar la figurita, también navegamos o abrimos detalle

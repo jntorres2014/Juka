@@ -1,6 +1,7 @@
 package com.example.juka.auth
 
 import android.app.DatePickerDialog
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -194,6 +195,7 @@ fun EncuestaScreen(
                                                 popUpTo("survey") { inclusive = true }
                                             }
                                         } else {
+                                            Log.e("Entre acaaaEncuestaViewModel", "Error al guardar la encuesta")
                                             mensajeError = "Error al guardar la encuesta"
                                             isLoading = false
                                         }
@@ -209,6 +211,7 @@ fun EncuestaScreen(
                                         // Podrías poner isLoading = false aquí si la pantalla no desaparece
                                         // inmediatamente, pero con la navegación, no es estrictamente necesario.
                                     } catch (e: Exception) {
+                                        Log.e("EntrePor esteeeee", "Error al guardar la encuesta", e)
                                         mensajeError = "Error al guardar la encuesta"
                                         isLoading = false
                                     }

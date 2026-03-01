@@ -15,12 +15,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Assignment
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -60,7 +62,7 @@ fun EnhancedChatHeader(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
+                    .padding(10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -69,12 +71,12 @@ fun EnhancedChatHeader(
                         // Icono del modo
                         Icon(
                             when (currentMode) {
-                                ChatMode.GENERAL -> Icons.Default.Chat
-                                ChatMode.CREAR_PARTE -> Icons.Default.Assignment
+                                ChatMode.GENERAL -> Icons.Default.Star
+                                ChatMode.CREAR_PARTE -> Icons.Default.AddCircle
                             },
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(10.dp)
                         )
 
                         Spacer(modifier = Modifier.width(8.dp))
@@ -84,7 +86,7 @@ fun EnhancedChatHeader(
                                 ChatMode.GENERAL -> "Chat General"
                                 ChatMode.CREAR_PARTE -> "Crear Parte"
                             },
-                            fontSize = 20.sp,
+                            fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimary
                         )
@@ -158,7 +160,7 @@ fun EnhancedChatHeader(
             }
 
             // Indicador de modo con animación
-            AnimatedVisibility(
+            /*AnimatedVisibility(
                 visible = currentMode == ChatMode.CREAR_PARTE,
                 enter = expandVertically() + fadeIn(),
                 exit = shrinkVertically() + fadeOut()
@@ -171,17 +173,17 @@ fun EnhancedChatHeader(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
+                        *//*Icon(
                             Icons.Default.AutoAwesome,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.onPrimary
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(8.dp))*//*
 
                     }
                 }
-            }
+            }*/
         }
     }
 }

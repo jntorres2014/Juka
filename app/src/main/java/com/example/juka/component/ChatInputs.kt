@@ -72,15 +72,15 @@ fun EnhancedMessageInput(
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.tertiary
                         ),
-                        shape = RoundedCornerShape(24.dp)
+                        shape = RoundedCornerShape(16.dp)
                     ) {
                         Icon(
                             Icons.Default.Assignment,
                             contentDescription = null,
                             modifier = Modifier.size(20.dp)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Crear Parte de Pesca", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Text("Crear Parte de Pesca", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -263,8 +263,11 @@ fun SimpleParteInput(
                         Text(
                             when (currentField) {
                                 CampoParte.ESPECIES -> "Ej: 2 pejerreyes y 1 róbalo"
-                                CampoParte.FECHA -> "Ej: hoy, ayer, 25/10"
+                                CampoParte.FECHA -> "Ej: hoy, ayer, 25/10/2026"
                                 CampoParte.HORARIOS -> "Ej: de 6 a 11"
+                                CampoParte.MODALIDAD -> " Ej:Embarcado, de Costa"
+                                CampoParte.CANAS -> "Ej: Con 3 cañas"
+                                CampoParte.OBSERVACIONES -> "Ej: llovia mucho"
                                 else -> "Escribí tu respuesta..."
                             }
                         )

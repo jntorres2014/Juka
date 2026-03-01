@@ -117,7 +117,7 @@ fun generarImagenReporte(reporte: PartePesca, context: Context): Bitmap {
     // Footer
     paint.textSize = 20f
     paint.color = Color(0xFF94A3B8).toArgb()
-    canvas.drawText("Registrado con Juka - App de Pesca", width / 2f, height - 80f, paint)
+    canvas.drawText("Registrado con Huka - App de Pesca", width / 2f, height - 80f, paint)
 
     return bitmap
 }

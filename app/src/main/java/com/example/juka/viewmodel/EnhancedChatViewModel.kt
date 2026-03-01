@@ -1,5 +1,6 @@
 package com.example.juka.viewmodel
 
+import AchievementsChecker
 import GeminiChatService
 import android.os.Build
 import android.util.Log
@@ -37,6 +38,7 @@ import java.util.*
 
 // Importamos el UseCase
 import com.example.juka.domain.usecase.ParteLogicUseCase
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
@@ -58,7 +60,8 @@ class EnhancedChatViewModel(
 
     val quotaState = quotaManager.quotaState
     private val achievementsViewModel = AchievementsViewModel()
-
+    private val _isSendingParte = MutableStateFlow(false)
+    val isSendingParte: StateFlow<Boolean> = _isSendingParte
     // Estados principales
     private val _currentMode = MutableStateFlow(ChatMode.GENERAL)
     val currentMode: StateFlow<ChatMode> = _currentMode.asStateFlow()
@@ -261,22 +264,39 @@ class EnhancedChatViewModel(
 
     // --- LÓGICA GENERAL ---
     private fun sendGeneralTextMessage(content: String) {
-        if (chatBotManager.isMenuRequest(content)) { showMainMenu(); return }
+        if (chatBotManager.isMenuRequest(content)) {
+            showMainMenu()
+            return
+        }
+
         addUserMessage(content)
-        if (!quotaManager.canMakeQuery()) { addBotMessage(quotaManager.getQuotaMessage()); return }
         processWithGemini(content)
     }
 
     private fun processWithGemini(content: String) {
         _isTyping.value = true
         viewModelScope.launch {
+            // Verificar quota ANTES de procesar
+            if (!quotaManager.canMakeQuery()) {
+                addBotMessage(quotaManager.getQuotaMessage())
+                _isTyping.value = false
+                return@launch
+            }
+
             when (val result = geminiService.processUserMessage(content)) {
                 is ChatResult.Success -> {
-                    quotaManager.consumeQuery()
-                    addBotMessage("${result.message}\n\n_${quotaManager.getQuotaMessage()}_")
+                    // Ahora consumeQuery también es suspend
+                    val consumed = quotaManager.consumeQuery()
+                    if (consumed) {
+                        addBotMessage("${result.message}\n\n_${quotaManager.getQuotaMessage()}_")
+                    } else {
+                        addBotMessage("Hubo un error al procesar la consulta, verifica tu conexion a Internet")
+                    }
                 }
                 is ChatResult.Error -> {
-                    if (result.shouldConsumeQuota) quotaManager.consumeQuery()
+                    if (result.shouldConsumeQuota) {
+                        quotaManager.consumeQuery()
+                    }
                     addBotMessage(result.message)
                 }
             }
@@ -286,13 +306,22 @@ class EnhancedChatViewModel(
 
     private fun sendGeneralAudioMessage(transcript: String) {
         addUserMessage("🎤 \"$transcript\"", MessageType.AUDIO)
-        if (!quotaManager.canMakeQuery()) { addBotMessage(quotaManager.getQuotaMessage()); return }
+
         _isTyping.value = true
         viewModelScope.launch {
+            // Verificar quota primero
+            if (!quotaManager.canMakeQuery()) {
+                addBotMessage(quotaManager.getQuotaMessage())
+                _isTyping.value = false
+                return@launch
+            }
+
             when (val result = geminiService.processAudioMessage(transcript)) {
                 is ChatResult.Success -> {
-                    quotaManager.consumeQuery()
-                    addBotMessage("👂 Procesé tu audio:\n\n${result.message}\n\n_${quotaManager.getQuotaMessage()}_")
+                    val consumed = quotaManager.consumeQuery()
+                    if (consumed) {
+                        addBotMessage("👂 Procesé tu audio:\n\n${result.message}\n\n_${quotaManager.getQuotaMessage()}_")
+                    }
                 }
                 is ChatResult.Error -> addBotMessage(result.message)
             }
@@ -601,11 +630,13 @@ class EnhancedChatViewModel(
     // ================== FINALIZACIÓN DEL PARTE ==================
 
     fun completarYEnviarParte() {
+         val auth = FirebaseAuth.getInstance()
         _parteSession.value?.let { session ->
             if (session.parteData.porcentajeCompletado >= 70) {
                 _firebaseStatus.value = "Intentando subir..."
                 viewModelScope.launch {
                     try {
+                        _isSendingParte.value = true
                         val urlsRemotas = session.parteData.imagenes.map { pathLocal ->
                             if (pathLocal.startsWith("http")) pathLocal
                             else {
@@ -617,20 +648,12 @@ class EnhancedChatViewModel(
                         val datosFinales = session.parteData.copy(imagenes = urlsRemotas)
                         val sessionFinal = session.copy(parteData = datosFinales)
 
-                        // ✅ Calcular total de peces y desbloquear
-                        val totalPeces = datosFinales.especiesCapturadas.sumOf { it.numeroEjemplares }
-
-                        // Check existente (para 1 especie – que podría ser cero peces si numeroEjemplares=0, pero ajustalo si es para cero)
-                        if (datosFinales.especiesCapturadas.size == 1) {
-                            achievementsViewModel.unlockAchievement("zapatero_wade")
-                        }
-                        if (datosFinales.fecha.toString() == "25/12/2025"){
-                            achievementsViewModel.unlockAchievement("pescador_navideño")
-                        }
-                        // Nuevo: para exactamente 1 pez total
-                        if (totalPeces == 1) {
-                            achievementsViewModel.unlockAchievement("solo_un_pez")
-                        }
+                        // ✅ VERIFICAR LOGROS CON LA FUNCIÓN MODULAR
+                        val achievementsChecker = AchievementsChecker(achievementsViewModel)
+                        achievementsChecker.checkParteAchievements(
+                            datosFinales,
+                            auth.currentUser?.uid ?: ""
+                        )
 
 
                         // Más ideas: if (totalPeces == 0) { achievementsViewModel.unlockAchievement("cero_peces") } – pero parece que "zapatero_wade" ya es para eso.
@@ -640,6 +663,7 @@ class EnhancedChatViewModel(
 
                         if (resultado is FirebaseResult.Success) {
                             _firebaseStatus.value = "¡Subido!"
+                            _isSendingParte.value = false
                             addMessageToParteSession(ChatMessageWithMode(
                                 "✅ **¡Parte subido a la nube!**", false, MessageType.TEXT, getCurrentTimestamp(), ChatMode.CREAR_PARTE
                             ))
@@ -755,13 +779,13 @@ class EnhancedChatViewModel(
 
     private fun obtenerEjemploPorCampo(campo: CampoParte): String {
         return when (campo) {
-            CampoParte.HORARIOS -> "De 6 a 11"
-            CampoParte.ESPECIES -> "2 pejerreyes"
+            /*CampoParte.HORARIOS -> "De 6 a 11"
+            CampoParte.ESPECIES -> "2 percas"
             CampoParte.FECHA -> "Hoy"
             CampoParte.CANAS -> "2 cañas"
             CampoParte.MODALIDAD -> "Costa"
-            CampoParte.UBICACION -> "Puerto Madryn"
-            CampoParte.OBSERVACIONES -> "Detalles extra..."
+            CampoParte.UBICACION -> "ej: Trelew"
+            CampoParte.OBSERVACIONES -> "Detalles extra..."*/
             else -> "..."
         }
     }

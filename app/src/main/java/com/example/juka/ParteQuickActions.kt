@@ -31,18 +31,18 @@ enum class CampoParte(
     FECHA(
         "📅 Fecha",
         Icons.Default.DateRange,
-        "¿Qué día pescaste? Podés decir 'hoy', 'ayer' o una fecha específica",
+        "¿Qué día pescaste? Podés decir 'hoy', 'ayer' o una fecha específica 23/02/2024",
         true
     ),
     HORARIOS(
         "⏰  Horarios",
         Icons.Default.Schedule,
-        "¿A qué hora empezaste y terminaste de pescar?"
+        "¿A qué hora empezaste y terminaste de pescar? ej: de 6 a 15"
     ),
     UBICACION(
         "📍 Ubicación",
         Icons.Default.LocationOn,
-        "¿Dónde pescaste? Tocá para seleccionar en el mapa o escribí el nombre del lugar",
+        "¿Dónde pescaste? Tocá para seleccionar en el mapa y escribí el nombre del lugar ej Trelew",
         true
     ),
     ESPECIES(
@@ -60,17 +60,17 @@ enum class CampoParte(
     FOTOS(
         "📸 Fotos",
         Icons.Default.CameraAlt,
-        "¿Tenés fotos de tu jornada? Agregá las que quieras"
+        "¿Tenés fotos de tu jornada? Agregala!"
     ),
     CANAS(
         "🎯 Cañas",
         Icons.Default.SportsMartialArts,
-        "¿Con cuántas cañas pescaste?"
+        "¿Con cuántas cañas pescaste? o cuantos amigos eran?"
     ),
     OBSERVACIONES(
         "📝 Notas",
         Icons.Default.Notes,
-        "¿Alguna observación adicional sobre tu jornada?"
+        "¿Algun detalle adicional sobre tu jornada? Carnada, peso de especie"
     )
 }
 @Composable

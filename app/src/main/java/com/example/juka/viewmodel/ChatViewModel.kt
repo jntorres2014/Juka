@@ -122,7 +122,7 @@ class ChatViewModel(
     private suspend fun addWelcomeMessage() {
         val welcomeMessage = ChatMessage(
             content = """
-                Hola pescador! Soy Juka, tu asistente de pesca inteligente.
+                Hola pescador! Soy Huka , tu asistente de pesca inteligente.
                 
                 **Funciones:**
                 • Consejos sobre especies argentinas

@@ -7,6 +7,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.*
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
@@ -17,8 +23,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.*
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -29,6 +38,7 @@ import com.example.juka.viewmodel.EnhancedChatViewModel
 import com.example.juka.ui.theme.MapPickerScreen
 import com.example.juka.component.MessageBubble
 import com.example.juka.ParteQuickActions
+import com.example.juka.R
 import com.example.juka.component.EnhancedChatHeader
 import com.example.juka.component.EnhancedMessageInput
 import com.example.juka.component.SimpleParteInput
@@ -68,6 +78,9 @@ fun EnhancedChatScreen(
     val currentFieldInProgress by viewModel.currentFieldInProgress.collectAsState()
     val showMapPickerFromViewModel by viewModel.showMapPicker.collectAsState()
     val showImagePickerFromViewModel by viewModel.showImagePicker.collectAsState()
+
+    // NUEVO: Estado para el spinner de loading al completar/enviar parte
+    val isSendingParte by viewModel.isSendingParte.collectAsState()
 
     // Estados locales
     //var messageText by remember { mutableStateOf("") }
@@ -110,169 +123,234 @@ fun EnhancedChatScreen(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-    ) {
-        // ================== HEADER DINÁMICO ==================
-        EnhancedChatHeader(
-            user = user,
-            currentMode = currentMode,
-            parteSession = parteSession,
-            firebaseStatus = firebaseStatus,
-            onModeChange = { mode ->
-                when (mode) {
-                    ChatMode.GENERAL -> viewModel.volverAChatGeneral()
-                    ChatMode.CREAR_PARTE -> viewModel.iniciarCrearParte()
+    // NUEVO: Wrap en Box para overlay del spinner
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+        ) {
+            // ================== HEADER DINÁMICO ==================
+            EnhancedChatHeader(
+                user = user,
+                currentMode = currentMode,
+                parteSession = parteSession,
+                firebaseStatus = firebaseStatus,
+                onModeChange = { mode ->
+                    when (mode) {
+                        ChatMode.GENERAL -> viewModel.volverAChatGeneral()
+                        ChatMode.CREAR_PARTE -> viewModel.iniciarCrearParte()
+                    }
+                },
+                onCancelarParte = { viewModel.cancelarParte() },
+                onInfoClick = {
+                    val stats = viewModel.getConversationStats()
+                    Toast.makeText(context, stats, Toast.LENGTH_LONG)
+                        .show()
+                },  // ← CERRAR EL onInfoClick AQUÍ
+                showMenuButton = chatEnabled && currentMode == ChatMode.GENERAL,  // ← ESTOS VAN FUERA
+                onMenuClick = { viewModel.volverAlMenuPrincipal() }  // ← ESTOS VAN FUERA
+            )
+
+
+            // ================== PROGRESO DEL PARTE (SI APLICA) ==================
+            if (currentMode == ChatMode.CREAR_PARTE && parteSession != null) {
+                AnimatedVisibility(
+                    visible = true,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    Column {
+                        // Progreso simplificado
+                        LinearProgressIndicator(
+                            progress = parteSession!!.parteData.porcentajeCompletado / 100f,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            color = when {
+                                parteSession!!.parteData.porcentajeCompletado >= 80 -> Color(0xFF4CAF50)
+                                parteSession!!.parteData.porcentajeCompletado >= 50 -> Color(0xFFFF9800)
+                                else -> MaterialTheme.colorScheme.primary
+                            }
+                        )
+
+                        // NUEVO: Botones de acción rápida
+                        ParteQuickActions(
+                            parteData = parteSession!!.parteData,
+                            onCampoSelected = { campo ->
+                                viewModel.onCampoParteSelected(campo)
+                            },
+                            currentFieldInProgress = currentFieldInProgress,
+                            onGuardarBorrador = {
+                                //viewModel.guardarParteBorrador()
+                            },
+                            onCompletarParte = {
+                                viewModel.completarYEnviarParte()
+                            },
+                            firebaseStatus = firebaseStatus,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
                 }
-            },
-            onCancelarParte = { viewModel.cancelarParte() },
-            onInfoClick = {
-                val stats = viewModel.getConversationStats()
-                Toast.makeText(context, stats, Toast.LENGTH_LONG)
-                    .show()
-            },  // ← CERRAR EL onInfoClick AQUÍ
-            showMenuButton = chatEnabled && currentMode == ChatMode.GENERAL,  // ← ESTOS VAN FUERA
-            onMenuClick = { viewModel.volverAlMenuPrincipal() }  // ← ESTOS VAN FUERA
-        )
 
-
-        // ================== PROGRESO DEL PARTE (SI APLICA) ==================
-        if (currentMode == ChatMode.CREAR_PARTE && parteSession != null) {
-            AnimatedVisibility(
-                visible = true,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
+            }
+            // ================== LISTA DE MENSAJES ==================
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Column {
-                    // Progreso simplificado
-                    LinearProgressIndicator(
-                        progress = parteSession!!.parteData.porcentajeCompletado / 100f,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        color = when {
-                            parteSession!!.parteData.porcentajeCompletado >= 80 -> Color(0xFF4CAF50)
-                            parteSession!!.parteData.porcentajeCompletado >= 50 -> Color(0xFFFF9800)
-                            else -> MaterialTheme.colorScheme.primary
+                items(currentMessages) { message ->
+                    // ✅ USANDO COMPONENTE CENTRALIZADO
+                    MessageBubble(
+                        message = message,
+                        currentMode = currentMode,
+                        onOptionClick = { option ->  // ← AGREGAR ESTE HANDLER
+                            viewModel.handleOptionClick(option)
                         }
                     )
 
-                    // NUEVO: Botones de acción rápida
-                    ParteQuickActions(
-                        parteData = parteSession!!.parteData,
-                        onCampoSelected = { campo ->
-                            viewModel.onCampoParteSelected(campo)
+                }
+
+                // Indicadores de estado
+                if (isAnalyzing) {
+                    item {
+                        // ✅ COMPONENTE CENTRALIZADO
+                        AnalyzingIndicator()
+                    }
+                }
+
+                if (isTyping) {
+                    item {
+                        // ✅ COMPONENTE CENTRALIZADO
+                        TypingIndicator()
+                    }
+                }
+
+                // Espaciador final
+                item {
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+            }
+
+            // ================== INPUT MEJORADO ==================
+            when {
+                // Si estamos en modo crear parte, mostrar input de parte
+                currentMode == ChatMode.CREAR_PARTE -> {
+                    SimpleParteInput(
+                        messageText = messageText,
+                        onMessageChange = { messageText = it },
+                        onSendMessage = {
+                            if (messageText.isNotBlank()) {
+                                viewModel.sendTextMessage(messageText.trim())
+                                messageText = ""
+                            }
                         },
-                        currentFieldInProgress = currentFieldInProgress,
-                        onGuardarBorrador = {
-                            //viewModel.guardarParteBorrador()
+                        onSendAudio = { transcript ->
+                            viewModel.sendAudioTranscript(transcript)
                         },
-                        onCompletarParte = {
-                            viewModel.completarYEnviarParte()
-                        },
-                        firebaseStatus = firebaseStatus,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        isWaitingForResponse = currentFieldInProgress != null,
+                        currentField = currentFieldInProgress
                     )
                 }
-            }
 
+                // Si el chat está habilitado en modo general, mostrar input
+                currentMode == ChatMode.GENERAL -> {
+                    EnhancedMessageInput(
+                        messageText = messageText,
+                        onMessageChange = { messageText = it },
+                        onSendMessage = {
+                            if (messageText.isNotBlank()) {
+                                viewModel.sendTextMessage(messageText.trim())
+                                messageText = ""
+                            }
+                        },
+                        onSendImage = { imagePickerLauncher.launch("image/*") },
+                        onSendAudio = { transcript -> viewModel.sendAudioTranscript(transcript) },
+                        onSendLocation = { showMapPicker = true },
+                        currentMode = currentMode,
+                        isProcessing = isTyping || isAnalyzing,
+                        onCreateParte = { viewModel.iniciarCrearParte() }
+                    )
+                }
+
+                // Si no, no mostrar input (solo botones del menú)
+                else -> {
+                    // Espacio vacío para mantener el layout consistente
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+            }
         }
-        // ================== LISTA DE MENSAJES ==================
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            items(currentMessages) { message ->
-                // ✅ USANDO COMPONENTE CENTRALIZADO
-                MessageBubble(
-                    message = message,
-                    currentMode = currentMode,
-                    onOptionClick = { option ->  // ← AGREGAR ESTE HANDLER
-                        viewModel.handleOptionClick(option)
-                    }
-                )
-
-            }
-
-            // Indicadores de estado
-            if (isAnalyzing) {
-                item {
-                    // ✅ COMPONENTE CENTRALIZADO
-                    AnalyzingIndicator()
-                }
-            }
-
-            if (isTyping) {
-                item {
-                    // ✅ COMPONENTE CENTRALIZADO
-                    TypingIndicator()
-                }
-            }
-
-            // Espaciador final
-            item {
-                Spacer(modifier = Modifier.height(16.dp))
+        // Trigger para selector de imágenes
+        LaunchedEffect(showImagePickerFromViewModel) {
+            if (showImagePickerFromViewModel) {
+                imagePickerLauncher.launch("image/*")
+                viewModel.dismissImagePicker()
             }
         }
 
-        // ================== INPUT MEJORADO ==================
-                when {
-                    // Si estamos en modo crear parte, mostrar input de parte
-                    currentMode == ChatMode.CREAR_PARTE -> {
-                        SimpleParteInput(
-                            messageText = messageText,
-                            onMessageChange = { messageText = it },
-                            onSendMessage = {
-                                if (messageText.isNotBlank()) {
-                                    viewModel.sendTextMessage(messageText.trim())
-                                    messageText = ""
-                                }
-                            },
-                            onSendAudio = { transcript ->
-                                viewModel.sendAudioTranscript(transcript)
-                            },
-                            isWaitingForResponse = currentFieldInProgress != null,
-                            currentField = currentFieldInProgress
+        // Usa iconos de Material y animalos
+        if (isSendingParte) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.3f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Card(
+                    modifier = Modifier.padding(32.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        // Animación de la caña de pescar
+                        val infiniteTransition = rememberInfiniteTransition(label = "fishing")
+                        val rotation by infiniteTransition.animateFloat(
+                            initialValue = -15f,
+                            targetValue = 15f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(1500, easing = FastOutSlowInEasing),
+                                repeatMode = RepeatMode.Reverse
+                            ),
+                            label = "rod_rotation"
                         )
-                    }
 
-                    // Si el chat está habilitado en modo general, mostrar input
-                    currentMode == ChatMode.GENERAL -> {
-                        EnhancedMessageInput(
-                            messageText = messageText,
-                            onMessageChange = { messageText = it },
-                            onSendMessage = {
-                                if (messageText.isNotBlank()) {
-                                    viewModel.sendTextMessage(messageText.trim())
-                                    messageText = ""
-                                }
-                            },
-                            onSendImage = { imagePickerLauncher.launch("image/*") },
-                            onSendAudio = { transcript -> viewModel.sendAudioTranscript(transcript) },
-                            onSendLocation = { showMapPicker = true },
-                            currentMode = currentMode,
-                            isProcessing = isTyping || isAnalyzing,
-                            onCreateParte = { viewModel.iniciarCrearParte() }
+                        Icon(
+                            painter = painterResource(id = R.drawable.fishing), // Usa un icono PNG/XML
+                            contentDescription = null,
+                            modifier = Modifier
+                                .size(64.dp)
+                                .rotate(rotation),
+                            tint = MaterialTheme.colorScheme.primary
                         )
-                    }
 
-                    // Si no, no mostrar input (solo botones del menú)
-                    else -> {
-                        // Espacio vacío para mantener el layout consistente
                         Spacer(modifier = Modifier.height(16.dp))
+
+                        // Puntos animados de carga
+                        val dotAnimation by infiniteTransition.animateFloat(
+                            initialValue = 0f,
+                            targetValue = 3f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(1000),
+                                repeatMode = RepeatMode.Restart
+                            ),
+                            label = "dots"
+                        )
+
+                        Text(
+                            text = "Generando reporte" + ".".repeat(dotAnimation.toInt()),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
                     }
                 }
             }
-    // Trigger para selector de imágenes
-    LaunchedEffect(showImagePickerFromViewModel) {
-        if (showImagePickerFromViewModel) {
-            imagePickerLauncher.launch("image/*")
-            viewModel.dismissImagePicker()
         }
     }
 }
-

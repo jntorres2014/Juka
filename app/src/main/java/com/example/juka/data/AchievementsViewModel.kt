@@ -131,41 +131,94 @@ class AchievementsViewModel : ViewModel() {
     // Función para mapear IDs a información legible
     private fun getAchievementInfo(id: String): Pair<String, String> {
         return when (id) {
+            // === INICIACIÓN ===
+            "mi_primer_parte" -> Pair(
+                "Mi Primer Parte",
+                "¡Bienvenido a Juka! Creaste tu primer reporte de pesca"
+            )
+
+            // === ESTACIONALES ===
+            "pescador_navideño" -> Pair(
+                "Pescador Navideño",
+                "Pescaste durante las fiestas navideñas (24-31 dic)"
+            )
+            "pescador_año_nuevo" -> Pair(
+                "Pescador de Año Nuevo",
+                "Empezaste el año pescando (1-7 enero)"
+            )
+            "regalo_de_reyes" -> Pair(
+                "Regalo de Reyes",
+                "Pescaste el día de Reyes Magos"
+            )
+            "pescador_invernal" -> Pair(
+                "Pescador Invernal",
+                "Desafiaste el frío del invierno argentino"
+            )
+            "pescador_primaveral" -> Pair(
+                "Pescador Primaveral",
+                "Aprovechaste la primavera para pescar"
+            )
+
+            // === CANTIDAD ===
             "solo_un_pez" -> Pair(
-                "Solo un pez",
+                "Solo Un Pez",
                 "No pescaste nada... bueno, casi nada"
             )
             "zapatero_wade" -> Pair(
                 "Zapatero Wade",
-                "¡No tuviste suerte hoy, espero esto te ayude la proxima!"
+                "¡No tuviste suerte hoy, espero esto te ayude la próxima!"
             )
-            "primera_captura" -> Pair(
-                "Primera Captura",
-                "Registraste tu primer pez en Juka"
+            "pesca_abundante" -> Pair(
+                "Pesca Abundante",
+                "¡Pescaste 10 o más peces en una salida!"
+            )
+
+            // === HORARIOS ===
+            "madrugador" -> Pair(
+                "Madrugador",
+                "Pescaste antes del amanecer (5-7 AM)"
             )
             "pescador_nocturno" -> Pair(
                 "Pescador Nocturno",
-                "Pescaste después del atardecer"
+                "Pescaste después del atardecer (19-23 hs)"
             )
-            "madrugador" -> Pair(
-                "Madrugador",
-                "Pescaste antes del amanecer"
+            "noctambulo" -> Pair(
+                "Noctámbulo Extremo",
+                "Pescaste de madrugada (0-4 AM)"
             )
+
+            // === ESPECIES ===
             "variedad_es_vida" -> Pair(
                 "La Variedad es Vida",
-                "Pescaste 5 especies diferentes"
+                "Pescaste 5 especies diferentes en un parte"
             )
             "rey_del_rio" -> Pair(
                 "Rey del Río",
                 "Pescaste un dorado de más de 5kg"
             )
+            "cazador_de_dorados" -> Pair(
+                "Cazador de Dorados",
+                "Registraste tu primer dorado"
+            )
+            "amigo_del_surubi" -> Pair(
+                "Amigo del Surubí",
+                "Pescaste el gigante del río"
+            )
+            "pejerreyes_master" -> Pair(
+                "Maestro del Pejerrey",
+                "Pescaste 10 o más pejerreyes"
+            )
+
+            // === OTROS ===
+            "explorador" -> Pair(
+                "Explorador",
+                "Compartiste la ubicación de tu pesca"
+            )
+
             else -> {
-                // Si no está mapeado, crear título desde el ID
                 val title = id.replace("_", " ")
                     .split(" ")
-                    .joinToString(" ") { word ->
-                        word.replaceFirstChar { it.uppercase() }
-                    }
+                    .joinToString(" ") { it.replaceFirstChar { char -> char.uppercase() } }
                 Pair(title, "Logro desbloqueado")
             }
         }
@@ -337,5 +390,14 @@ data class Achievement(
     val imageUrl: String = "",
     val isUnlocked: Boolean = false,
     val type: String = "PERMANENT",
-    val timestamp: Long? = null
+    val timestamp: Long? = null,
+
+    // Nuevas propiedades sugeridas:
+    val points: Int = 10,                    // Puntos que otorga el logro
+    val category: String = "common",          // common, rare, epic, legendary
+    val fishType: String? = null,            // Tipo de pez si aplica (pejerrey, dorado, etc)
+    val progress: Int? = null,               // Progreso actual (ej: 3 de 10)
+    val maxProgress: Int? = null,            // Meta del progreso (ej: 10)
+    val dateUnlocked: Long? = null,         // Fecha cuando se desbloqueó
+    val isNew: Boolean = false              // Si es nuevo (recién desbloqueado)
 )

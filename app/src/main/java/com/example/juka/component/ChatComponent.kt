@@ -266,12 +266,12 @@ fun AudioMessageContent(
 
                 if (currentMode == ChatMode.CREAR_PARTE && !isUser) {
                     Spacer(modifier = Modifier.width(4.dp))
-                    Icon(
+                   /* Icon(
                         Icons.Default.AutoAwesome,
                         contentDescription = null,
                         modifier = Modifier.size(12.dp),
                         tint = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.7f)
-                    )
+                    )*/
                 }
             }
 

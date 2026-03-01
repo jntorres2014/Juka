@@ -49,6 +49,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.graphicsLayer
+import com.example.juka.JukaApplication
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,10 +59,16 @@ fun IdentificarPezScreen() {
     var resultadoIdentificacion by remember { mutableStateOf<String?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showImageDialog by remember { mutableStateOf(false) }
+    var showQuotaDialog by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
+
+    // ✅ MOVER ESTAS DECLARACIONES AQUÍ ARRIBA (ANTES DE USARLAS)
+    val application = context.applicationContext as JukaApplication
+    val quotaManager = remember { application.chatQuotaManager }
+    val quotaState by quotaManager.quotaState.collectAsState()
 
     val fishIdentifier = remember {
         FishIdentifier(context.applicationContext as Application)
@@ -92,10 +99,27 @@ fun IdentificarPezScreen() {
 
         scope.launch {
             try {
+                // ✅ AHORA SÍ PUEDE USAR quotaManager
+                if (!quotaManager.canMakeQuery()) {
+                    errorMessage = null
+                    showQuotaDialog = true
+                    isAnalyzing = false
+                    return@launch
+                }
+
                 val file = uriToFile(context, uri)
                 if (file != null) {
                     val respuestaIA = fishIdentifier.identifyFish(file.absolutePath)
-                    resultadoIdentificacion = respuestaIA
+
+                    if (respuestaIA != null) {
+                        val consumed = quotaManager.consumeQuery()
+                        if (consumed) {
+                            resultadoIdentificacion = respuestaIA +
+                                    "\n\n_${quotaManager.getQuotaMessage()}_"
+                        } else {
+                            resultadoIdentificacion = respuestaIA
+                        }
+                    }
                 } else {
                     errorMessage = "Error: No se pudo procesar el archivo de imagen."
                 }
@@ -106,6 +130,7 @@ fun IdentificarPezScreen() {
             }
         }
     }
+
 
     fun crearUriTemporal(): Uri? {
         return try {
@@ -545,7 +570,7 @@ fun AnalyzingContent() {
         )
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-            "Consultando a Juka...",
+            "Consultando a Huka...",
             fontSize = 16.sp,
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurface
