@@ -72,6 +72,7 @@ class AuthManager(private val context: Context) {
 
     private fun getClientId(): String? {
         return try {
+
             val clientId = context.getString(R.string.default_web_client_id)
 
             if (clientId.isEmpty() || clientId == "your_web_client_id") {
@@ -101,6 +102,10 @@ class AuthManager(private val context: Context) {
             kotlinx.coroutines.GlobalScope.launch {
                 try {
                     val userDoc = db.collection("users_encuesta").document(currentUser.uid).get().await()
+                    com.google.firebase.messaging.FirebaseMessaging.getInstance().token.await()?.let { token ->
+                        db.collection("users").document(currentUser.uid)
+                            .update("fcmToken", token)
+                    }
                     val surveyCompleted = userDoc.getBoolean("surveyCompleted") ?: false
                     if (!userDoc.exists()) {
                         db.collection("users").document(currentUser.uid)
@@ -194,7 +199,12 @@ class AuthManager(private val context: Context) {
                             .set(mapOf("surveyCompleted" to true)).await()
                         surveyCompleted = true
                     }
-
+                    com.google.firebase.messaging.FirebaseMessaging.getInstance().token.await()?.let { token ->
+                        db.collection("users").document(user.uid)
+                            .update("fcmToken", token)
+                            .await()
+                        Log.d(TAG, "✅ Token FCM guardado")
+                    }
                     val authState = AuthState.Authenticated(user, surveyCompleted)
                     _authState.value = authState
                     authState

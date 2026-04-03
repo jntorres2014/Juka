@@ -103,7 +103,7 @@ class ChatBotManager(private val application: Application) {
                     type = NodeType.MENU,
                     options = listOf(
                         ChatOption(
-                            label = "📅 Tabla de Mareas Mensual",
+                            label = "📅 Tabla de Mareas",
                             action = ActionType.DOWNLOAD,
                             data = mapOf("type" to "tide_table", "format" to "pdf")
                         ),

@@ -6,7 +6,6 @@ plugins {
     id("com.google.gms.google-services")
     id("org.jetbrains.kotlin.plugin.serialization") version "1.9.0"
     id("com.google.devtools.ksp") version "1.9.0-1.0.13"
-
 }
 
 android {
@@ -25,36 +24,24 @@ android {
             useSupportLibrary = true
         }
 
-        // Lee el archivo local.properties (versión Kotlin DSL)
         val localProperties = Properties()
         val localPropertiesFile = rootProject.file("local.properties")
         if (localPropertiesFile.exists()) {
             localProperties.load(localPropertiesFile.reader())
         }
-
-        // Expón la clave como BuildConfig field
         buildConfigField("String", "GEMINI_API_KEY", "\"${localProperties["geminiApiKey"] ?: ""}\"")
     }
 
     buildTypes {
         release {
-            // minifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            buildConfigField(
-                "String",
-                "OPENAI_API_KEY",
-                "\"${project.findProperty("OPENAI_API_KEY") ?: ""}\""
-            )
+            buildConfigField("String", "OPENAI_API_KEY", "\"${project.findProperty("OPENAI_API_KEY") ?: ""}\"")
         }
         debug {
-            buildConfigField(
-                "String",
-                "OPENAI_API_KEY",
-                "\"${project.findProperty("OPENAI_API_KEY") ?: ""}\""
-            )
+            buildConfigField("String", "OPENAI_API_KEY", "\"${project.findProperty("OPENAI_API_KEY") ?: ""}\"")
         }
     }
 
@@ -67,7 +54,7 @@ android {
     }
     buildFeatures {
         compose = true
-        buildConfig = true //
+        buildConfig = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.14"
@@ -80,12 +67,20 @@ android {
 }
 
 dependencies {
-    // Firebase
-    implementation("com.google.firebase:firebase-firestore-ktx:24.10.3")
-    implementation("com.google.firebase:firebase-analytics-ktx:21.6.2")
-    implementation("com.google.firebase:firebase-auth-ktx:22.3.1")
+
+    // ✅ Firebase BoM - UNA sola versión controla todo
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+
+    // ✅ Firebase - SIN versiones (el BoM las maneja)
+    implementation("com.google.firebase:firebase-firestore-ktx")
+    implementation("com.google.firebase:firebase-analytics-ktx")
+    implementation("com.google.firebase:firebase-auth-ktx")
+    implementation("com.google.firebase:firebase-storage-ktx")
+    implementation("com.google.firebase:firebase-messaging-ktx")
+
+    // Google Sign In - esta SÍ lleva versión (no es Firebase)
     implementation("com.google.android.gms:play-services-auth:20.7.0")
-    implementation("com.google.firebase:firebase-storage-ktx:20.3.0")
+
     // Core
     implementation("androidx.core:core-ktx:1.13.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.3")
@@ -110,10 +105,31 @@ dependencies {
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
 
-    // OkHttp y Gson para xAI API
+    // OkHttp y Gson
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.code.gson:gson:2.10.1")
+
+    // Maps y Location
+    implementation("org.osmdroid:osmdroid-android:6.1.18")
+    implementation("com.google.android.gms:play-services-location:21.2.0")
+
+    // ML Kit
+    implementation("com.google.mlkit:entity-extraction:16.0.0-beta5")
+    implementation("com.google.mlkit:language-id:17.0.4")
+    implementation("com.google.mlkit:translate:17.0.1")
+    implementation("com.google.mlkit:text-recognition:16.0.0")
+    implementation("com.google.mlkit:smart-reply:17.0.2")
+
+    // Serialización y Gemini
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
+    implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
+
+    // Room
+    implementation("androidx.room:room-runtime:2.6.1")
+    implementation("androidx.room:room-ktx:2.6.1")
+    ksp("androidx.room:room-compiler:2.6.1")
 
     // Testing
     testImplementation("junit:junit:4.13.2")
@@ -123,32 +139,4 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
-
-    // maps
-    implementation("org.osmdroid:osmdroid-android:6.1.18")
-    // Para obtener la ubicación actual del dispositivo (opcional pero recomendado)
-    implementation("com.google.android.gms:play-services-location:21.2.0")
-    // ================== ML KIT DEPENDENCIES ==================
-
-    // ML Kit Entity Extraction
-    implementation("com.google.mlkit:entity-extraction:16.0.0-beta5")
-
-    // ML Kit Language Identification
-    implementation("com.google.mlkit:language-id:17.0.4")
-
-    // ML Kit Translation
-    implementation("com.google.mlkit:translate:17.0.1")
-
-    // ML Kit Text Recognition
-    implementation("com.google.mlkit:text-recognition:16.0.0")
-
-    // ML Kit Smart Reply
-    implementation("com.google.mlkit:smart-reply:17.0.2")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
-    implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
-
-    implementation("androidx.room:room-runtime:2.6.1")
-    implementation("androidx.room:room-ktx:2.6.1")
-    ksp("androidx.room:room-compiler:2.6.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
 }

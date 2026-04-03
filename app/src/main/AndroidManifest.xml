@@ -2,22 +2,24 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- 🔥 PERMISOS ACTUALIZADOS 🔥 -->
+    <!-- 🔥 PERMISOS -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
-    <!-- 📍 NUEVOS PERMISOS PARA UBICACIÓN -->
+    <!-- 📍 UBICACIÓN -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
-    <!-- 📸 FEATURE PARA CÁMARA -->
-
+    <!-- 📸 CÁMARA -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
-    <!-- ✅ FIX CRÍTICO PARA ANDROID 11+ - SPEECHRECOGNIZER -->
+    <!-- 🔔 NOTIFICACIONES (Android 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- ✅ FIX PARA ANDROID 11+ -->
     <!--suppress AndroidElementNotAllowed -->
     <queries>
         <intent>
@@ -29,7 +31,8 @@
     </queries>
 
     <application
-        android:name=".JukaApplication"  android:allowBackup="true"
+        android:name=".JukaApplication"
+        android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
@@ -49,7 +52,26 @@
             </intent-filter>
         </activity>
 
-        <!-- 📸 FILE PROVIDER PARA CÁMARA -->
+        <!-- 🔔 SERVICIO FCM -->
+        <service
+            android:name=".service.HukaMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- 🔔 CANAL POR DEFECTO PARA NOTIFICACIONES EN SEGUNDO PLANO -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="juka_channel" />
+
+        <!-- 🔔 ÍCONO POR DEFECTO EN NOTIFICACIONES -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@mipmap/ic_launcher" />
+
+        <!-- 📸 FILE PROVIDER -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -38,6 +39,7 @@ import com.example.juka.ui.theme.HukaTheme
 import com.example.juka.viewmodel.ChatViewModel
 import kotlinx.coroutines.delay
 import com.google.firebase.FirebaseApp
+import com.google.firebase.messaging.FirebaseMessaging
 
 class MainActivity : ComponentActivity() {
     private val RECORD_AUDIO_PERMISSION = 1001
@@ -58,7 +60,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             HukaTheme {
                 // ✅ NUEVA ESTRUCTURA CON AUTH
-
+                FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
+                    Log.d("FCM_TOKEN", "🔑 Token: $token")
+                }
                 AppWithAuth()
             }
         }
