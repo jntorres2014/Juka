@@ -15,72 +15,61 @@ import androidx.navigation.compose.rememberNavController
 import com.example.juka.JukaApplication
 import com.example.juka.data.AuthManager
 import com.example.juka.data.AuthState
-
 import com.example.juka.navigation.JukaAppWithUser
-import com.example.juka.ui.theme.logros.AchievementsScreen
 import com.example.juka.ui.theme.navigation.AuthRoute
 
 @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
 @Composable
 fun AppWithAuth() {
-    // Nota: Usamos 'remember' para no recrear el Manager en recomposiciones accidentales si no usas DI.
     val context = LocalContext.current
-    //val authManager = remember { AuthManager(context) }
     val authManager = (context.applicationContext as JukaApplication).authManager
     val navController = rememberNavController()
     val authState by authManager.authState.collectAsState()
 
-    // Observar el estado de Auth para navegar automáticamente
+    // Control de navegación basado en el estado de autenticación
     LaunchedEffect(authState) {
-        when (val state = authState) {
+        when (authState) {
             is AuthState.Authenticated -> {
-                if (state.surveyCompleted) {
-                    navController.navigate(AuthRoute.MainApp.route) {
-                        popUpTo(AuthRoute.Login.route) { inclusive = true }
-                    }
-                } else {
-                    navController.navigate(AuthRoute.Encuesta.route) {
-                        popUpTo(AuthRoute.Login.route) { inclusive = true }
-                    }
+                // ✅ Al navegar a la App principal, eliminamos el Login y la Encuesta del historial
+                navController.navigate(AuthRoute.MainApp.route) {
+                    popUpTo(AuthRoute.Login.route) { inclusive = true }
                 }
             }
             is AuthState.Unauthenticated -> {
                 navController.navigate(AuthRoute.Login.route) {
-                    popUpTo(0) { inclusive = true } // Limpia todo el stack
+                    popUpTo(AuthRoute.MainApp.route) { inclusive = true }
                 }
             }
-            else -> { /* Loading o Error se manejan en la UI */ }
+            else -> {} // Loading: no hacemos nada todavía
         }
     }
 
-    NavHost(
-        navController = navController,
-        startDestination = AuthRoute.Login.route // Empezamos asumiendo Login, el LaunchedEffect redirige si hace falta
-    ) {
-        composable(AuthRoute.Login.route) {
-            // Si el estado es Loading, mostramos loading encima del login o una pantalla splash
-            if (authState is AuthState.Loading) {
-                LoadingScreen("Iniciando sesión...")
-            } else {
+    // ✅ Evitamos el "fogonazo" del Login mostrando Loading primero
+    if (authState is AuthState.Loading) {
+        LoadingScreen("Verificando sesión...")
+    } else {
+        NavHost(
+            navController = navController,
+            startDestination = AuthRoute.Login.route
+        ) {
+            composable(AuthRoute.Login.route) {
                 LoginScreen(authManager, navController)
             }
-        }
 
-        composable(AuthRoute.Encuesta.route) {
-            EncuestaScreen(authManager = authManager, navController = navController)
-        }
+            composable(AuthRoute.Encuesta.route) {
+                // Si necesitás que desde aquí se navegue al finalizar,
+                // asegurate que el botón de 'Finalizar' llame a una función que
+                // actualice el estado en el AuthManager.
+                EncuestaScreen(authManager = authManager, navController = navController)
+            }
 
-        composable(AuthRoute.MainApp.route) {
-            // Aquí cargamos la UI principal que tiene su PROPIO NavHost interno (BottomBar)
-            val user = (authState as? AuthState.Authenticated)?.user
-            if (user != null) {
-                JukaAppWithUser(user = user, authManager = authManager)
-            } else {
-                // Fallback por seguridad
-                LoadingScreen("Cargando perfil...")
+            composable(AuthRoute.MainApp.route) {
+                val user = (authState as? AuthState.Authenticated)?.user
+                if (user != null) {
+                    JukaAppWithUser(user = user, authManager = authManager)
+                }
             }
         }
-
     }
 }
 

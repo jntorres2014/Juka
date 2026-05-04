@@ -382,7 +382,7 @@
     "tecnica": "Pesca pesada de fondo",
     "tamanio": "50-150 cm",
     "temporada": "Verano",
-    "sinonios": ["mero austral", "cherna"]
+    "sinonimos": ["mero austral", "cherna"]
   },
   {
     "nombre": "Palometa pintada",
@@ -770,7 +770,7 @@
     "sinonimos": ["trucha comun", "trucha europea"]
   },
   {
-    "nombre": "arcoiris",
+    "nombre": "Trucha arcoiris",
     "cientifico": "Oncorhynchus mykiss",
     "habitat": "Lagos y rios patagonicos (introducida)",
     "carnadas": ["lombrices", "insectos", "cucharitas", "mosca"],
@@ -803,7 +803,7 @@
     "sinonimos": ["bocona", "lake trout"]
   },
   {
-    "nombre": "marron",
+    "nombre": "Trucha marron",
     "cientifico": "Salmo trutta",
     "habitat": "Rios y lagos patagonicos (introducida)",
     "carnadas": ["lombrices", "insectos grandes", "seniuelos oscuros"],
@@ -834,5 +834,181 @@
     "tamanio": "30-70 cm",
     "temporada": "Verano",
     "sinonimos": ["vieja", "mero patagonico"]
+  },
+  {
+    "nombre": "Dorado",
+    "cientifico": "Salminus brasiliensis",
+    "habitat": "Rios de corriente fuerte, correderas y remansos",
+    "carnadas": ["morena", "anguila", "sabalo", "seniuelos", "mosca"],
+    "mejor_horario": "Maniana temprano y atardecer",
+    "tecnica": "Spinning, baitcasting, fly cast, carnada viva al garete",
+    "tamanio": "50-100 cm",
+    "temporada": "Primavera y verano",
+    "sinonimos": ["tigre de los rios", "pirayu"]
+  },
+  {
+    "nombre": "Surubi pintado",
+    "cientifico": "Pseudoplatystoma corruscans",
+    "habitat": "Pozones profundos y cauces principales de rios",
+    "carnadas": ["morena", "anguila", "cascarudo", "seniuelos de profundidad"],
+    "mejor_horario": "Noche y madrugada",
+    "tecnica": "Pesca de fondo, trolling, al garete",
+    "tamanio": "80-150 cm",
+    "temporada": "Todo el anio",
+    "sinonimos": ["surubi", "pintado", "cachorro"]
+  },
+  {
+    "nombre": "Surubi atigrado",
+    "cientifico": "Pseudoplatystoma reticulatum",
+    "habitat": "Pozones y cauces principales",
+    "carnadas": ["morena", "anguila", "cascarudo", "seniuelos de profundidad"],
+    "mejor_horario": "Noche y madrugada",
+    "tecnica": "Pesca de fondo, trolling, al garete",
+    "tamanio": "70-130 cm",
+    "temporada": "Todo el anio",
+    "sinonimos": ["surubi", "atigrado", "cachorro atigrado"]
+  },
+  {
+    "nombre": "Pacu",
+    "cientifico": "Piaractus mesopotamicus",
+    "habitat": "Remansos, zonas con vegetacion y arboles frutales en las costas",
+    "carnadas": ["frutas", "bolitas de masa", "maiz", "caracoles"],
+    "mejor_horario": "Horas de mas calor, mediodia y tarde",
+    "tecnica": "Pesca al golpe, baitcasting, boya",
+    "tamanio": "40-70 cm",
+    "temporada": "Verano",
+    "sinonimos": ["lechon de rio", "mbira-pita"]
+  },
+  {
+    "nombre": "Boga",
+    "cientifico": "Megaleporinus obtusidens",
+    "habitat": "Rios caudalosos, cerca de piedras y estructuras",
+    "carnadas": ["maiz", "masa", "salamin", "corazon", "caracol"],
+    "mejor_horario": "Todo el dia",
+    "tecnica": "Pesca de fondo con plomada corrediza, boya",
+    "tamanio": "40-80 cm",
+    "temporada": "Primavera y verano",
+    "sinonimos": ["boguita", "tres puntos"]
+  },
+  {
+    "nombre": "Tararira",
+    "cientifico": "Hoplias malabaricus",
+    "habitat": "Lagunas someras, arroyos y zonas con mucha vegetacion",
+    "carnadas": ["seniuelos de superficie", "ranas", "filet de pejerrey", "mosca"],
+    "mejor_horario": "Atardecer y noche",
+    "tecnica": "Baitcasting, spinning, fly cast, carnada viva",
+    "tamanio": "30-60 cm",
+    "temporada": "Primavera y verano",
+    "sinonimos": ["tarucha", "hoplias", "lobo de rio"]
+  },
+  {
+    "nombre": "Tararira Tornasol",
+    "cientifico": "Hoplias lacerdae",
+    "habitat": "Rios y arroyos del litoral, zonas de corriente",
+    "carnadas": ["seniuelos", "carnada viva"],
+    "mejor_horario": "Atardecer",
+    "tecnica": "Baitcasting, spinning",
+    "tamanio": "40-80 cm",
+    "temporada": "Verano",
+    "sinonimos": ["tarucha tornasol", "tararira azul"]
+  },
+  {
+    "nombre": "Sabalo",
+    "cientifico": "Prochilodus lineatus",
+    "habitat": "Rios y lagunas, fondos fangosos",
+    "carnadas": ["masa muy blanda"],
+    "mejor_horario": "Todo el dia",
+    "tecnica": "Pesca de fondo",
+    "tamanio": "40-70 cm",
+    "temporada": "Todo el anio",
+    "sinonimos": ["sabalito", "curimbata"]
+  },
+  {
+    "nombre": "Bagre amarillo",
+    "cientifico": "Pimelodus maculatus",
+    "habitat": "Rios, arroyos y lagunas",
+    "carnadas": ["lombriz", "filet", "tripa de pollo"],
+    "mejor_horario": "Noche y atardecer",
+    "tecnica": "Pesca de fondo liviana",
+    "tamanio": "20-40 cm",
+    "temporada": "Todo el anio",
+    "sinonimos": ["amarillo", "mandi"]
+  },
+  {
+    "nombre": "Bagre sapo",
+    "cientifico": "Rhamdia quelen",
+    "habitat": "Arroyos, lagunas y fondos de barro",
+    "carnadas": ["lombriz", "carne", "pasta"],
+    "mejor_horario": "Noche",
+    "tecnica": "Pesca de fondo",
+    "tamanio": "20-35 cm",
+    "temporada": "Todo el anio",
+    "sinonimos": ["bagre negro", "moncholo"]
+  },
+  {
+    "nombre": "Armado",
+    "cientifico": "Pterodoras granulosus",
+    "habitat": "Cauces principales y fondos profundos",
+    "carnadas": ["lombriz", "corazon", "masa", "tripa"],
+    "mejor_horario": "Noche",
+    "tecnica": "Pesca pesada de fondo",
+    "tamanio": "40-70 cm",
+    "temporada": "Verano",
+    "sinonimos": ["armado chancho", "armado comun"]
+  },
+  {
+    "nombre": "Manduvi",
+    "cientifico": "Ageneiosus valenciennesi",
+    "habitat": "Aguas abiertas y zonas de corriente moderada",
+    "carnadas": ["mojarra viva", "filet", "morenita"],
+    "mejor_horario": "Noche y madrugada",
+    "tecnica": "Pesca a media agua, al garete",
+    "tamanio": "30-50 cm",
+    "temporada": "Primavera y verano",
+    "sinonimos": ["mandui"]
+  },
+  {
+    "nombre": "Chafalote",
+    "cientifico": "Raphiodon vulpinus",
+    "habitat": "Aguas rapidas y correderas",
+    "carnadas": ["mojarra", "seniuelos plateados", "cucharas"],
+    "mejor_horario": "Maniana y atardecer",
+    "tecnica": "Spinning, baitcasting, pesca al vuelo",
+    "tamanio": "40-80 cm",
+    "temporada": "Verano",
+    "sinonimos": ["machete", "dientudo perro"]
+  },
+  {
+    "nombre": "Manguruyu",
+    "cientifico": "Zungaro zungaro",
+    "habitat": "Pozones muy profundos del rio Parana y Uruguay",
+    "carnadas": ["morena", "anguila grande", "sabalito"],
+    "mejor_horario": "Noche",
+    "tecnica": "Pesca muy pesada de fondo",
+    "tamanio": "100-170 cm",
+    "temporada": "Verano",
+    "sinonimos": ["manguruyu de las piedras", "muturo"]
+  },
+  {
+    "nombre": "Pira Pyta",
+    "cientifico": "Brycon orbignyanus",
+    "habitat": "Zonas de correderas, bajo arboles frutales",
+    "carnadas": ["frutas", "insectos", "seniuelos chicos", "mosca"],
+    "mejor_horario": "Mediodia y atardecer",
+    "tecnica": "Baitcasting, fly cast, boya",
+    "tamanio": "30-60 cm",
+    "temporada": "Verano",
+    "sinonimos": ["salmon de rio", "pira pita"]
+  },
+  {
+    "nombre": "Palometa de rio",
+    "cientifico": "Serrasalmus maculatus",
+    "habitat": "Aguas calmas, lagunas y remansos",
+    "carnadas": ["carne vacuna", "filet de pez", "corazon"],
+    "mejor_horario": "Todo el dia",
+    "tecnica": "Pesca de fondo o con boya con leader de acero",
+    "tamanio": "15-30 cm",
+    "temporada": "Verano",
+    "sinonimos": ["pirania", "palometa brava"]
   }
 ]

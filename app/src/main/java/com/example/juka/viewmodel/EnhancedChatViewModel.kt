@@ -24,7 +24,6 @@ import com.example.juka.domain.model.ChatMode
 import com.example.juka.domain.model.EspecieCapturada
 import com.example.juka.domain.model.EstadoParte
 import com.example.juka.domain.model.MLKitExtractionResult
-
 import com.example.juka.domain.model.ParteEnProgreso
 import com.example.juka.domain.model.ParteSessionChat
 import com.google.firebase.firestore.GeoPoint
@@ -36,11 +35,10 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
-// Importamos el UseCase
 import com.example.juka.domain.usecase.ParteLogicUseCase
 import com.google.firebase.auth.FirebaseAuth
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+// IMPORTANTE: Asegurate de importar tu nuevo FishCounterManager
+import com.example.juka.data.FishCounterManager
 
 class EnhancedChatViewModel(
     private val quotaManager: ChatQuotaManager,
@@ -51,33 +49,30 @@ class EnhancedChatViewModel(
     private val chatBotActionHandler: ChatBotActionHandler,
     private val localStorageHelper: LocalStorageHelper,
     private val fishDatabase: FishDatabase,
-    // ✅ INYECCIÓN DEL USECASE
     private val parteLogicUseCase: ParteLogicUseCase,
     private val imageHelper: com.example.juka.data.local.ImageHelper,
-    private val storageService: com.example.juka.data.firebase.StorageService
-
+    private val storageService: com.example.juka.data.firebase.StorageService,
+    // ✅ MANAGER INYECTADO
+    val fishCounterManager: FishCounterManager
 ) : ViewModel() {
 
     val quotaState = quotaManager.quotaState
     private val achievementsViewModel = AchievementsViewModel()
     private val _isSendingParte = MutableStateFlow(false)
     val isSendingParte: StateFlow<Boolean> = _isSendingParte
-    // Estados principales
+
     private val _currentMode = MutableStateFlow(ChatMode.GENERAL)
     val currentMode: StateFlow<ChatMode> = _currentMode.asStateFlow()
 
     private val _chatEnabled = MutableStateFlow(false)
     val chatEnabled: StateFlow<Boolean> = _chatEnabled.asStateFlow()
 
-    // Chat general
     private val _generalMessages = MutableStateFlow<List<ChatMessageWithMode>>(emptyList())
     val generalMessages: StateFlow<List<ChatMessageWithMode>> = _generalMessages.asStateFlow()
 
-    // Chat de parte actual
     private val _parteSession = MutableStateFlow<ParteSessionChat?>(null)
     val parteSession: StateFlow<ParteSessionChat?> = _parteSession.asStateFlow()
 
-    // Estados de UI
     private val _isTyping = MutableStateFlow(false)
     val isTyping: StateFlow<Boolean> = _isTyping.asStateFlow()
 
@@ -87,14 +82,12 @@ class EnhancedChatViewModel(
     private val _firebaseStatus = MutableStateFlow<String?>(null)
     val firebaseStatus: StateFlow<String?> = _firebaseStatus.asStateFlow()
 
-    // Triggers de UI
     private val _showMapPicker = MutableStateFlow(false)
     val showMapPicker: StateFlow<Boolean> = _showMapPicker.asStateFlow()
 
     private val _showImagePicker = MutableStateFlow(false)
     val showImagePicker: StateFlow<Boolean> = _showImagePicker.asStateFlow()
 
-    // Campos en progreso
     private val _currentFieldInProgress = MutableStateFlow<CampoParte?>(null)
     val currentFieldInProgress: StateFlow<CampoParte?> = _currentFieldInProgress.asStateFlow()
 
@@ -114,7 +107,6 @@ class EnhancedChatViewModel(
         initializeData()
     }
 
-
     private fun initializeData() {
         viewModelScope.launch {
             try {
@@ -133,11 +125,9 @@ class EnhancedChatViewModel(
         if (_generalMessages.value.isEmpty()) showMainMenu()
     }
 
-    // ================== HELPERS DE UI ==================
     fun dismissMapPicker() { _showMapPicker.value = false }
     fun dismissImagePicker() { _showImagePicker.value = false }
 
-    // ================== LÓGICA CHATBOT ==================
     fun showMainMenu() {
         val node = chatBotManager.getMainMenu()
         addBotMessage(node.message, node.options)
@@ -167,7 +157,6 @@ class EnhancedChatViewModel(
     }
 
     private fun addBotMessage(content: String, options: List<ChatOption>? = null) {
-        // 1. Detectamos el modo actual
         val modoActual = _currentMode.value
 
         val message = ChatMessageWithMode(
@@ -175,15 +164,14 @@ class EnhancedChatViewModel(
             isFromUser = false,
             type = MessageType.TEXT,
             timestamp = getCurrentTimestamp(),
-            mode = modoActual, // ✅ Ahora usa el modo real
+            mode = modoActual,
             options = options
         )
 
-        // 2. Enrutamos a la lista de mensajes que corresponde
         if (modoActual == ChatMode.GENERAL) {
             addMessageToGeneralChat(message)
         } else {
-            addMessageToParteSession(message) // ✅ Ahora se verá en el chat del Parte
+            addMessageToParteSession(message)
         }
     }
 
@@ -198,15 +186,13 @@ class EnhancedChatViewModel(
             val borradorGuardado = localStorageHelper.getParteBorrador()
 
             if (borradorGuardado != null) {
-                // 📂 CASO A: RECUPERADO
-                // 1. Generamos el texto resumen dinámicamente
                 val mensajeResumen = generarResumenBorrador(borradorGuardado)
 
                 _parteSession.value = ParteSessionChat(
                     parteData = borradorGuardado,
                     messages = listOf(
                         ChatMessageWithMode(
-                            content = mensajeResumen, // ✅ Usamos el texto generado
+                            content = mensajeResumen,
                             isFromUser = false,
                             type = MessageType.TEXT,
                             timestamp = getCurrentTimestamp(),
@@ -215,7 +201,6 @@ class EnhancedChatViewModel(
                     )
                 )
             } else {
-                // 🆕 CASO B: NUEVO (Igual que antes)
                 _parteSession.value = ParteSessionChat()
                 val bienvenida = """
                     🎣 **Modo Crear Parte**
@@ -240,7 +225,6 @@ class EnhancedChatViewModel(
         addBotMessage("❌ **Parte cancelado**\n\nVolviste al menú principal.")
     }
 
-    // ================== ENVÍO DE MENSAJES ==================
     fun sendTextMessage(content: String) {
         when (_currentMode.value) {
             ChatMode.GENERAL -> sendGeneralTextMessage(content)
@@ -262,13 +246,11 @@ class EnhancedChatViewModel(
         }
     }
 
-    // --- LÓGICA GENERAL ---
     private fun sendGeneralTextMessage(content: String) {
         if (chatBotManager.isMenuRequest(content)) {
             showMainMenu()
             return
         }
-
         addUserMessage(content)
         processWithGemini(content)
     }
@@ -276,7 +258,6 @@ class EnhancedChatViewModel(
     private fun processWithGemini(content: String) {
         _isTyping.value = true
         viewModelScope.launch {
-            // Verificar quota ANTES de procesar
             if (!quotaManager.canMakeQuery()) {
                 addBotMessage(quotaManager.getQuotaMessage())
                 _isTyping.value = false
@@ -285,7 +266,6 @@ class EnhancedChatViewModel(
 
             when (val result = geminiService.processUserMessage(content)) {
                 is ChatResult.Success -> {
-                    // Ahora consumeQuery también es suspend
                     val consumed = quotaManager.consumeQuery()
                     if (consumed) {
                         addBotMessage("${result.message}\n\n_${quotaManager.getQuotaMessage()}_")
@@ -309,7 +289,6 @@ class EnhancedChatViewModel(
 
         _isTyping.value = true
         viewModelScope.launch {
-            // Verificar quota primero
             if (!quotaManager.canMakeQuery()) {
                 addBotMessage(quotaManager.getQuotaMessage())
                 _isTyping.value = false
@@ -333,13 +312,11 @@ class EnhancedChatViewModel(
         viewModelScope.launch {
             _isAnalyzing.value = true
 
-            // 1. Guardamos la imagen de forma SEGURA y PERMANENTE
             val pathSeguro = imageHelper.saveImageToInternalStorage(android.net.Uri.parse(uriTemporal))
 
             if (pathSeguro != null) {
-                // Usamos el path seguro para el mensaje
                 val userMessage = ChatMessageWithMode(
-                    pathSeguro, // Ahora guardamos /data/user/0/.../hash.jpg
+                    pathSeguro,
                     true,
                     MessageType.IMAGE,
                     getCurrentTimestamp(),
@@ -349,7 +326,6 @@ class EnhancedChatViewModel(
                 saveGeneralMessageToFile(userMessage, "IMAGE: $pathSeguro")
 
                 delay(1000)
-                // Aquí podrías llamar al identificador de peces con el path seguro
                 addBotMessage("📸 Foto guardada en memoria interna exitosamente.")
             } else {
                 addBotMessage("❌ Error al guardar la imagen en memoria.")
@@ -362,20 +338,16 @@ class EnhancedChatViewModel(
         val userMessage = ChatMessageWithMode(content, true, MessageType.TEXT, getCurrentTimestamp(), ChatMode.CREAR_PARTE)
         addMessageToParteSession(userMessage)
 
-        // CASO ESPECIAL: Si es observaciones, guardamos el texto plano
         if (_waitingForFieldResponse.value == CampoParte.OBSERVACIONES) {
             actualizarObservaciones(content)
             return
         }
-
-        // PARA TODO LO DEMÁS: Procesamiento Global (Recuperamos la "magia")
         procesarEntradaInteligente(content)
     }
 
     private fun sendParteAudioMessage(transcript: String) {
         val userMessage = ChatMessageWithMode("🎤 \"$transcript\"", true, MessageType.AUDIO, getCurrentTimestamp(), ChatMode.CREAR_PARTE)
         addMessageToParteSession(userMessage)
-
         procesarEntradaInteligente(transcript)
     }
 
@@ -383,33 +355,61 @@ class EnhancedChatViewModel(
         _isAnalyzing.value = true
         viewModelScope.launch {
             try {
-                // 1. Extraer TODO lo que haya en el texto (ML Kit + Tus Patrones)
-                val extractionResult = mlKitManager.extraerInformacionPesca(texto)
-                val nuevosData = mlKitManager.convertirEntidadesAParteDatos(extractionResult.entidadesDetectadas)
+                // 1. Detectar si el pescador está declarando explícitamente que no pescó nada
+                val textoLower = texto.lowercase()
+                val declaroZapatero = textoLower.contains("no pesque nada") ||
+                        textoLower.contains("no saque nada") ||
+                        textoLower.contains("zapatero") ||
+                        textoLower.contains("cero capturas") ||
+                        textoLower.contains("ningun pez")
 
-                _parteSession.value?.let { session ->
-                    // 2. Mergear datos nuevos con los existentes usando el UseCase
-                    val datosActualizados = parteLogicUseCase.mergearDatos(session.parteData, nuevosData)
-                    val progreso = parteLogicUseCase.calcularProgreso(datosActualizados)
+                if (declaroZapatero) {
+                    _parteSession.value?.let { session ->
+                        // Marcamos el parte como "sin capturas" y vaciamos la lista por las dudas
+                        val datosActualizados = session.parteData.copy(
+                            sinCapturas = true,
+                            especiesCapturadas = emptyList()
+                        )
+                        val progreso = parteLogicUseCase.calcularProgreso(datosActualizados)
 
-                    // 3. Si detectamos información, liberamos el "bloqueo" de campo específico
-                    if (extractionResult.entidadesDetectadas.isNotEmpty()) {
                         _currentFieldInProgress.value = null
                         _waitingForFieldResponse.value = null
-                    }
 
-                    _parteSession.value = session.copy(
-                        parteData = datosActualizados.copy(
-                            porcentajeCompletado = progreso.porcentaje,
-                            camposFaltantes = progreso.camposFaltantes
+                        _parteSession.value = session.copy(
+                            parteData = datosActualizados.copy(
+                                porcentajeCompletado = progreso.porcentaje,
+                                camposFaltantes = progreso.camposFaltantes
+                            )
                         )
-                    )
 
-                    delay(1000)
+                        delay(1000)
+                        addBotMessage("📝 **¡Anotado!**\n\nRegistrar los días sin pique es información súper valiosa para cuidar el ecosistema.\n\n${generarResumenProgreso(_parteSession.value?.parteData)}")
+                    }
+                } else {
+                    // 2. Si pescó algo, seguimos el flujo normal con ML Kit / Extractor
+                    val extractionResult = mlKitManager.extraerInformacionPesca(texto)
+                    val nuevosData = mlKitManager.convertirEntidadesAParteDatos(extractionResult.entidadesDetectadas)
 
-                    // 4. Respuesta dinámica: Resume lo que entendió + Pregunta lo que falta
-                    val respuestaBot = generarRespuestaParte(extractionResult, _parteSession.value?.parteData)
-                    addBotMessage(respuestaBot)
+                    _parteSession.value?.let { session ->
+                        val datosActualizados = parteLogicUseCase.mergearDatos(session.parteData, nuevosData)
+                        val progreso = parteLogicUseCase.calcularProgreso(datosActualizados)
+
+                        if (extractionResult.entidadesDetectadas.isNotEmpty()) {
+                            _currentFieldInProgress.value = null
+                            _waitingForFieldResponse.value = null
+                        }
+
+                        _parteSession.value = session.copy(
+                            parteData = datosActualizados.copy(
+                                porcentajeCompletado = progreso.porcentaje,
+                                camposFaltantes = progreso.camposFaltantes
+                            )
+                        )
+
+                        delay(1000)
+                        val respuestaBot = generarRespuestaParte(extractionResult, _parteSession.value?.parteData)
+                        addBotMessage(respuestaBot)
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error en procesamiento inteligente: ${e.message}")
@@ -419,25 +419,17 @@ class EnhancedChatViewModel(
             }
         }
     }
+
     private fun sendParteImageMessage(uriTemporal: String) {
         viewModelScope.launch {
-            _isAnalyzing.value = true // Mostramos indicador de carga
+            _isAnalyzing.value = true
 
-            // 1. EL TRUCO: "Secuestramos" la foto y la guardamos en nuestra memoria interna
-            // Esto genera una copia física en: /data/user/0/com.example.juka/files/captured_images/XYZ...HASH.jpg
             val pathSeguro = imageHelper.saveImageToInternalStorage(android.net.Uri.parse(uriTemporal))
 
             if (pathSeguro != null) {
-                // ✅ ÉXITO: Usamos la ruta interna (pathSeguro)
-
-                // A. Actualizamos el Estado del Parte
                 _parteSession.value?.let { session ->
-                    // Agregamos la ruta SEGURA a la lista de imágenes
                     val nuevasImagenes = session.parteData.imagenes + pathSeguro
-
                     val datosActualizados = session.parteData.copy(imagenes = nuevasImagenes)
-
-                    // Recalculamos progreso (ahora usando el UseCase)
                     val progreso = parteLogicUseCase.calcularProgreso(datosActualizados)
 
                     _parteSession.value = session.copy(
@@ -448,9 +440,8 @@ class EnhancedChatViewModel(
                     )
                 }
 
-                // B. Mostramos el mensaje en el chat (con la foto segura)
                 val userMessage = ChatMessageWithMode(
-                    content = pathSeguro, // Guardamos el path local, no la URI temporal
+                    content = pathSeguro,
                     isFromUser = true,
                     type = MessageType.IMAGE,
                     timestamp = getCurrentTimestamp(),
@@ -462,14 +453,12 @@ class EnhancedChatViewModel(
                 addBotMessage("📸 **Imagen guardada**\n\n${generarResumenProgreso(_parteSession.value?.parteData)}")
 
             } else {
-                // ❌ ERROR: Falló el guardado (espacio lleno, error de lectura, etc)
                 addBotMessage("⚠️ No pude guardar la imagen. Intentá de nuevo.")
             }
 
             _isAnalyzing.value = false
         }
     }
-    // ================== MANEJO DE CAMPOS ==================
 
     fun onCampoParteSelected(campo: CampoParte) {
         _currentFieldInProgress.value = campo
@@ -491,7 +480,7 @@ class EnhancedChatViewModel(
     }
 
     private fun obtenerMensajeDetalleCampo(campo: CampoParte): ChatMessageWithMode {
-        val content = obtenerEjemploPorCampo(campo) // Simplificado para usar el helper
+        val content = obtenerEjemploPorCampo(campo)
         return ChatMessageWithMode(content, false, MessageType.TEXT, getCurrentTimestamp(), ChatMode.CREAR_PARTE)
     }
 
@@ -503,7 +492,6 @@ class EnhancedChatViewModel(
                     actualizarObservaciones(content)
                 } else {
                     val extractionResult = mlKitManager.extraerInformacionPesca(content)
-                    // ✅ USAMOS EL USECASE
                     val entidadesRelevantes = parteLogicUseCase.filtrarEntidadesPorCampo(extractionResult, campo)
 
                     if (entidadesRelevantes.entidadesDetectadas.isNotEmpty()) {
@@ -525,7 +513,6 @@ class EnhancedChatViewModel(
     private fun actualizarObservaciones(content: String) {
         _parteSession.value?.let { session ->
             val datos = session.parteData.copy(observaciones = content)
-            // ✅ USAMOS EL USECASE
             val progreso = parteLogicUseCase.calcularProgreso(datos)
 
             _parteSession.value = session.copy(
@@ -540,10 +527,8 @@ class EnhancedChatViewModel(
         }
     }
 
-    // ✅ Reemplazamos la función vieja gigante por esta delegada
     private fun actualizarDatosPartePorCampo(campo: CampoParte, extractionResult: MLKitExtractionResult) {
         _parteSession.value?.let { session ->
-            // USAMOS EL USECASE
             val datosActualizados = parteLogicUseCase.actualizarDatosPorCampo(session.parteData, campo, extractionResult)
             val progreso = parteLogicUseCase.calcularProgreso(datosActualizados)
 
@@ -555,8 +540,6 @@ class EnhancedChatViewModel(
             )
         }
     }
-
-    // ================== PERSISTENCIA / HELPERS ==================
 
     private fun addUserMessage(content: String, type: MessageType = MessageType.TEXT) {
         val msg = ChatMessageWithMode(content, true, type, getCurrentTimestamp(), ChatMode.GENERAL)
@@ -574,29 +557,19 @@ class EnhancedChatViewModel(
 
     private fun addMessageToParteSession(message: ChatMessageWithMode) {
         _parteSession.value?.let { session ->
-            // 1. Creamos la lista mutable (automáticamente hereda el tipo ChatMessageWithMode)
             val updatedMessages = session.messages.toMutableList()
-
-            // 2. Agregamos el mensaje nuevo
             updatedMessages.add(message)
-
-            // 3. Guardamos SIN hacer cast (ya es del tipo correcto)
             _parteSession.value = session.copy(messages = updatedMessages)
         }
     }
 
     private fun saveGeneralMessageToFile(message: ChatMessageWithMode, customContent: String? = null) {
         Log.d(TAG, "Guardando mensaje: ${message.content}")
-        // viewModelScope.launch { localStorageHelper.saveMessage(message) }
     }
 
     private fun loadGeneralChatHistory() {
         Log.d(TAG, "Cargando historial...")
-        // viewModelScope.launch { ... }
     }
-
-    // ================== GENERACIÓN DE RESPUESTAS VISUALES ==================
-    // Estas funciones formatean texto para el usuario. Usan el UseCase para los cálculos.
 
     private fun generarRespuestaParte(extractionResult: MLKitExtractionResult, datosActuales: ParteEnProgreso?): String {
         if (extractionResult.entidadesDetectadas.isEmpty()) {
@@ -614,7 +587,6 @@ class EnhancedChatViewModel(
 
     private fun generarResumenProgreso(datos: ParteEnProgreso?): String {
         if (datos == null) return ""
-        // ✅ USAMOS EL USECASE PARA CALCULAR
         val progreso = parteLogicUseCase.calcularProgreso(datos)
 
         val resumen = StringBuilder()
@@ -627,10 +599,8 @@ class EnhancedChatViewModel(
         return resumen.toString()
     }
 
-    // ================== FINALIZACIÓN DEL PARTE ==================
-
     fun completarYEnviarParte() {
-         val auth = FirebaseAuth.getInstance()
+        val auth = FirebaseAuth.getInstance()
         _parteSession.value?.let { session ->
             if (session.parteData.porcentajeCompletado >= 70) {
                 _firebaseStatus.value = "Intentando subir..."
@@ -648,15 +618,11 @@ class EnhancedChatViewModel(
                         val datosFinales = session.parteData.copy(imagenes = urlsRemotas)
                         val sessionFinal = session.copy(parteData = datosFinales)
 
-                        // ✅ VERIFICAR LOGROS CON LA FUNCIÓN MODULAR
                         val achievementsChecker = AchievementsChecker(achievementsViewModel)
                         achievementsChecker.checkParteAchievements(
                             datosFinales,
                             auth.currentUser?.uid ?: ""
                         )
-
-
-                        // Más ideas: if (totalPeces == 0) { achievementsViewModel.unlockAchievement("cero_peces") } – pero parece que "zapatero_wade" ya es para eso.
 
                         _firebaseStatus.value = "Sincronizando..."
                         val resultado = firebaseManager.convertirSessionAParte(sessionFinal)
@@ -698,14 +664,13 @@ class EnhancedChatViewModel(
         _currentMode.value = ChatMode.GENERAL
         showMainMenu()
     }
-    // Función para convertir los datos del borrador en un texto lindo para el chat
+
     private fun generarResumenBorrador(parte: com.example.juka.domain.model.ParteEnProgreso): String {
         val sb = StringBuilder()
 
         sb.append("📂 **¡Recuperé tu borrador!**\n")
         sb.append("Esto es lo que tenías guardado:\n\n")
 
-        // 📅 Fecha y Hora
         if (parte.fecha != null) {
             sb.append("📅 **Fecha:** ${parte.fecha}\n")
         }
@@ -713,12 +678,10 @@ class EnhancedChatViewModel(
             sb.append("⏰ **Horario:** ${parte.horaInicio ?: "?"} - ${parte.horaFin ?: "?"}\n")
         }
 
-        // 📍 Ubicación
         if (parte.nombreLugar != null) {
             sb.append("📍 **Lugar:** ${parte.nombreLugar}\n")
         }
 
-        // 🐟 Especies (Iteramos la lista si tiene algo)
         if (parte.especiesCapturadas.isNotEmpty()) {
             sb.append("🐟 **Capturas:**\n")
             parte.especiesCapturadas.forEach { pez ->
@@ -726,17 +689,14 @@ class EnhancedChatViewModel(
             }
         }
 
-        // 🎣 Modalidad y Cañas
         if (parte.modalidad != null) {
             sb.append("🎣 **Modalidad:** ${parte.modalidad}\n")
         }
 
-        // 📸 Fotos
         if (parte.imagenes.isNotEmpty()) {
             sb.append("📸 **Fotos:** ${parte.imagenes.size} adjuntas\n")
         }
 
-        // 📝 Notas
         if (!parte.observaciones.isNullOrBlank()) {
             sb.append("📝 **Notas:** \"${parte.observaciones}\"\n")
         }
@@ -745,6 +705,7 @@ class EnhancedChatViewModel(
 
         return sb.toString()
     }
+
     fun saveLocation(latitude: Double, longitude: Double, name: String?) {
         if (_currentMode.value != ChatMode.CREAR_PARTE) return
         val geoPoint = GeoPoint(latitude, longitude)
@@ -752,7 +713,6 @@ class EnhancedChatViewModel(
 
         _parteSession.value?.let { session ->
             val datosActualizados = session.parteData.copy(ubicacion = geoPoint, nombreLugar = locationName)
-            // ✅ USAMOS EL USECASE
             val progreso = parteLogicUseCase.calcularProgreso(datosActualizados)
 
             _parteSession.value = session.copy(
@@ -779,13 +739,6 @@ class EnhancedChatViewModel(
 
     private fun obtenerEjemploPorCampo(campo: CampoParte): String {
         return when (campo) {
-            /*CampoParte.HORARIOS -> "De 6 a 11"
-            CampoParte.ESPECIES -> "2 percas"
-            CampoParte.FECHA -> "Hoy"
-            CampoParte.CANAS -> "2 cañas"
-            CampoParte.MODALIDAD -> "Costa"
-            CampoParte.UBICACION -> "ej: Trelew"
-            CampoParte.OBSERVACIONES -> "Detalles extra..."*/
             else -> "..."
         }
     }
@@ -793,67 +746,25 @@ class EnhancedChatViewModel(
     private fun generarMensajeConfirmacionCampo(campo: CampoParte, extraction: MLKitExtractionResult): String {
         return "✅ Información registrada para ${campo.name}"
     }
-    // ================== CONTADOR DE PECES (Fish Counter) ==================
 
-    // Estado del contador (Lista temporal de especies capturadas)
-    private val _contadorPeces = MutableStateFlow<List<com.example.juka.domain.model.EspecieCapturada>>(emptyList())
-    val contadorPeces: StateFlow<List<com.example.juka.domain.model.EspecieCapturada>> = _contadorPeces.asStateFlow()
+    // ================== CONTADOR DE PECES ==================
 
-    /**
-     * Agrega peces al contador. Si la especie ya existe, SUMA la cantidad.
-     */
-    fun agregarPezAlContador(nombreEspecie: String, cantidad: Int) {
-        val listaActual = _contadorPeces.value.toMutableList()
+    // ✅ Delegamos el estado al manager
+    val contadorPeces: StateFlow<List<EspecieCapturada>> = fishCounterManager.contadorPeces
 
-        // Buscamos si ya existe esa especie en la lista
-        val indiceExistente = listaActual.indexOfFirst { it.nombre.equals(nombreEspecie, ignoreCase = true) }
-
-        if (indiceExistente != -1) {
-            // CASO A: YA EXISTE -> SUMAMOS
-            val itemExistente = listaActual[indiceExistente]
-            val nuevaCantidad = itemExistente.numeroEjemplares + cantidad
-
-            // Reemplazamos el objeto con la nueva cantidad
-            listaActual[indiceExistente] = itemExistente.copy(numeroEjemplares = nuevaCantidad)
-        } else {
-            // CASO B: NUEVO -> AGREGAMOS
-            listaActual.add(com.example.juka.domain.model.EspecieCapturada(nombre = nombreEspecie, numeroEjemplares = cantidad))
-        }
-
-        _contadorPeces.value = listaActual
-    }
-
-    /**
-     * Resta o elimina un pez del contador
-     */
-    fun eliminarPezDelContador(nombreEspecie: String) {
-        val listaActual = _contadorPeces.value.toMutableList()
-        listaActual.removeAll { it.nombre == nombreEspecie }
-        _contadorPeces.value = listaActual
-    }
-
-    /**
-     * Transforma el contador en un Parte y cambia al modo Chat
-     */
+    // ✅ La lógica de navegación se mantiene acá
     fun iniciarParteDesdeContador() {
-        val pecesContados = _contadorPeces.value
+        val pecesContados = fishCounterManager.contadorPeces.value
         if (pecesContados.isEmpty()) return
 
-        // 1. Creamos un ParteEnProgreso ya con los peces cargados
-        val datosIniciales = com.example.juka.domain.model.ParteEnProgreso(
-            especiesCapturadas = pecesContados
-        )
+        val datosIniciales = ParteEnProgreso(especiesCapturadas = pecesContados)
 
-        // 2. Iniciamos el modo crear parte con estos datos
         _currentMode.value = ChatMode.CREAR_PARTE
-
-        // Guardamos borrador por seguridad
         localStorageHelper.saveParteBorrador(datosIniciales)
 
-        // 3. Generamos mensaje inicial
         val resumenPeces = pecesContados.joinToString(", ") { "${it.numeroEjemplares} ${it.nombre}" }
 
-        _parteSession.value = com.example.juka.domain.model.ParteSessionChat(
+        _parteSession.value = ParteSessionChat(
             parteData = datosIniciales,
             messages = listOf(
                 ChatMessageWithMode(
@@ -865,140 +776,7 @@ class EnhancedChatViewModel(
             )
         )
 
-        // Limpiamos el contador
-        _contadorPeces.value = emptyList()
+        // Limpiamos usando el manager
+        fishCounterManager.limpiarContador()
     }
-// ================== CONTADOR DE PECES (Fish Counter) - FUNCIONES ADICIONALES ==================
-
-    /**
-     * Actualiza la cantidad de una especie específica en el contador
-     */
-    fun actualizarCantidadPez(nombreEspecie: String, nuevaCantidad: Int) {
-        if (nuevaCantidad <= 0) {
-            // Si la cantidad es 0 o negativa, eliminamos la especie
-            eliminarPezDelContador(nombreEspecie)
-            return
-        }
-
-        val listaActual = _contadorPeces.value.toMutableList()
-        val indiceExistente = listaActual.indexOfFirst {
-            it.nombre.equals(nombreEspecie, ignoreCase = true)
-        }
-
-        if (indiceExistente != -1) {
-            // Actualizamos la cantidad
-            listaActual[indiceExistente] = listaActual[indiceExistente].copy(
-                numeroEjemplares = nuevaCantidad
-            )
-            _contadorPeces.value = listaActual
-        }
-    }
-
-    /**
-     * Limpia completamente el contador de peces
-     */
-    fun limpiarContador() {
-        _contadorPeces.value = emptyList()
-    }
-
-    /**
-     * Verifica si una especie ya está en el contador
-     */
-    fun especieYaEnContador(nombreEspecie: String): Boolean {
-        return _contadorPeces.value.any {
-            it.nombre.equals(nombreEspecie, ignoreCase = true)
-        }
-    }
-
-    /**
-     * Obtiene el total de peces en el contador
-     */
-    fun getTotalPecesContador(): Int {
-        return _contadorPeces.value.sumOf { it.numeroEjemplares }
-    }
-
-    /**
-     * Incrementa la cantidad de una especie en 1
-     */
-    fun incrementarEspecie(nombreEspecie: String) {
-        val listaActual = _contadorPeces.value.toMutableList()
-        val indiceExistente = listaActual.indexOfFirst {
-            it.nombre.equals(nombreEspecie, ignoreCase = true)
-        }
-
-        if (indiceExistente != -1) {
-            val itemExistente = listaActual[indiceExistente]
-            listaActual[indiceExistente] = itemExistente.copy(
-                numeroEjemplares = itemExistente.numeroEjemplares + 1
-            )
-            _contadorPeces.value = listaActual
-        } else {
-            // Si no existe, la agregamos con cantidad 1
-            agregarPezAlContador(nombreEspecie, 1)
-        }
-    }
-
-    /**
-     * Decrementa la cantidad de una especie en 1
-     */
-    fun decrementarEspecie(nombreEspecie: String) {
-        val listaActual = _contadorPeces.value.toMutableList()
-        val indiceExistente = listaActual.indexOfFirst {
-            it.nombre.equals(nombreEspecie, ignoreCase = true)
-        }
-
-        if (indiceExistente != -1) {
-            val itemExistente = listaActual[indiceExistente]
-            val nuevaCantidad = itemExistente.numeroEjemplares - 1
-
-            if (nuevaCantidad > 0) {
-                listaActual[indiceExistente] = itemExistente.copy(
-                    numeroEjemplares = nuevaCantidad
-                )
-            } else {
-                // Si llega a 0, eliminamos la especie
-                listaActual.removeAt(indiceExistente)
-            }
-            _contadorPeces.value = listaActual
-        }
-    }
-
-    /**
-     * Inicializa el contador desde un ParteEnProgreso existente (útil para editar)
-     */
-    fun cargarContadorDesdeParteExistente(parte: ParteEnProgreso) {
-        _contadorPeces.value = parte.especiesCapturadas
-    }
-
-    /**
-     * Guarda el estado actual del contador en preferencias (para persistencia)
-     */
-    fun guardarEstadoContador() {
-        viewModelScope.launch {
-            try {
-                // Especificamos el tipo explícitamente
-                val json = Json.encodeToString<List<EspecieCapturada>>(_contadorPeces.value)
-                localStorageHelper.savePreference("contador_peces_backup", json)
-            } catch (e: Exception) {
-                Log.e("FishCounter", "Error guardando contador: ${e.message}")
-            }
-        }
-    }
-
-    /**
-     * Restaura el contador desde preferencias
-     */
-    fun restaurarEstadoContador() {
-        viewModelScope.launch {
-            try {
-                val json = localStorageHelper.getPreference("contador_peces_backup")
-                if (!json.isNullOrEmpty()) {
-                    _contadorPeces.value = Json.decodeFromString(json)
-                }
-            } catch (e: Exception) {
-                Log.e("FishCounter", "Error restaurando contador: ${e.message}")
-            }
-        }
-    }
-
 }

@@ -27,7 +27,7 @@ class FishDatabase(private val context: Context) {
 
     companion object {
         private const val TAG = "🐟 FishDatabase"
-        private const val JSON_FILE = "peces_argentinos.json"
+        private const val JSON_FILE = "peces_argentinos1.json"
     }
 
     /**

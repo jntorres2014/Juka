@@ -762,7 +762,7 @@ fun UbicacionViewer(lat: Double?, lng: Double?, ubicacionName: String?, modifier
                     MapView(ctx).apply {
                         setTileSource(TileSourceFactory.MAPNIK)
                         setMultiTouchControls(true)
-                        controller.setZoom(15.0)
+                        controller.setZoom(8.0)
                         controller.setCenter(geoPoint)
                         val marker = Marker(this)
                         marker.position = geoPoint

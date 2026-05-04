@@ -79,7 +79,8 @@ data class ParteEnProgreso(
 
     // Metadatos
     val porcentajeCompletado: Int = 0,
-    val camposFaltantes: List<String> = emptyList()
+    val camposFaltantes: List<String> = emptyList(),
+    val sinCapturas: Boolean = false // ✅ NUEVO FLAG
 )
 
 // Enums para las opciones predefinidas

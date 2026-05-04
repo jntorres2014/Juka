@@ -7,7 +7,6 @@ import com.example.juka.domain.model.ModalidadPesca
 import com.example.juka.domain.model.ParteEnProgreso
 import com.example.juka.domain.model.Provincia
 
-
 /**
  * Encapsula TODA la lógica matemática y de transformación de datos del Parte.
  * El ViewModel solo le pasa datos y recibe resultados.
@@ -17,8 +16,6 @@ class ParteLogicUseCase(
 ) {
 
     data class ProgresoInfo(val porcentaje: Int, val camposFaltantes: List<String>)
-
-
 
     fun mergearDatos(existente: ParteEnProgreso, nuevo: ParteEnProgreso): ParteEnProgreso {
         return ParteEnProgreso(
@@ -30,11 +27,12 @@ class ParteLogicUseCase(
             nombreLugar = nuevo.nombreLugar ?: existente.nombreLugar,
             modalidad = nuevo.modalidad ?: existente.modalidad,
             numeroCanas = nuevo.numeroCanas ?: existente.numeroCanas,
-            tipoEmbarcacion = nuevo.tipoEmbarcacion ?: existente.tipoEmbarcacion,
             especiesCapturadas = (existente.especiesCapturadas + nuevo.especiesCapturadas).distinctBy { it.nombre },
             imagenes = existente.imagenes + nuevo.imagenes,
             observaciones = nuevo.observaciones ?: existente.observaciones,
-            noIdentificoEspecie = nuevo.noIdentificoEspecie || existente.noIdentificoEspecie
+            noIdentificoEspecie = nuevo.noIdentificoEspecie || existente.noIdentificoEspecie,
+            // ✅ CORREGIDO: Ahora el flag "sinCapturas" sobrevive al mergeo
+            sinCapturas = nuevo.sinCapturas || existente.sinCapturas
         )
     }
 
@@ -82,7 +80,11 @@ class ParteLogicUseCase(
                             especiesExistentes.add(nueva)
                         }
                     }
-                    datosActualizados = datosActualizados.copy(especiesCapturadas = especiesExistentes)
+                    // Si agregan una especie manualmente, quitamos el flag de "sin capturas"
+                    datosActualizados = datosActualizados.copy(
+                        especiesCapturadas = especiesExistentes,
+                        sinCapturas = false
+                    )
                 }
             }
             CampoParte.FECHA -> extractionResult.entidadesDetectadas.firstOrNull { it.tipo == "FECHA" }?.let { datosActualizados = datosActualizados.copy(fecha = it.valor) }
@@ -109,6 +111,39 @@ class ParteLogicUseCase(
         }
         return datosActualizados
     }
+
+    // ✅ CORREGIDO: Unificamos todo en una sola función de progreso sólida
+    fun calcularProgreso(datos: ParteEnProgreso): ProgresoInfo {
+        // Si marcó "sin capturas", damos la sección de especies por completada
+        val estadoEspecies = if (datos.sinCapturas || datos.especiesCapturadas.isNotEmpty()) "completado" else null
+
+        val camposObligatorios = listOf(
+            "fecha" to datos.fecha,
+            "modalidad" to datos.modalidad?.displayName,
+            "especies" to estadoEspecies
+        )
+
+        val camposOpcionales = listOf(
+            "provincia" to datos.provincia?.displayName,
+            "hora_inicio" to datos.horaInicio,
+            "hora_fin" to datos.horaFin,
+            "numero de cañas" to datos.numeroCanas?.toString(),
+            "imagenes" to if (datos.imagenes.isNotEmpty()) "completado" else null,
+            "ubicacion" to datos.nombreLugar
+        )
+
+        val totalCompletos = camposObligatorios.count { it.second != null } + camposOpcionales.count { it.second != null }
+        val totalCampos = camposObligatorios.size + camposOpcionales.size
+
+        val porcentaje = (totalCompletos.toFloat() / totalCampos * 100).toInt()
+
+        // Creamos la lista de faltantes (ahora sí es segura)
+        val faltantes = (camposObligatorios.filter { it.second == null }.map { it.first } +
+                camposOpcionales.filter { it.second == null }.map { it.first })
+
+        return ProgresoInfo(porcentaje, faltantes)
+    }
+
     private fun generarResumenProgreso(datos: ParteEnProgreso?): String {
         if (datos == null) return ""
         val progreso = calcularProgreso(datos)
@@ -132,73 +167,12 @@ class ParteLogicUseCase(
                 resumen.append("$pregunta\n")
             }
         } else {
-            resumen.append("\n🎉 **¡Excelente! Tu parte está completo.** Ya podés enviarlo.")
+            resumen.append("\n🎉 **¡Excelente! Tu reporte está completo.** Ya podés enviarlo.")
         }
         return resumen.toString()
     }
 
-
-    fun calcularProgreso(datos: ParteEnProgreso): ProgresoInfo {
-        val camposObligatorios = listOf(
-            "fecha" to datos.fecha,
-            "modalidad" to datos.modalidad?.displayName,
-            "especies" to if (datos.especiesCapturadas.isNotEmpty()) "completado" else null
-        )
-
-        val camposOpcionales = listOf(
-            "provincia" to datos.provincia?.displayName,
-            "hora_inicio" to datos.horaInicio,
-            "hora_fin" to datos.horaFin,
-            "numero de cañas" to datos.numeroCanas?.toString(),
-            "imagenes" to if (datos.imagenes.isNotEmpty()) "completado" else null,
-            "ubicacion" to datos.nombreLugar
-        )
-
-        val totalCompletos = camposObligatorios.count { it.second != null } +
-                camposOpcionales.count { it.second != null }
-        val totalCampos = camposObligatorios.size + camposOpcionales.size
-
-        val porcentaje = (totalCompletos.toFloat() / totalCampos * 100).toInt()
-
-        val faltantes = camposObligatorios.filter { it.second == null }.map { it.first } +
-                camposOpcionales.filter { it.second == null }.map { it.first }
-
-        return ProgresoInfo(porcentaje, faltantes)
-    }
-    private fun calcularProgresoParte(datos: ParteEnProgreso): ParteLogicUseCase.ProgresoInfo {
-        // Quitamos "lugar" de los campos obligatorios
-        val camposObligatorios = listOf(
-            "fecha" to datos.fecha,
-            // "lugar" to datos.lugar, // Se quita
-            "modalidad" to datos.modalidad?.displayName,
-            "especies" to if (datos.especiesCapturadas.isNotEmpty()) "completado" else null
-        )
-
-        // Podemos añadir la ubicación a los opcionales si queremos,
-        // pero como no afecta el %, lo dejamos fuera del cálculo.
-        val camposOpcionales = listOf(
-            "provincia" to datos.provincia?.displayName,
-            "hora_inicio" to datos.horaInicio,
-            "hora_fin" to datos.horaFin,
-            "numero de cañas" to datos.numeroCanas?.toString(),
-            "imagenes" to if (datos.imagenes.isNotEmpty()) "completado" else null,
-            "ubicacion" to datos.nombreLugar  // hace que aparezca en chips si falta
-        )
-
-        val obligatoriosCompletos = camposObligatorios.count { it.second != null }
-        val opcionalesCompletos = camposOpcionales.count { it.second != null }
-
-        val totalCompletos = obligatoriosCompletos + opcionalesCompletos
-        val totalCampos = camposObligatorios.size + camposOpcionales.size
-
-        val porcentaje = (totalCompletos.toFloat() / totalCampos * 100).toInt()
-
-        val faltantes = camposObligatorios.filter { it.second == null }.map { it.first } +
-                camposOpcionales.filter { it.second == null }.map { it.first }
-
-        return ProgresoInfo(porcentaje, faltantes)
-    }
-    private fun generarRespuestaParte(
+    fun generarRespuestaParte(
         extractionResult: MLKitExtractionResult,
         datosActuales: ParteEnProgreso?
     ): String {
@@ -208,8 +182,8 @@ class ParteLogicUseCase(
 
 ¿Podrías contarme más detalladamente? Por ejemplo:
 • **Cuándo:** "Ayer de mañana" o "El sábado"
-• **Dónde:** "En Puerto Madryn" o "Playa tal"
-• **Qué pescaste:** "Dos pejerreyes" o "Un salmón"
+• **Dónde:** "En el río Paraná" o "Playa tal"
+• **Qué pescaste:** "Dos surubíes" o "Me fui zapatero"
 • **Cómo:** "Desde costa" o "Embarcado"
             """.trimIndent()
         }
@@ -243,6 +217,4 @@ class ParteLogicUseCase(
 
         return respuesta.toString()
     }
-
-    // Aquí puedes mover también generarResumenProgreso y generarRespuestaParte si quieres limpiar aún más.
 }

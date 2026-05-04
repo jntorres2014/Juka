@@ -1,4 +1,4 @@
-// FishCounterScreen.kt - Versión mejorada con scroll para fuentes grandes
+// FishCounterScreen.kt - Versión con Manager inyectado y validación estricta
 package com.example.juka.ui.theme
 
 import androidx.compose.foundation.background
@@ -24,6 +24,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.juka.FishDatabase
+import com.example.juka.FishInfo
 import com.example.juka.viewmodel.EnhancedChatViewModel
 import kotlinx.coroutines.launch
 
@@ -34,10 +35,17 @@ fun FishCounterScreen(
     onNavigateToChat: () -> Unit
 ) {
     val context = LocalContext.current
-    val fishDatabase = FishDatabase(context)
     val contador by viewModel.contadorPeces.collectAsState()
-    val allSpecies = fishDatabase.getAllSpecies() // Conectar con tu lista real
 
+    // ✅ 1. Creamos un "Estado" para la lista de peces
+    var allSpecies by remember { mutableStateOf<List<FishInfo>>(emptyList()) }
+
+    // ✅ 2. Lanzamos la carga asíncrona apenas se abre la pantalla
+    LaunchedEffect(Unit) {
+        val database = FishDatabase(context)
+        database.initialize() // Esperamos a que lea el JSON
+        allSpecies = database.getAllSpecies() // Llenamos el estado
+    }
     // Estados locales
     var busqueda by remember { mutableStateOf("") }
     var cantidadInput by remember { mutableStateOf(1) }
@@ -59,16 +67,25 @@ fun FishCounterScreen(
             .filter { nombre -> allSpecies.any { it.name == nombre } }
     }
 
-    // Filtrar especies según búsqueda
     val especiesFiltradas = remember(busqueda, allSpecies) {
-        if (busqueda.isBlank()) emptyList()
-        else allSpecies
-            .filter {
-                it.name.contains(busqueda, ignoreCase = true) ||
-                        it.scientificName?.contains(busqueda, ignoreCase = true) == true
-            }
-            .take(10) // Limitar a 10 resultados
-            .map { it.name }
+        if (busqueda.isBlank()) {
+            // Si no escribió nada, mostramos TODOS los peces ordenados alfabéticamente
+            allSpecies.map { it.name }.sorted()
+        } else {
+            // Si escribió, filtramos y mostramos todos los que coincidan (sin límite de 10)
+            allSpecies
+                .filter {
+                    it.name.contains(busqueda, ignoreCase = true) ||
+                            it.scientificName.contains(busqueda, ignoreCase = true)
+                }
+                .map { it.name }
+                .sorted()
+        }
+    }
+
+    // ✅ NUEVO: Validación estricta contra el JSON
+    val esEspecieValida = remember(busqueda, allSpecies) {
+        allSpecies.any { it.name.equals(busqueda.trim(), ignoreCase = true) }
     }
 
     Scaffold(
@@ -80,7 +97,7 @@ fun FishCounterScreen(
                 .background(MaterialTheme.colorScheme.background)
                 .padding(paddingValues)
                 .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp) // Espacio entre secciones
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // === HEADER ===
             item {
@@ -103,7 +120,6 @@ fun FishCounterScreen(
                         )
                     }
 
-                    // Botón de estadísticas
                     if (contador.isNotEmpty()) {
                         AssistChip(
                             onClick = { /* TODO: Mostrar estadísticas */ },
@@ -148,7 +164,6 @@ fun FishCounterScreen(
                     )
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        // Buscador mejorado
                         ExposedDropdownMenuBox(
                             expanded = expanded,
                             onExpandedChange = { expanded = !expanded }
@@ -157,7 +172,7 @@ fun FishCounterScreen(
                                 value = busqueda,
                                 onValueChange = {
                                     busqueda = it
-                                    expanded = it.length >= 2 // Solo mostrar después de 2 caracteres
+                                    expanded = true
                                 },
                                 label = { Text("Buscar especie") },
                                 placeholder = { Text("Ej: Dorado, Surubí...") },
@@ -211,9 +226,18 @@ fun FishCounterScreen(
                             }
                         }
 
+                        // ✅ NUEVO: Mensaje de error visual para el pescador
+                        if (busqueda.isNotBlank() && !esEspecieValida) {
+                            Text(
+                                text = "⚠️ Elegí una especie válida de la lista",
+                                color = MaterialTheme.colorScheme.error,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(start = 16.dp, top = 4.dp)
+                            )
+                        }
+
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // Selector de cantidad mejorado
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -240,7 +264,6 @@ fun FishCounterScreen(
                                         )
                                     }
 
-                                    // Campo de entrada directa
                                     OutlinedTextField(
                                         value = cantidadInput.toString(),
                                         onValueChange = { value ->
@@ -269,8 +292,9 @@ fun FishCounterScreen(
 
                             Button(
                                 onClick = {
-                                    if (busqueda.isNotBlank()) {
-                                        viewModel.agregarPezAlContador(busqueda, cantidadInput)
+                                    // ✅ CAMBIO: Usamos esEspecieValida en vez de busqueda.isNotBlank()
+                                    if (esEspecieValida) {
+                                        viewModel.fishCounterManager.agregarPezAlContador(busqueda.trim(), cantidadInput)
 
                                         scope.launch {
                                             snackbarHostState.showSnackbar(
@@ -283,7 +307,8 @@ fun FishCounterScreen(
                                         cantidadInput = 1
                                     }
                                 },
-                                enabled = busqueda.isNotBlank(),
+                                // ✅ CAMBIO: Botón bloqueado inteligentemente
+                                enabled = esEspecieValida,
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = MaterialTheme.colorScheme.primary
                                 )
@@ -311,7 +336,7 @@ fun FishCounterScreen(
                     )
 
                     if (contador.isNotEmpty()) {
-                        TextButton(onClick = { viewModel.limpiarContador() }) {
+                        TextButton(onClick = { viewModel.fishCounterManager.limpiarContador() }) {
                             Text("Limpiar todo", color = Color.Red.copy(alpha = 0.7f))
                         }
                     }
@@ -319,12 +344,11 @@ fun FishCounterScreen(
             }
 
             if (contador.isEmpty()) {
-                // Estado vacío
                 item {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(200.dp),  // Altura fija para centrar en scroll
+                            .height(200.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(
@@ -354,9 +378,9 @@ fun FishCounterScreen(
                 items(contador, key = { it.nombre }) { item ->
                     CapturaItemMejorado(
                         item = item,
-                        onDelete = { viewModel.eliminarPezDelContador(item.nombre) },
+                        onDelete = { viewModel.fishCounterManager.eliminarPezDelContador(item.nombre) },
                         onEdit = { nuevaCantidad ->
-                            viewModel.actualizarCantidadPez(item.nombre, nuevaCantidad)
+                            viewModel.fishCounterManager.actualizarCantidadPez(item.nombre, nuevaCantidad)
                         }
                     )
                 }
@@ -372,7 +396,7 @@ fun FishCounterScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp)
-                        .padding(bottom = 16.dp),  // Padding extra para visibilidad en scroll
+                        .padding(bottom = 16.dp),
                     enabled = contador.isNotEmpty(),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color(0xFF4CAF50)
@@ -384,8 +408,8 @@ fun FishCounterScreen(
                         "CREAR PARTE CON ${contador.size} ${if (contador.size == 1) "ESPECIE" else "ESPECIES"}",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
-                        maxLines = 2,  // Permite wrap en 2 líneas si fuente grande
-                        overflow = TextOverflow.Ellipsis  // Corta con ... si no cabe
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -393,7 +417,6 @@ fun FishCounterScreen(
     }
 }
 
-// El resto (CapturaItemMejorado) queda igual, no necesita cambios para este issue.
 @Composable
 fun CapturaItemMejorado(
     item: com.example.juka.domain.model.EspecieCapturada,
@@ -421,7 +444,6 @@ fun CapturaItemMejorado(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.weight(1f)
             ) {
-                // Badge de cantidad editable
                 if (editando) {
                     OutlinedTextField(
                         value = cantidadTemporal,
@@ -465,7 +487,6 @@ fun CapturaItemMejorado(
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Medium
                     )
-                    // Si tienes peso o talla promedio, mostrarlos aquí
                     item.pesoEstimado?.let { peso ->
                         Text(
                             "~${peso}kg promedio",
