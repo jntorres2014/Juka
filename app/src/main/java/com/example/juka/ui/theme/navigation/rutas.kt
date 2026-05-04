@@ -5,6 +5,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Assignment
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhotoCamera
 
@@ -14,8 +15,9 @@ sealed class Screen(val route: String, val title: String, val icon: androidx.com
 
     object Contador : Screen("fish_counter", "Contador", Icons.Default.Add)
     object Reportes : Screen("reportes", "Reportes", Icons.Default.Book)
-    object Profile : Screen("profile", "Perfil", Icons.Default.Person) // ✅ NUEVA
+    object Profile : Screen("profile", "Perfil", Icons.Default.Person)
 
+    object Wizard : Screen("parte_wizard", "Parte", Icons.Default.EditNote)
 }
 
 

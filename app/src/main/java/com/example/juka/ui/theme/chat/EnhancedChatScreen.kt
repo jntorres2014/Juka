@@ -57,7 +57,7 @@ import kotlinx.coroutines.delay
 fun EnhancedChatScreen(
     user: FirebaseUser,
     viewModel: EnhancedChatViewModel = viewModel(factory = AppViewModelProvider.Factory),
-    onOpenCounter: () -> Unit = {}
+    onNavigateToWizard: () -> Unit = {}
 
 ) {
     val context = LocalContext.current
@@ -271,7 +271,8 @@ fun EnhancedChatScreen(
                         onSendLocation = { showMapPicker = true },
                         currentMode = currentMode,
                         isProcessing = isTyping || isAnalyzing,
-                        onCreateParte = { viewModel.iniciarCrearParte() }
+                        onCreateParte = { viewModel.iniciarCrearParte() },
+                        onNavigateToWizard = onNavigateToWizard
                     )
                 }
 

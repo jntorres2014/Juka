@@ -478,6 +478,17 @@ class EnhancedChatViewModel(
         if (campo == CampoParte.UBICACION) _showMapPicker.value = true
         if (campo == CampoParte.FOTOS) _showImagePicker.value = true
     }
+    fun guardarParteDesdeWizard(parteData: ParteEnProgreso) {
+        // Armamos una sesión mínima con los datos del wizard
+        _parteSession.value = ParteSessionChat(
+            parteData = parteData.copy(porcentajeCompletado = 100),
+            messages = emptyList(),
+            estado = EstadoParte.EN_PROGRESO
+        )
+        _currentMode.value = ChatMode.CREAR_PARTE
+        // Reutilizamos la lógica existente de subida a Firebase + imágenes
+        completarYEnviarParte()
+    }
 
     private fun obtenerMensajeDetalleCampo(campo: CampoParte): ChatMessageWithMode {
         val content = obtenerEjemploPorCampo(campo)

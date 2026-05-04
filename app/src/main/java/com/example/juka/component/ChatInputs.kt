@@ -1,35 +1,14 @@
 package com.example.juka.component
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Assignment
-import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Send
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,7 +29,8 @@ fun EnhancedMessageInput(
     currentMode: ChatMode,
     isProcessing: Boolean,
     onCreateParte: () -> Unit,
-    onOpenCounter: () -> Unit = {} // ✅ 1. Nuevo parámetro recibido
+    onNavigateToWizard: () -> Unit,
+
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -58,34 +38,54 @@ fun EnhancedMessageInput(
         color = MaterialTheme.colorScheme.surface
     ) {
         Column {
-            // === BOTÓN GIGANTE "CREAR PARTE" (Igual que antes) ===
+
+            // ── Botones de creación de parte (solo en modo general) ──
             if (currentMode == ChatMode.GENERAL) {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.Center
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    // Primario: wizard paso a paso
                     Button(
-                        onClick = onCreateParte,
-                        modifier = Modifier.fillMaxWidth(0.6f),
+                        onClick = onNavigateToWizard,
+                        modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.tertiary
                         ),
                         shape = RoundedCornerShape(16.dp)
                     ) {
+                        Icon(Icons.Default.EditNote, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Crear parte asistido", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    // Secundario: flujo conversacional por chat
+                    OutlinedButton(
+                        onClick = onCreateParte,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary)
+                    ) {
                         Icon(
                             Icons.Default.Assignment,
                             contentDescription = null,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.tertiary
                         )
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Text("Crear Parte de Pesca", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "Crear parte por chat",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.tertiary
+                        )
                     }
                 }
             }
 
-            // === BOTÓN UBICACIÓN (Igual que antes) ===
+            // ── Botón de ubicación (solo en modo crear parte) ──
             if (currentMode == ChatMode.CREAR_PARTE) {
                 Row(
                     modifier = Modifier
@@ -105,14 +105,14 @@ fun EnhancedMessageInput(
                 }
             }
 
-            // === BARRA DE INPUT PRINCIPAL ===
+            // ── Barra de input principal ──
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(16.dp),
                 verticalAlignment = Alignment.Bottom
             ) {
-                // 1. BOTÓN IMAGEN (Existente)
+                // Botón imagen
                 IconButton(
                     onClick = onSendImage,
                     modifier = Modifier
@@ -135,11 +135,7 @@ fun EnhancedMessageInput(
 
                 Spacer(modifier = Modifier.width(8.dp))
 
-                // ✅ 2. NUEVO BOTÓN CONTADOR (Solo en modo General)
-                // Lo ponemos aquí para agrupar "adjuntos" a la izquierda
-                if (currentMode == ChatMode.GENERAL) {
-                // 3. CAMPO DE TEXTO (El resto sigue igual)
-                }
+                // Campo de texto
                 OutlinedTextField(
                     value = messageText,
                     onValueChange = onMessageChange,
@@ -167,7 +163,7 @@ fun EnhancedMessageInput(
 
                 Spacer(modifier = Modifier.width(8.dp))
 
-                // 4. BOTÓN AUDIO
+                // Botón audio
                 WorkingAudioButton(
                     onAudioTranscribed = onSendAudio,
                     modifier = Modifier.size(48.dp)
@@ -175,18 +171,18 @@ fun EnhancedMessageInput(
 
                 Spacer(modifier = Modifier.width(4.dp))
 
-                // 5. BOTÓN ENVIAR (FAB)
+                // Botón enviar
                 FloatingActionButton(
                     onClick = onSendMessage,
                     modifier = Modifier.size(48.dp),
                     containerColor = when {
-                        !messageText.isBlank() && !isProcessing -> when (currentMode) {
+                        messageText.isNotBlank() && !isProcessing -> when (currentMode) {
                             ChatMode.GENERAL -> MaterialTheme.colorScheme.primary
                             ChatMode.CREAR_PARTE -> MaterialTheme.colorScheme.tertiary
                         }
                         else -> MaterialTheme.colorScheme.surfaceVariant
                     },
-                    contentColor = if (!messageText.isBlank() && !isProcessing)
+                    contentColor = if (messageText.isNotBlank() && !isProcessing)
                         MaterialTheme.colorScheme.onPrimary
                     else
                         MaterialTheme.colorScheme.onSurfaceVariant
@@ -204,7 +200,8 @@ fun EnhancedMessageInput(
         }
     }
 }
-// NUEVO: Input simplificado para modo parte
+
+// ── Input simplificado para modo crear parte ──
 @Composable
 fun SimpleParteInput(
     messageText: String,
@@ -247,14 +244,12 @@ fun SimpleParteInput(
                 }
             }
 
-            // Input row
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(12.dp),
                 verticalAlignment = Alignment.Bottom
             ) {
-                // Campo de texto
                 OutlinedTextField(
                     value = messageText,
                     onValueChange = onMessageChange,
@@ -263,11 +258,11 @@ fun SimpleParteInput(
                         Text(
                             when (currentField) {
                                 CampoParte.ESPECIES -> "Ej: 2 pejerreyes y 1 róbalo"
-                                CampoParte.FECHA -> "Ej: hoy, ayer, 25/10/2026"
+                                CampoParte.FECHA -> "Ej: hoy, ayer, 25/10/2024"
                                 CampoParte.HORARIOS -> "Ej: de 6 a 11"
-                                CampoParte.MODALIDAD -> " Ej:Embarcado, de Costa"
+                                CampoParte.MODALIDAD -> "Ej: Embarcado, de Costa"
                                 CampoParte.CANAS -> "Ej: Con 3 cañas"
-                                CampoParte.OBSERVACIONES -> "Ej: llovia mucho"
+                                CampoParte.OBSERVACIONES -> "Ej: llovía mucho"
                                 else -> "Escribí tu respuesta..."
                             }
                         )
@@ -278,7 +273,6 @@ fun SimpleParteInput(
 
                 Spacer(modifier = Modifier.width(8.dp))
 
-                // Botón de audio
                 WorkingAudioButton(
                     onAudioTranscribed = onSendAudio,
                     modifier = Modifier.size(48.dp)
@@ -286,7 +280,6 @@ fun SimpleParteInput(
 
                 Spacer(modifier = Modifier.width(4.dp))
 
-                // Botón enviar
                 FloatingActionButton(
                     onClick = onSendMessage,
                     modifier = Modifier.size(48.dp),

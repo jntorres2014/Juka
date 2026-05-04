@@ -22,6 +22,7 @@ import com.example.juka.auth.SimpleProfileScreen
 import com.example.juka.ui.theme.FishCounterScreen
 import com.example.juka.ui.theme.logros.AchievementsScreen
 import com.example.juka.ui.theme.navigation.Screen
+import com.example.juka.ui.wizard.ParteWizardScreen
 import com.example.juka.viewmodel.AppViewModelProvider
 import com.example.juka.viewmodel.EnhancedChatViewModel
 import com.google.firebase.auth.FirebaseUser
@@ -37,7 +38,7 @@ fun JukaAppWithUser(user: FirebaseUser, authManager: AuthManager) {
     // 2. LA LISTA DE BOTONES
     val screens = listOf(
         Screen.Chat,
-        Screen.Contador, // 👈 ¡AQUÍ LO AGREGAS!
+        Screen.Contador,
         Screen.Identificar,
         Screen.Reportes,
         Screen.Profile
@@ -77,7 +78,9 @@ fun JukaAppWithUser(user: FirebaseUser, authManager: AuthManager) {
                 EnhancedChatScreen(
                     user = user,
                     viewModel = sharedViewModel, // 👈 Le pasamos el compartido
-
+                    onNavigateToWizard = {
+                        navController.navigate(Screen.Wizard.route)  // ← AGREGAR
+                    }
                 )
             }
             // ✅ AGREGA ESTE BLOQUE AQUÍ:
@@ -113,6 +116,16 @@ fun JukaAppWithUser(user: FirebaseUser, authManager: AuthManager) {
             composable("achievements_screen") {
                 AchievementsScreen(
                     onBack = { navController.popBackStack() } // 👈 Para que el botón volver funcione
+                )
+            }
+            composable(Screen.Wizard.route) {
+                ParteWizardScreen(
+                    viewModel = sharedViewModel,
+                    onFinished = {
+                        navController.navigate(Screen.Chat.route) {
+                            popUpTo(Screen.Chat.route) { inclusive = true }
+                        }
+                    }
                 )
             }
         }
