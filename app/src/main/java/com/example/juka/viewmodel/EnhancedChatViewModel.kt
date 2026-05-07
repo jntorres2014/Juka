@@ -9,6 +9,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.juka.CampoParte
 import com.example.juka.FishDatabase
+import com.example.juka.FishInfo
 import com.example.juka.MLKitManager
 import com.example.juka.data.AchievementsViewModel
 import com.example.juka.data.ActionResult
@@ -39,6 +40,7 @@ import com.example.juka.domain.usecase.ParteLogicUseCase
 import com.google.firebase.auth.FirebaseAuth
 // IMPORTANTE: Asegurate de importar tu nuevo FishCounterManager
 import com.example.juka.data.FishCounterManager
+import com.example.juka.util.DateUtils
 
 class EnhancedChatViewModel(
     private val quotaManager: ChatQuotaManager,
@@ -52,15 +54,14 @@ class EnhancedChatViewModel(
     private val parteLogicUseCase: ParteLogicUseCase,
     private val imageHelper: com.example.juka.data.local.ImageHelper,
     private val storageService: com.example.juka.data.firebase.StorageService,
-    // ✅ MANAGER INYECTADO
-    val fishCounterManager: FishCounterManager
+    val fishCounterManager: FishCounterManager,
+    val achievementsViewModel: AchievementsViewModel
 ) : ViewModel() {
 
     val quotaState = quotaManager.quotaState
-    private val achievementsViewModel = AchievementsViewModel()
     private val _isSendingParte = MutableStateFlow(false)
     val isSendingParte: StateFlow<Boolean> = _isSendingParte
-
+    val newAchievementUnlocked = achievementsViewModel.newAchievementUnlocked
     private val _currentMode = MutableStateFlow(ChatMode.GENERAL)
     val currentMode: StateFlow<ChatMode> = _currentMode.asStateFlow()
 
@@ -139,7 +140,7 @@ class EnhancedChatViewModel(
             content = option.label.removePrefix(option.icon ?: "").trim(),
             isFromUser = true,
             type = MessageType.TEXT,
-            timestamp = getCurrentTimestamp(),
+            timestamp = DateUtils.timestampChat(),
             mode = ChatMode.GENERAL
         )
         addMessageToGeneralChat(userMessage)
@@ -163,7 +164,7 @@ class EnhancedChatViewModel(
             content = content,
             isFromUser = false,
             type = MessageType.TEXT,
-            timestamp = getCurrentTimestamp(),
+            timestamp = DateUtils.timestampChat(),
             mode = modoActual,
             options = options
         )
@@ -195,7 +196,7 @@ class EnhancedChatViewModel(
                             content = mensajeResumen,
                             isFromUser = false,
                             type = MessageType.TEXT,
-                            timestamp = getCurrentTimestamp(),
+                            timestamp = DateUtils.timestampChat(),
                             mode = ChatMode.CREAR_PARTE
                         )
                     )
@@ -208,7 +209,7 @@ class EnhancedChatViewModel(
                     ...
                 """.trimIndent()
 
-                val msg = ChatMessageWithMode(bienvenida, false, MessageType.TEXT, getCurrentTimestamp(), ChatMode.CREAR_PARTE)
+                val msg = ChatMessageWithMode(bienvenida, false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE)
                 addMessageToParteSession(msg)
             }
         }
@@ -319,7 +320,7 @@ class EnhancedChatViewModel(
                     pathSeguro,
                     true,
                     MessageType.IMAGE,
-                    getCurrentTimestamp(),
+                    DateUtils.timestampChat(),
                     ChatMode.GENERAL
                 )
                 addMessageToGeneralChat(userMessage)
@@ -335,7 +336,7 @@ class EnhancedChatViewModel(
     }
 
     private fun sendParteTextMessage(content: String) {
-        val userMessage = ChatMessageWithMode(content, true, MessageType.TEXT, getCurrentTimestamp(), ChatMode.CREAR_PARTE)
+        val userMessage = ChatMessageWithMode(content, true, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE)
         addMessageToParteSession(userMessage)
 
         if (_waitingForFieldResponse.value == CampoParte.OBSERVACIONES) {
@@ -346,7 +347,7 @@ class EnhancedChatViewModel(
     }
 
     private fun sendParteAudioMessage(transcript: String) {
-        val userMessage = ChatMessageWithMode("🎤 \"$transcript\"", true, MessageType.AUDIO, getCurrentTimestamp(), ChatMode.CREAR_PARTE)
+        val userMessage = ChatMessageWithMode("🎤 \"$transcript\"", true, MessageType.AUDIO, DateUtils.timestampChat(), ChatMode.CREAR_PARTE)
         addMessageToParteSession(userMessage)
         procesarEntradaInteligente(transcript)
     }
@@ -444,7 +445,7 @@ class EnhancedChatViewModel(
                     content = pathSeguro,
                     isFromUser = true,
                     type = MessageType.IMAGE,
-                    timestamp = getCurrentTimestamp(),
+                    timestamp = DateUtils.timestampChat(),
                     mode = ChatMode.CREAR_PARTE
                 )
                 addMessageToParteSession(userMessage)
@@ -468,7 +469,7 @@ class EnhancedChatViewModel(
             content = campo.pregunta ?: "Dime sobre ${campo.name}",
             isFromUser = false,
             type = MessageType.TEXT,
-            timestamp = getCurrentTimestamp(),
+            timestamp = DateUtils.timestampChat(),
             mode = ChatMode.CREAR_PARTE,
             metadata = mapOf("fieldType" to campo.name)
         )
@@ -492,7 +493,7 @@ class EnhancedChatViewModel(
 
     private fun obtenerMensajeDetalleCampo(campo: CampoParte): ChatMessageWithMode {
         val content = obtenerEjemploPorCampo(campo)
-        return ChatMessageWithMode(content, false, MessageType.TEXT, getCurrentTimestamp(), ChatMode.CREAR_PARTE)
+        return ChatMessageWithMode(content, false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE)
     }
 
     private fun procesarRespuestaCampo(content: String, campo: CampoParte) {
@@ -553,14 +554,11 @@ class EnhancedChatViewModel(
     }
 
     private fun addUserMessage(content: String, type: MessageType = MessageType.TEXT) {
-        val msg = ChatMessageWithMode(content, true, type, getCurrentTimestamp(), ChatMode.GENERAL)
+        val msg = ChatMessageWithMode(content, true, type, DateUtils.timestampChat(), ChatMode.GENERAL)
         addMessageToGeneralChat(msg)
         saveGeneralMessageToFile(msg)
     }
 
-    private fun getCurrentTimestamp(): String {
-        return SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
-    }
 
     private fun addMessageToGeneralChat(message: ChatMessageWithMode) {
         _generalMessages.value = _generalMessages.value + message
@@ -642,7 +640,7 @@ class EnhancedChatViewModel(
                             _firebaseStatus.value = "¡Subido!"
                             _isSendingParte.value = false
                             addMessageToParteSession(ChatMessageWithMode(
-                                "✅ **¡Parte subido a la nube!**", false, MessageType.TEXT, getCurrentTimestamp(), ChatMode.CREAR_PARTE
+                                "✅ **¡Parte subido a la nube!**", false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE
                             ))
                             localStorageHelper.clearBorrador()
                             delay(2000)
@@ -655,7 +653,7 @@ class EnhancedChatViewModel(
                         _firebaseStatus.value = "Guardado Localmente"
                         addMessageToParteSession(ChatMessageWithMode(
                             "📶 **Sin señal, pero no te preocupes.**\n\nGuardé tu parte y las fotos en este celular como **Borrador**.\nCuando tengas internet, entrá de nuevo y tocá 'Enviar'.",
-                            false, MessageType.TEXT, getCurrentTimestamp(), ChatMode.CREAR_PARTE
+                            false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE
                         ))
                     }
                 }
@@ -667,7 +665,7 @@ class EnhancedChatViewModel(
 
     fun habilitarChat() {
         _chatEnabled.value = true
-        addMessageToGeneralChat(ChatMessageWithMode("💬 **Chat activado**", false, MessageType.TEXT, getCurrentTimestamp(), ChatMode.GENERAL))
+        addMessageToGeneralChat(ChatMessageWithMode("💬 **Chat activado**", false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.GENERAL))
     }
 
     fun volverAlMenuPrincipal() {
@@ -732,14 +730,14 @@ class EnhancedChatViewModel(
                     camposFaltantes = progreso.camposFaltantes
                 )
             )
-            addMessageToParteSession(ChatMessageWithMode("✅ **Ubicación:** $locationName", false, MessageType.TEXT, getCurrentTimestamp(), ChatMode.CREAR_PARTE))
+            addMessageToParteSession(ChatMessageWithMode("✅ **Ubicación:** $locationName", false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE))
         }
     }
 
     fun retomarBorrador(session: ParteSessionChat) {
         _currentMode.value = ChatMode.CREAR_PARTE
         _parteSession.value = session.copy(estado = EstadoParte.EN_PROGRESO)
-        addMessageToParteSession(ChatMessageWithMode("🔄 **Borrador retomado**", false, MessageType.TEXT, getCurrentTimestamp(), ChatMode.CREAR_PARTE))
+        addMessageToParteSession(ChatMessageWithMode("🔄 **Borrador retomado**", false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE))
     }
 
     fun getConversationStats(): String {
@@ -782,12 +780,16 @@ class EnhancedChatViewModel(
                     "🎣 **¡Parte iniciado desde el Contador!**\n\n" +
                             "Ya cargué tus capturas:\n**$resumenPeces**\n\n" +
                             "Ahora contame el resto: ¿Dónde pescaste y qué fecha?",
-                    false, MessageType.TEXT, getCurrentTimestamp(), ChatMode.CREAR_PARTE
+                    false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE
                 )
             )
         )
 
         // Limpiamos usando el manager
         fishCounterManager.limpiarContador()
+    }
+    suspend fun loadAllSpecies(): List<FishInfo> {
+        fishDatabase.initialize()
+        return fishDatabase.getAllSpecies()
     }
 }

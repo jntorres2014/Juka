@@ -344,10 +344,4 @@ object UtilsFirebase {
         return tipos.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key ?: "N/A"
     }
 
-    /**
-     * Obtiene timestamp actual en formato String
-     */
-    fun getCurrentTimestamp(): String {
-        return SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
-    }
 }

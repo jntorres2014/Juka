@@ -22,29 +22,10 @@ class FirebaseManager(val context: Context) {
 
     val firestore = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
-    private val fishDatabase = FishDatabase(context)
-/*
 
-    companion object {
-        const val TAG = "🔥 FirebaseManager"
-        const val COLLECTION_PARTES = "partes_pesca"
-        const val SUBCOLLECTION_PARTES = "partes"
-    }
-*/
 
     fun getCurrentUserId(): String? {
         return auth.currentUser?.uid
-    }
-
-    init {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                fishDatabase.initialize()
-                Log.d(TAG, "🟢 Base de datos inicializada: ${fishDatabase.getStats()}")
-            } catch (e: Exception) {
-                Log.e(TAG, "❌ Error inicializando FishDatabase: ${e.message}", e)
-            }
-        }
     }
 
     fun getCurrentUserInfo(): Map<String, Any> = auth.currentUser?.let {

@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.juka.data.repository.ChatRepository
 import com.example.juka.domain.model.IMessage
 import com.example.juka.usecase.SendMessageUseCase
+import com.example.juka.util.DateUtils
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -133,7 +134,7 @@ class ChatViewModel(
             """.trimIndent(),
             isFromUser = false,
             type = MessageType.TEXT,
-            timestamp = chatRepository.getCurrentTimestamp()
+            timestamp = DateUtils.timestampChat()
         )
         chatRepository.saveMessageLocally(welcomeMessage)
     }

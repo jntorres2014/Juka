@@ -7,6 +7,7 @@ import com.google.firebase.Timestamp
 import com.example.juka.data.repository.ChatRepository
 import com.example.juka.domain.usecase.IntelligentResponses
 import com.example.juka.domain.usecase.FishingDataExtractor
+import com.example.juka.util.DateUtils
 import com.example.juka.viewmodel.ChatMessage
 import com.example.juka.viewmodel.MessageType
 
@@ -28,7 +29,7 @@ class SendMessageUseCase(
                 content = content,
                 isFromUser = true,
                 type = MessageType.TEXT,
-                timestamp = repository.getCurrentTimestamp()
+                timestamp = DateUtils.timestampChat()
             )
             repository.saveMessageLocally(userMessage)
 
@@ -69,7 +70,7 @@ class SendMessageUseCase(
                 content = finalResponse,
                 isFromUser = false,
                 type = MessageType.TEXT,
-                timestamp = repository.getCurrentTimestamp()
+                timestamp = DateUtils.timestampChat()
             )
             repository.saveMessageLocally(botMessage)
 
@@ -173,7 +174,7 @@ class SendMessageUseCase(
                 content = "🎤 \"$transcript\"",
                 isFromUser = true,
                 type = MessageType.AUDIO,
-                timestamp = repository.getCurrentTimestamp()
+                timestamp = DateUtils.timestampChat()
             )
 
             repository.saveMessageLocally(userMessage)
@@ -183,7 +184,7 @@ class SendMessageUseCase(
                 content = "👂 Perfecto, entendí: \"$transcript\"\n\n$response",
                 isFromUser = false,
                 type = MessageType.TEXT,
-                timestamp = repository.getCurrentTimestamp()
+                timestamp = DateUtils.timestampChat()
             )
 
             repository.saveMessageLocally(botMessage)
@@ -201,7 +202,7 @@ class SendMessageUseCase(
                 content = imagePath,
                 isFromUser = true,
                 type = MessageType.IMAGE,
-                timestamp = repository.getCurrentTimestamp()
+                timestamp = DateUtils.timestampChat()
             )
 
             repository.saveMessageLocally(userMessage)
@@ -211,7 +212,7 @@ class SendMessageUseCase(
                 content = response,
                 isFromUser = false,
                 type = MessageType.TEXT,
-                timestamp = repository.getCurrentTimestamp()
+                timestamp = DateUtils.timestampChat()
             )
 
             repository.saveMessageLocally(botMessage)

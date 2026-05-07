@@ -87,9 +87,6 @@ class ChatRepository(
         _messages.value = emptyList()
     }
 
-    fun getCurrentTimestamp(): String {
-        return SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
-    }
 
     suspend fun saveParteToFirebase(parte: PartePesca): FirebaseResult {
         return firebaseManager.guardarParte(parte)

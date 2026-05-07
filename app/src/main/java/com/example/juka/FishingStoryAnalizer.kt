@@ -25,6 +25,7 @@ data class SpeciesCatch(
     val confidence: Double // 0.0 - 1.0
 )
 
+/*
 class FishingStoryAnalyzer(private val application: Application) {
 
     private val fishDatabase = FishDatabase(application)
@@ -397,4 +398,4 @@ class FishingStoryAnalyzer(private val application: Application) {
             "📊 Estadísticas no disponibles"
         }
     }
-}
+}*/

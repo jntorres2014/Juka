@@ -2,6 +2,7 @@
 package com.example.juka.domain.model
 
 import com.example.juka.data.ChatOption
+import com.example.juka.util.DateUtils
 import com.example.juka.viewmodel.ChatMessage
 import com.example.juka.viewmodel.MessageType
 import com.google.firebase.firestore.GeoPoint
@@ -38,7 +39,7 @@ data class ParteSessionChat(
     //val sessionId: String = "",
     val messages: List<ChatMessageWithMode> = emptyList(),
     val estado: EstadoParte = EstadoParte.BORRADOR,
-    val fechaCreacion: String = getCurrentTimestamp(),
+    val fechaCreacion: String = DateUtils.timestampFull(),
     val parteData: ParteEnProgreso = ParteEnProgreso(),
 
     )
@@ -165,30 +166,3 @@ data class MLKitEntity(
     val posicionFin: Int
 )
 
-// Helper function
-private fun getCurrentTimestamp(): String {
-    return SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
-}
-// Agregar esta función helper al final del archivo ChatModes.kt
-
-fun ParteEnProgreso.copy(
-    fecha: String? = this.fecha,
-    horaInicio: String? = this.horaInicio,
-    horaFin: String? = this.horaFin,
-    provincia: Provincia? = this.provincia,
-    ubicacion: GeoPoint? = this.ubicacion, // AÑADIDO
-    nombreLugar: String? = this.nombreLugar, // AÑADIDO
-    modalidad: ModalidadPesca? = this.modalidad,
-    numeroCanas: Int? = this.numeroCanas,
-    tipoEmbarcacion: TipoEmbarcacion? = this.tipoEmbarcacion,
-    especiesCapturadas: List<EspecieCapturada> = this.especiesCapturadas,
-    imagenes: List<String> = this.imagenes,
-    observaciones: String? = this.observaciones,
-    noIdentificoEspecie: Boolean = this.noIdentificoEspecie,
-    porcentajeCompletado: Int = this.porcentajeCompletado,
-    camposFaltantes: List<String> = this.camposFaltantes
-): ParteEnProgreso = ParteEnProgreso(
-    fecha, horaInicio, horaFin, provincia, ubicacion, nombreLugar, modalidad, numeroCanas,
-    tipoEmbarcacion, especiesCapturadas, imagenes, observaciones,
-    noIdentificoEspecie, porcentajeCompletado, camposFaltantes
-)

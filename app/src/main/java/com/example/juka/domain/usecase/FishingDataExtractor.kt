@@ -1,6 +1,7 @@
 package com.example.juka.domain.usecase
 
 import android.app.Application
+import com.example.juka.util.DateUtils
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -331,7 +332,7 @@ class FishingDataExtractor(private val application: Application) {
 
     private fun saveToLog(data: FishingData) {
         try {
-            val timestamp = getCurrentTimestamp()
+            val timestamp = DateUtils.timestampFull()
             val entry =
                 "$timestamp | Día: ${data.day} | Inicio: ${data.startTime} | Fin: ${data.endTime} | Piezas: ${data.fishCount} | Tipo: ${data.type} | Cañas: ${data.rodsCount} | Foto: ${data.photoUri}\n"
             dataLogFile.appendText(entry)
@@ -340,8 +341,7 @@ class FishingDataExtractor(private val application: Application) {
         }
     }
 
-    private fun getCurrentTimestamp() =
-        SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
+
 }
 
 // Al final del archivo

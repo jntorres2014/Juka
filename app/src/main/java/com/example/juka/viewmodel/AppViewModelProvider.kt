@@ -4,21 +4,19 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.juka.JukaApplication
+import com.example.juka.data.AchievementsViewModel
 import com.example.juka.data.firebase.StorageService
 import com.example.juka.data.local.ImageHelper
-import com.example.juka.domain.usecase.FishIdentifier
 import com.example.juka.domain.usecase.FishingDataExtractor
 import com.example.juka.domain.usecase.IntelligentResponses
 import com.example.juka.domain.usecase.ParteLogicUseCase
 import com.example.juka.usecase.SendMessageUseCase
-
-// ✅ Agregamos el import de tu nuevo Manager
 import com.example.juka.data.FishCounterManager
 
 object AppViewModelProvider {
     val Factory = viewModelFactory {
 
-        // 1. ChatViewModel (Viejo)
+        // 1. ChatViewModel
         initializer {
             val application = (this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as JukaApplication)
             val repository = application.chatRepository
@@ -26,12 +24,7 @@ object AppViewModelProvider {
 
             val intelligentResponses = IntelligentResponses(fishDatabase)
             val dataExtractor = FishingDataExtractor(application)
-
-            val sendMessageUseCase = SendMessageUseCase(
-                repository,
-                intelligentResponses,
-                dataExtractor
-            )
+            val sendMessageUseCase = SendMessageUseCase(repository, intelligentResponses, dataExtractor)
 
             ChatViewModel(
                 chatRepository = repository,
@@ -51,18 +44,22 @@ object AppViewModelProvider {
             ReportesViewModel(app.fishingRepository)
         }
 
-        // 4. ✅ EnhancedChatViewModel (CORREGIDO Y ACTUALIZADO)
+        // 4. AchievementsViewModel — instancia propia gestionada por Jetpack
+        initializer {
+            AchievementsViewModel()
+        }
+
+        // 5. EnhancedChatViewModel — recibe AchievementsViewModel inyectado
         initializer {
             val app = (this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as JukaApplication)
 
             val parteLogicUseCase = ParteLogicUseCase(app.mlKitManager)
             val imageHelper = ImageHelper(app.applicationContext)
-
-            // 1. Instanciar servicio de Storage
             val storageService = StorageService()
-
-            // 2. ✅ Instanciar el nuevo FishCounterManager usando el helper que ya tenés
             val fishCounterManager = FishCounterManager(app.localStorageHelper)
+
+            // ✅ Se crea via factory — lifecycle-aware y compartido correctamente
+            val achievementsViewModel = AchievementsViewModel()
 
             EnhancedChatViewModel(
                 quotaManager = app.chatQuotaManager,
@@ -76,7 +73,8 @@ object AppViewModelProvider {
                 parteLogicUseCase = parteLogicUseCase,
                 imageHelper = imageHelper,
                 storageService = storageService,
-                fishCounterManager = fishCounterManager // ✅ Nueva dependencia inyectada exitosamente
+                fishCounterManager = fishCounterManager,
+                achievementsViewModel = achievementsViewModel  // ✅ inyectado
             )
         }
     }
