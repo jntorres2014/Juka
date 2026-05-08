@@ -21,13 +21,18 @@ import com.example.juka.ui.theme.chat.EnhancedChatScreen
 import com.example.juka.identificar.IdentificarPezScreen
 import com.example.juka.reportes.MisReportesScreenMejorado
 import com.example.juka.auth.SimpleProfileScreen
+import com.example.juka.ui.CrearTorneoScreen
+import com.example.juka.ui.PartesTorneoScreen
+import com.example.juka.ui.UnirseATorneoScreen
 import com.example.juka.ui.theme.FishCounterScreen
 import com.example.juka.ui.theme.logros.AchievementUnlockedPopup
 import com.example.juka.ui.theme.logros.AchievementsScreen
 import com.example.juka.ui.theme.navigation.Screen
+import com.example.juka.ui.torneos.TorneosScreen
 import com.example.juka.ui.wizard.ParteWizardScreen
 import com.example.juka.viewmodel.AppViewModelProvider
 import com.example.juka.viewmodel.EnhancedChatViewModel
+import com.example.juka.viewmodel.TorneosViewModel
 import com.google.firebase.auth.FirebaseUser
 
 @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
@@ -36,14 +41,21 @@ import com.google.firebase.auth.FirebaseUser
 fun JukaAppWithUser(user: FirebaseUser, authManager: AuthManager) {
     val navController = rememberNavController()
     val sharedViewModel: EnhancedChatViewModel = viewModel(factory = AppViewModelProvider.Factory)
-
+    val torneosViewModel: TorneosViewModel = viewModel()
     // ✅ NUEVO: estado del popup de logros
     var pendingAchievement by remember { mutableStateOf<Achievement?>(null) }
 
     // ✅ NUEVO: colectar el flow de logros desbloqueados
-    LaunchedEffect(sharedViewModel) {
+    LaunchedEffect("achievements") {
         sharedViewModel.newAchievementUnlocked.collect { achievement ->
             pendingAchievement = achievement
+        }
+    }
+    LaunchedEffect("partes") {
+        sharedViewModel.parteSavedEvent.collect { evento ->
+            evento?.let { (parteId, parteData) ->
+                torneosViewModel.onParteSaved(parteId, parteData)
+            }
         }
     }
 
@@ -52,7 +64,8 @@ fun JukaAppWithUser(user: FirebaseUser, authManager: AuthManager) {
         Screen.Contador,
         Screen.Identificar,
         Screen.Reportes,
-        Screen.Profile
+        Screen.Profile,
+        Screen.Torneos,
     )
 
     // ✅ Box exterior para que el popup pueda superponerse sobre todo
@@ -138,8 +151,45 @@ fun JukaAppWithUser(user: FirebaseUser, authManager: AuthManager) {
                         }
                     )
                 }
+                // ── Torneos ───────────────────────────────────────────────────
+
+                composable(Screen.Torneos.route) {
+                    TorneosScreen(
+                        viewModel = torneosViewModel,
+                        onCrearTorneo = { navController.navigate("crear_torneo") },
+                        onUnirse = { navController.navigate("unirse_torneo") },
+                        onVerPartes = { torneoId -> navController.navigate("partes_torneo/$torneoId") }  // ✅ AGREGAR
+                    )
+                }
+
+                composable("crear_torneo") {
+                    CrearTorneoScreen(
+                        viewModel = torneosViewModel,       // ✅ misma instancia
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable("unirse_torneo") {
+                    UnirseATorneoScreen(
+                        viewModel = torneosViewModel,       // ✅ misma instancia
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable("partes_torneo/{torneoId}") { backStackEntry ->
+                    val torneoId = backStackEntry.arguments?.getString("torneoId") ?: return@composable
+                    val torneoConP = torneosViewModel.uiState.value.torneos
+                        .firstOrNull { it.torneo.id == torneoId } ?: return@composable
+
+                    PartesTorneoScreen(
+                        torneoConP = torneoConP,
+                        viewModel = torneosViewModel,       // ✅ misma instancia
+                        onBack = { navController.popBackStack() }
+                    )
+                }
             }
         }
+
 
         // ✅ NUEVO: mostrar popup cuando hay un logro pendiente
         // Se superpone sobre todo el contenido, incluida la bottom bar
@@ -149,5 +199,8 @@ fun JukaAppWithUser(user: FirebaseUser, authManager: AuthManager) {
                 onDismiss = { pendingAchievement = null }
             )
         }
+
+
     }
+
 }

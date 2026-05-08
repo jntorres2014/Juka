@@ -49,7 +49,7 @@ enum class EstadoParte {
     EN_PROGRESO,    // Se está completando
     BORRADOR,       // Guardado como borrador
     COMPLETADO,     // Enviado y completado
-    CANCELADO       // Cancelado por el usuario
+    CANCELADO,       // Cancelado por el usuario
 }
 
 // Data class para el parte en progreso (extraído del chat)
@@ -87,11 +87,29 @@ data class ParteEnProgreso(
 // Enums para las opciones predefinidas
 enum class Provincia(val displayName: String) {
     BUENOS_AIRES("Buenos Aires"),
+    CATAMARCA("Catamarca"),
+    CHACO("Chaco"),
     CHUBUT("Chubut"),
+    CIUDAD_AUTONOMA_DE_BUENOS_AIRES("Ciudad Autónoma de Buenos Aires"),
+    CORDOBA("Córdoba"),
+    CORRIENTES("Corrientes"),
+    ENTRE_RIOS("Entre Ríos"),
+    FORMOSA("Formosa"),
+    JUJUY("Jujuy"),
+    LA_PAMPA("La Pampa"),
+    LA_RIOJA("La Rioja"),
+    MENDOZA("Mendoza"),
+    MISIONES("Misiones"),
     NEUQUEN("Neuquén"),
     RIO_NEGRO("Río Negro"),
+    SALTA("Salta"),
+    SAN_JUAN("San Juan"),
+    SAN_LUIS("San Luis"),
     SANTA_CRUZ("Santa Cruz"),
-    TIERRA_DEL_FUEGO("Tierra del Fuego");
+    SANTA_FE("Santa Fe"),
+    SANTIAGO_DEL_ESTERO("Santiago del Estero"),
+    TIERRA_DEL_FUEGO("Tierra del Fuego"),
+    TUCUMAN("Tucumán");
 
     companion object {
         fun fromString(name: String): Provincia? {

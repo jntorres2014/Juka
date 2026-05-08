@@ -41,6 +41,8 @@ import com.google.firebase.auth.FirebaseAuth
 // IMPORTANTE: Asegurate de importar tu nuevo FishCounterManager
 import com.example.juka.data.FishCounterManager
 import com.example.juka.util.DateUtils
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 
 class EnhancedChatViewModel(
     private val quotaManager: ChatQuotaManager,
@@ -95,6 +97,8 @@ class EnhancedChatViewModel(
     private val _waitingForFieldResponse = MutableStateFlow<CampoParte?>(null)
     val waitingForFieldResponse: StateFlow<CampoParte?> = _waitingForFieldResponse.asStateFlow()
 
+    private val _parteSavedEvent = MutableSharedFlow<Pair<String, ParteEnProgreso>>()
+    val parteSavedEvent = _parteSavedEvent.asSharedFlow()
     companion object {
         private const val TAG = "🎣 EnhancedVM"
     }
@@ -204,9 +208,13 @@ class EnhancedChatViewModel(
             } else {
                 _parteSession.value = ParteSessionChat()
                 val bienvenida = """
-                    🎣 **Modo Crear Parte**
-                    Vamos a registrar tu jornada.
-                    ...
+                    🎣 **¡Empecemos tu parte de pesca!**
+
+                    Contame en una sola frase lo que recuerdes y yo lo ordeno. Por ejemplo:
+                    • "Ayer pesqué 3 pejerreyes en Trelew, de 7 a 12"
+                    • "Salí de costa con 2 cañas, no saqué nada"
+
+                    También podés tocar los íconos de arriba (📅 📍 🐟) para ir campo por campo.
                 """.trimIndent()
 
                 val msg = ChatMessageWithMode(bienvenida, false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE)
@@ -223,7 +231,7 @@ class EnhancedChatViewModel(
     fun cancelarParte() {
         _parteSession.value = null
         _currentMode.value = ChatMode.GENERAL
-        addBotMessage("❌ **Parte cancelado**\n\nVolviste al menú principal.")
+        addBotMessage("Listo, **cancelé el parte**.\nVolviste al menú principal. 👋")
     }
 
     fun sendTextMessage(content: String) {
@@ -384,7 +392,11 @@ class EnhancedChatViewModel(
                         )
 
                         delay(1000)
-                        addBotMessage("📝 **¡Anotado!**\n\nRegistrar los días sin pique es información súper valiosa para cuidar el ecosistema.\n\n${generarResumenProgreso(_parteSession.value?.parteData)}")
+                        addBotMessage(
+                            "📝 **¡Anotado!**\n\n" +
+                                    "Los días sin pique también son datos valiosos para cuidar el ecosistema. 🌎\n\n" +
+                                    generarResumenProgreso(_parteSession.value?.parteData)
+                        )
                     }
                 } else {
                     // 2. Si pescó algo, seguimos el flujo normal con ML Kit / Extractor
@@ -414,7 +426,7 @@ class EnhancedChatViewModel(
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error en procesamiento inteligente: ${e.message}")
-                addBotMessage("⚠️ Me costó entender eso. ¿Podrías repetirlo de otra forma?")
+                addBotMessage("⚠️ Me costó entender eso. ¿Podés repetirlo de otra forma?")
             } finally {
                 _isAnalyzing.value = false
             }
@@ -451,10 +463,13 @@ class EnhancedChatViewModel(
                 addMessageToParteSession(userMessage)
 
                 delay(1000)
-                addBotMessage("📸 **Imagen guardada**\n\n${generarResumenProgreso(_parteSession.value?.parteData)}")
+                addBotMessage(
+                    "📸 **Foto agregada al parte.**\n\n" +
+                            generarResumenProgreso(_parteSession.value?.parteData)
+                )
 
             } else {
-                addBotMessage("⚠️ No pude guardar la imagen. Intentá de nuevo.")
+                addBotMessage("⚠️ No pude guardar la imagen. Probá de nuevo.")
             }
 
             _isAnalyzing.value = false
@@ -466,7 +481,7 @@ class EnhancedChatViewModel(
         _waitingForFieldResponse.value = campo
 
         val pregunta = ChatMessageWithMode(
-            content = campo.pregunta ?: "Dime sobre ${campo.name}",
+            content = campo.pregunta,
             isFromUser = false,
             type = MessageType.TEXT,
             timestamp = DateUtils.timestampChat(),
@@ -474,7 +489,6 @@ class EnhancedChatViewModel(
             metadata = mapOf("fieldType" to campo.name)
         )
         addMessageToParteSession(pregunta)
-        addMessageToParteSession(obtenerMensajeDetalleCampo(campo))
 
         if (campo == CampoParte.UBICACION) _showMapPicker.value = true
         if (campo == CampoParte.FOTOS) _showImagePicker.value = true
@@ -489,11 +503,6 @@ class EnhancedChatViewModel(
         _currentMode.value = ChatMode.CREAR_PARTE
         // Reutilizamos la lógica existente de subida a Firebase + imágenes
         completarYEnviarParte()
-    }
-
-    private fun obtenerMensajeDetalleCampo(campo: CampoParte): ChatMessageWithMode {
-        val content = obtenerEjemploPorCampo(campo)
-        return ChatMessageWithMode(content, false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE)
     }
 
     private fun procesarRespuestaCampo(content: String, campo: CampoParte) {
@@ -512,7 +521,11 @@ class EnhancedChatViewModel(
                         _currentFieldInProgress.value = null
                         _waitingForFieldResponse.value = null
                     } else {
-                        addBotMessage("❓ No detecté la info para ${campo.name}. Probá así: ${obtenerEjemploPorCampo(campo)}")
+                        val nombre = nombreLimpioCampo(campo)
+                        addBotMessage(
+                            "🤔 No te entendí el dato de **$nombre**.\n\n" +
+                                    "Probá así: ${obtenerEjemploPorCampo(campo)}"
+                        )
                     }
                 }
             } catch (e: Exception) {
@@ -533,7 +546,7 @@ class EnhancedChatViewModel(
                     camposFaltantes = progreso.camposFaltantes
                 )
             )
-            addBotMessage("✅ Observaciones guardadas.")
+            addBotMessage("📝 **Notas anotadas.**")
             _currentFieldInProgress.value = null
             _waitingForFieldResponse.value = null
         }
@@ -582,12 +595,18 @@ class EnhancedChatViewModel(
 
     private fun generarRespuestaParte(extractionResult: MLKitExtractionResult, datosActuales: ParteEnProgreso?): String {
         if (extractionResult.entidadesDetectadas.isEmpty()) {
-            return "🤖 No detecté información específica. ¿Podrías ser más detallado?"
+            return "No te entendí del todo 🤔\n\n" +
+                    "Probá contarme algo como:\n" +
+                    "• \"Pesqué 2 pejerreyes ayer en Trelew\"\n" +
+                    "• \"Salí de costa de 6 a 11\"\n" +
+                    "• \"Usé 2 cañas con masa\""
         }
         val respuesta = StringBuilder()
-        respuesta.append("🤖 **Información extraída:**\n\n")
+        respuesta.append("Anoté esto de tu mensaje:\n\n")
         extractionResult.entidadesDetectadas.forEach { entity ->
-            respuesta.append("• ${entity.tipo}: ${entity.valor}\n")
+            val (emoji, label) = etiquetaEntidad(entity.tipo)
+            val valor = formatearValor(entity.valor)
+            respuesta.append("$emoji **$label:** $valor\n")
         }
         respuesta.append("\n")
         respuesta.append(generarResumenProgreso(datosActuales))
@@ -601,12 +620,52 @@ class EnhancedChatViewModel(
         val resumen = StringBuilder()
         resumen.append("📋 **Progreso: ${progreso.porcentaje}%**\n")
         if (progreso.camposFaltantes.isNotEmpty()) {
-            resumen.append("Falta: ${progreso.camposFaltantes.joinToString(", ")}")
+            val faltantes = progreso.camposFaltantes.joinToString(", ") { campo ->
+                campo.replace("_", " ").replaceFirstChar { it.uppercase() }
+            }
+            resumen.append("Te falta: $faltantes")
         } else {
-            resumen.append("🎉 ¡Parte completo!")
+            resumen.append("🎉 **¡Tu parte está listo para enviar!**")
         }
         return resumen.toString()
     }
+
+    // ─────────── Helpers de formato para los mensajes del bot ───────────
+
+    /** Devuelve (emoji, etiqueta legible) para cada tipo de entidad ML Kit. */
+    private fun etiquetaEntidad(tipo: String): Pair<String, String> = when (tipo) {
+        "FECHA" -> "📅" to "Fecha"
+        "FECHA_HORA" -> "📅" to "Fecha y hora"
+        "HORA_INICIO" -> "⏰" to "Hora de inicio"
+        "HORA_FIN" -> "⏰" to "Hora de fin"
+        "HORA" -> "⏰" to "Hora"
+        "LUGAR" -> "📍" to "Lugar"
+        "PROVINCIA" -> "🗺️" to "Provincia"
+        "MODALIDAD" -> "🎣" to "Modalidad"
+        "ESPECIE" -> "🐟" to "Especie"
+        "CANTIDAD_PECES" -> "📊" to "Cantidad"
+        "NUMERO_CANAS" -> "🎯" to "Cañas"
+        else -> "ℹ️" to tipo.replace("_", " ")
+            .lowercase()
+            .replaceFirstChar { it.uppercase() }
+    }
+
+    /** Si un valor viene en MAYÚSCULAS (típico de ML Kit), lo pasamos a Title Case. */
+    private fun formatearValor(valor: String): String {
+        val limpio = valor.trim()
+        if (limpio.isEmpty()) return limpio
+        val esTodoMayus = limpio.any { it.isLetter() } && limpio == limpio.uppercase()
+        return if (esTodoMayus) {
+            limpio.split(" ").joinToString(" ") { palabra ->
+                if (palabra.length <= 2) palabra.lowercase()
+                else palabra.lowercase().replaceFirstChar { it.uppercase() }
+            }
+        } else limpio
+    }
+
+    /** Nombre del campo sin emojis, listo para mostrar en oraciones. */
+    private fun nombreLimpioCampo(campo: CampoParte): String =
+        campo.displayName.replace(Regex("[^a-zA-ZáéíóúñÁÉÍÓÚÑ ]"), "").trim()
 
     fun completarYEnviarParte() {
         val auth = FirebaseAuth.getInstance()
@@ -638,9 +697,13 @@ class EnhancedChatViewModel(
 
                         if (resultado is FirebaseResult.Success) {
                             _firebaseStatus.value = "¡Subido!"
+                            // DESPUÉS — emit() garantiza entrega
+                            val eventoId = java.util.UUID.randomUUID().toString()
+                            _parteSavedEvent.emit(Pair(eventoId, datosFinales))
                             _isSendingParte.value = false
                             addMessageToParteSession(ChatMessageWithMode(
-                                "✅ **¡Parte subido a la nube!**", false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE
+                                "🎉 **¡Parte enviado!**\n\nQuedó guardado en la nube. Gracias por sumar tu jornada. 🎣",
+                                false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE
                             ))
                             localStorageHelper.clearBorrador()
                             delay(2000)
@@ -658,7 +721,11 @@ class EnhancedChatViewModel(
                     }
                 }
             } else {
-                addBotMessage("⚠️ Faltan datos. Completá al menos el 70%.")
+                addBotMessage(
+                    "⚠️ **Faltan datos para enviar el parte.**\n\n" +
+                            "Tenés que completar al menos el 70%. " +
+                            "Tocá los íconos de arriba para sumar lo que falta."
+                )
             }
         }
     }
@@ -694,12 +761,12 @@ class EnhancedChatViewModel(
         if (parte.especiesCapturadas.isNotEmpty()) {
             sb.append("🐟 **Capturas:**\n")
             parte.especiesCapturadas.forEach { pez ->
-                sb.append("   • ${pez.numeroEjemplares} ${pez.nombre}\n")
+                sb.append("   • ${pez.numeroEjemplares} ${formatearValor(pez.nombre)}\n")
             }
         }
 
         if (parte.modalidad != null) {
-            sb.append("🎣 **Modalidad:** ${parte.modalidad}\n")
+            sb.append("🎣 **Modalidad:** ${parte.modalidad.displayName}\n")
         }
 
         if (parte.imagenes.isNotEmpty()) {
@@ -730,14 +797,14 @@ class EnhancedChatViewModel(
                     camposFaltantes = progreso.camposFaltantes
                 )
             )
-            addMessageToParteSession(ChatMessageWithMode("✅ **Ubicación:** $locationName", false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE))
+            addMessageToParteSession(ChatMessageWithMode("📍 **Lugar:** $locationName", false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE))
         }
     }
 
     fun retomarBorrador(session: ParteSessionChat) {
         _currentMode.value = ChatMode.CREAR_PARTE
         _parteSession.value = session.copy(estado = EstadoParte.EN_PROGRESO)
-        addMessageToParteSession(ChatMessageWithMode("🔄 **Borrador retomado**", false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE))
+        addMessageToParteSession(ChatMessageWithMode("🔄 **Retomamos el borrador.** Seguimos donde habíamos quedado.", false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE))
     }
 
     fun getConversationStats(): String {
@@ -746,14 +813,27 @@ class EnhancedChatViewModel(
         return "📊 General: $generalCount | Parte: $parteCount"
     }
 
-    private fun obtenerEjemploPorCampo(campo: CampoParte): String {
-        return when (campo) {
-            else -> "..."
-        }
+    private fun obtenerEjemploPorCampo(campo: CampoParte): String = when (campo) {
+        CampoParte.FECHA -> "\"hoy\", \"ayer\" o una fecha como \"23/02/2024\""
+        CampoParte.HORARIOS -> "\"de 6 a 11\" o \"empecé 7am, terminé 13hs\""
+        CampoParte.UBICACION -> "\"Playa Unión\" o tocá el botón del mapa 📍"
+        CampoParte.ESPECIES -> "\"2 pejerreyes y 1 róbalo\""
+        CampoParte.MODALIDAD -> "\"de costa\", \"embarcado\" o \"submarina\""
+        CampoParte.CANAS -> "\"con 3 cañas\" o el número directo"
+        CampoParte.OBSERVACIONES -> "\"llovía, viento del sur, carnada masa\""
+        CampoParte.FOTOS -> "tocá el botón de cámara 📸"
     }
 
     private fun generarMensajeConfirmacionCampo(campo: CampoParte, extraction: MLKitExtractionResult): String {
-        return "✅ Información registrada para ${campo.name}"
+        val nombre = nombreLimpioCampo(campo)
+        val detalles = extraction.entidadesDetectadas
+            .joinToString(", ") { formatearValor(it.valor) }
+            .takeIf { it.isNotBlank() }
+        return if (detalles != null) {
+            "✅ **$nombre:** $detalles"
+        } else {
+            "✅ Listo, anoté tu **$nombre**."
+        }
     }
 
     // ================== CONTADOR DE PECES ==================
@@ -771,15 +851,17 @@ class EnhancedChatViewModel(
         _currentMode.value = ChatMode.CREAR_PARTE
         localStorageHelper.saveParteBorrador(datosIniciales)
 
-        val resumenPeces = pecesContados.joinToString(", ") { "${it.numeroEjemplares} ${it.nombre}" }
+        val resumenPeces = pecesContados.joinToString("\n") { pez ->
+            "   • ${pez.numeroEjemplares} ${formatearValor(pez.nombre)}"
+        }
 
         _parteSession.value = ParteSessionChat(
             parteData = datosIniciales,
             messages = listOf(
                 ChatMessageWithMode(
-                    "🎣 **¡Parte iniciado desde el Contador!**\n\n" +
-                            "Ya cargué tus capturas:\n**$resumenPeces**\n\n" +
-                            "Ahora contame el resto: ¿Dónde pescaste y qué fecha?",
+                    "🎣 **Parte iniciado desde el contador.**\n\n" +
+                            "Ya cargué tus capturas:\n$resumenPeces\n\n" +
+                            "Ahora contame el resto: ¿dónde pescaste y qué fecha?",
                     false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE
                 )
             )
