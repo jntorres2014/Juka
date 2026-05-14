@@ -18,15 +18,14 @@ import com.example.juka.data.ChatBotManager
 import com.example.juka.data.ChatOption
 import com.example.juka.data.firebase.FirebaseManager
 import com.example.juka.data.firebase.FirebaseResult
+import com.example.juka.data.local.BorradorMeta
 import com.example.juka.data.local.LocalStorageHelper
 import com.example.juka.domain.chat.ChatQuotaManager
 import com.example.juka.domain.model.ChatMessageWithMode
 import com.example.juka.domain.model.ChatMode
 import com.example.juka.domain.model.EspecieCapturada
-import com.example.juka.domain.model.EstadoParte
 import com.example.juka.domain.model.MLKitExtractionResult
 import com.example.juka.domain.model.ParteEnProgreso
-import com.example.juka.domain.model.ParteSessionChat
 import com.google.firebase.firestore.GeoPoint
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -73,8 +72,28 @@ class EnhancedChatViewModel(
     private val _generalMessages = MutableStateFlow<List<ChatMessageWithMode>>(emptyList())
     val generalMessages: StateFlow<List<ChatMessageWithMode>> = _generalMessages.asStateFlow()
 
-    private val _parteSession = MutableStateFlow<ParteSessionChat?>(null)
-    val parteSession: StateFlow<ParteSessionChat?> = _parteSession.asStateFlow()
+    // Datos del parte que se está creando. Cuando es null, no hay parte activo
+    // (la UI puede estar mostrando el listado de borradores pendientes).
+    // Cualquier modificación pasa por updateParteData(...) para que el borrador
+    // se auto-guarde en Room.
+    private val _parteData = MutableStateFlow<ParteEnProgreso?>(null)
+    val parteData: StateFlow<ParteEnProgreso?> = _parteData.asStateFlow()
+
+    // Mensajes del chat de creación de parte. Viven en memoria mientras dura
+    // la pantalla (no se persisten: el chat es efímero, el parte no).
+    private val _parteMessages = MutableStateFlow<List<ChatMessageWithMode>>(emptyList())
+    val parteMessages: StateFlow<List<ChatMessageWithMode>> = _parteMessages.asStateFlow()
+
+    // ID del borrador activo. Cuando hay un parte siendo editado, este id es
+    // la clave en Room: cada updateParteData persiste sobre este id.
+    private val _borradorActivoId = MutableStateFlow<String?>(null)
+    val borradorActivoId: StateFlow<String?> = _borradorActivoId.asStateFlow()
+
+    // Lista de borradores pendientes (no completados, no descartados). La UI
+    // la consume cuando el usuario toca "Crear parte" para ofrecerle elegir uno
+    // o crear nuevo. Se refresca después de completar/descartar/guardar.
+    private val _borradoresPendientes = MutableStateFlow<List<BorradorMeta>>(emptyList())
+    val borradoresPendientes: StateFlow<List<BorradorMeta>> = _borradoresPendientes.asStateFlow()
 
     private val _isTyping = MutableStateFlow(false)
     val isTyping: StateFlow<Boolean> = _isTyping.asStateFlow()
@@ -176,7 +195,7 @@ class EnhancedChatViewModel(
         if (modoActual == ChatMode.GENERAL) {
             addMessageToGeneralChat(message)
         } else {
-            addMessageToParteSession(message)
+            addMessageToParteChat(message)
         }
     }
 
@@ -184,43 +203,118 @@ class EnhancedChatViewModel(
         addBotMessage("📥 Función de descarga simulada.")
     }
 
+    /**
+     * Entrada al flujo de "Crear parte". Carga los borradores pendientes y
+     * deja decidir a la UI:
+     *   - Si no hay borradores → arrancamos un parte nuevo limpio.
+     *   - Si hay borradores → exponemos la lista en _borradoresPendientes y
+     *     dejamos parteData en null. La UI muestra el dialog para que el
+     *     usuario elija retomar uno o crear nuevo.
+     */
     fun iniciarCrearParte() {
         _currentMode.value = ChatMode.CREAR_PARTE
 
         viewModelScope.launch {
-            val borradorGuardado = localStorageHelper.getParteBorrador()
+            val pendientes = localStorageHelper.getAllBorradores()
+            _borradoresPendientes.value = pendientes
 
-            if (borradorGuardado != null) {
-                val mensajeResumen = generarResumenBorrador(borradorGuardado)
-
-                _parteSession.value = ParteSessionChat(
-                    parteData = borradorGuardado,
-                    messages = listOf(
-                        ChatMessageWithMode(
-                            content = mensajeResumen,
-                            isFromUser = false,
-                            type = MessageType.TEXT,
-                            timestamp = DateUtils.timestampChat(),
-                            mode = ChatMode.CREAR_PARTE
-                        )
-                    )
-                )
+            if (pendientes.isEmpty()) {
+                crearNuevoParte()
             } else {
-                _parteSession.value = ParteSessionChat()
-                val bienvenida = """
-                    🎣 **¡Empecemos tu parte de pesca!**
-
-                    Contame en una sola frase lo que recuerdes y yo lo ordeno. Por ejemplo:
-                    • "Ayer pesqué 3 pejerreyes en Trelew, de 7 a 12"
-                    • "Salí de costa con 2 cañas, no saqué nada"
-
-                    También podés tocar los íconos de arriba (📅 📍 🐟) para ir campo por campo.
-                """.trimIndent()
-
-                val msg = ChatMessageWithMode(bienvenida, false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE)
-                addMessageToParteSession(msg)
+                // Dejamos parteData en null para que la UI sepa que tiene que
+                // mostrar el dialog/lista de borradores.
+                _parteData.value = null
+                _parteMessages.value = emptyList()
+                _borradorActivoId.value = null
             }
         }
+    }
+
+    /**
+     * Crea un parte nuevo en blanco con su propio id. Llamar desde el dialog
+     * de borradores cuando el usuario elige "+ Nuevo parte", o directamente
+     * cuando no hay borradores pendientes.
+     */
+    fun crearNuevoParte() {
+        _currentMode.value = ChatMode.CREAR_PARTE
+        val nuevoId = localStorageHelper.generarBorradorId()
+        _borradorActivoId.value = nuevoId
+        _parteData.value = ParteEnProgreso()
+        _parteMessages.value = emptyList()
+
+        val bienvenida = """
+            🎣 **¡Empecemos tu parte de pesca!**
+
+            Contame en una sola frase lo que recuerdes y yo lo ordeno. Por ejemplo:
+            • "Ayer pesqué 3 pejerreyes en Trelew, de 7 a 12"
+            • "Salí de costa con 2 cañas, no saqué nada"
+
+            También podés tocar los íconos de arriba (📅 📍 🐟) para ir campo por campo.
+        """.trimIndent()
+
+        addMessageToParteChat(
+            ChatMessageWithMode(bienvenida, false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE)
+        )
+    }
+
+    /**
+     * Retoma un borrador específico de la lista de pendientes.
+     */
+    fun retomarBorradorPorId(borradorId: String) {
+        _currentMode.value = ChatMode.CREAR_PARTE
+        viewModelScope.launch {
+            val borrador = localStorageHelper.getBorrador(borradorId)
+            if (borrador == null) {
+                // El borrador desapareció (raro, pero por las dudas) — caemos
+                // a un parte nuevo en lugar de quedar en estado roto.
+                crearNuevoParte()
+                return@launch
+            }
+            _borradorActivoId.value = borradorId
+            _parteData.value = borrador
+            _parteMessages.value = listOf(
+                ChatMessageWithMode(
+                    content = generarResumenBorrador(borrador),
+                    isFromUser = false,
+                    type = MessageType.TEXT,
+                    timestamp = DateUtils.timestampChat(),
+                    mode = ChatMode.CREAR_PARTE
+                )
+            )
+        }
+    }
+
+    /**
+     * Descarta un borrador desde el dialog (sin abrirlo). Útil para limpiar
+     * partes viejos que el usuario no piensa retomar.
+     */
+    fun descartarBorrador(borradorId: String) {
+        viewModelScope.launch {
+            localStorageHelper.deleteBorrador(borradorId)
+            _borradoresPendientes.value = localStorageHelper.getAllBorradores()
+            // Si quedaba uno solo y lo descartó, arrancamos parte nuevo.
+            if (_borradoresPendientes.value.isEmpty() && _currentMode.value == ChatMode.CREAR_PARTE && _parteData.value == null) {
+                crearNuevoParte()
+            }
+        }
+    }
+
+    /**
+     * Guarda el parte actual como borrador y vuelve al menú general SIN
+     * descartar. El parte queda en la lista para retomarlo después.
+     * (El auto-save ya persistió el último estado, así que esta función
+     * sólo limpia el state in-memory y refresca la lista.)
+     */
+    fun guardarBorradorYVolver() {
+        if (_parteData.value == null) return
+        _parteData.value = null
+        _parteMessages.value = emptyList()
+        _borradorActivoId.value = null
+        viewModelScope.launch {
+            _borradoresPendientes.value = localStorageHelper.getAllBorradores()
+        }
+        _currentMode.value = ChatMode.GENERAL
+        showMainMenu()
     }
 
     fun volverAChatGeneral() {
@@ -229,7 +323,18 @@ class EnhancedChatViewModel(
     }
 
     fun cancelarParte() {
-        _parteSession.value = null
+        // El usuario descartó el parte explícitamente: borramos ESTE borrador
+        // específico del Room (los demás borradores no se tocan).
+        val idActivo = _borradorActivoId.value
+        _parteData.value = null
+        _parteMessages.value = emptyList()
+        _borradorActivoId.value = null
+        if (idActivo != null) {
+            viewModelScope.launch {
+                localStorageHelper.deleteBorrador(idActivo)
+                _borradoresPendientes.value = localStorageHelper.getAllBorradores()
+            }
+        }
         _currentMode.value = ChatMode.GENERAL
         addBotMessage("Listo, **cancelé el parte**.\nVolviste al menú principal. 👋")
     }
@@ -345,7 +450,7 @@ class EnhancedChatViewModel(
 
     private fun sendParteTextMessage(content: String) {
         val userMessage = ChatMessageWithMode(content, true, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE)
-        addMessageToParteSession(userMessage)
+        addMessageToParteChat(userMessage)
 
         if (_waitingForFieldResponse.value == CampoParte.OBSERVACIONES) {
             actualizarObservaciones(content)
@@ -356,7 +461,7 @@ class EnhancedChatViewModel(
 
     private fun sendParteAudioMessage(transcript: String) {
         val userMessage = ChatMessageWithMode("🎤 \"$transcript\"", true, MessageType.AUDIO, DateUtils.timestampChat(), ChatMode.CREAR_PARTE)
-        addMessageToParteSession(userMessage)
+        addMessageToParteChat(userMessage)
         procesarEntradaInteligente(transcript)
     }
 
@@ -373,29 +478,17 @@ class EnhancedChatViewModel(
                         textoLower.contains("ningun pez")
 
                 if (declaroZapatero) {
-                    _parteSession.value?.let { session ->
+                    if (_parteData.value != null) {
                         // Marcamos el parte como "sin capturas" y vaciamos la lista por las dudas
-                        val datosActualizados = session.parteData.copy(
-                            sinCapturas = true,
-                            especiesCapturadas = emptyList()
-                        )
-                        val progreso = parteLogicUseCase.calcularProgreso(datosActualizados)
-
                         _currentFieldInProgress.value = null
                         _waitingForFieldResponse.value = null
-
-                        _parteSession.value = session.copy(
-                            parteData = datosActualizados.copy(
-                                porcentajeCompletado = progreso.porcentaje,
-                                camposFaltantes = progreso.camposFaltantes
-                            )
-                        )
+                        updateParteData { it.copy(sinCapturas = true, especiesCapturadas = emptyList()) }
 
                         delay(1000)
                         addBotMessage(
                             "📝 **¡Anotado!**\n\n" +
                                     "Los días sin pique también son datos valiosos para cuidar el ecosistema. 🌎\n\n" +
-                                    generarResumenProgreso(_parteSession.value?.parteData)
+                                    generarResumenProgreso(_parteData.value)
                         )
                     }
                 } else {
@@ -403,24 +496,16 @@ class EnhancedChatViewModel(
                     val extractionResult = mlKitManager.extraerInformacionPesca(texto)
                     val nuevosData = mlKitManager.convertirEntidadesAParteDatos(extractionResult.entidadesDetectadas)
 
-                    _parteSession.value?.let { session ->
-                        val datosActualizados = parteLogicUseCase.mergearDatos(session.parteData, nuevosData)
-                        val progreso = parteLogicUseCase.calcularProgreso(datosActualizados)
-
+                    if (_parteData.value != null) {
                         if (extractionResult.entidadesDetectadas.isNotEmpty()) {
                             _currentFieldInProgress.value = null
                             _waitingForFieldResponse.value = null
                         }
 
-                        _parteSession.value = session.copy(
-                            parteData = datosActualizados.copy(
-                                porcentajeCompletado = progreso.porcentaje,
-                                camposFaltantes = progreso.camposFaltantes
-                            )
-                        )
+                        updateParteData { actual -> parteLogicUseCase.mergearDatos(actual, nuevosData) }
 
                         delay(1000)
-                        val respuestaBot = generarRespuestaParte(extractionResult, _parteSession.value?.parteData)
+                        val respuestaBot = generarRespuestaParte(extractionResult, _parteData.value)
                         addBotMessage(respuestaBot)
                     }
                 }
@@ -440,18 +525,7 @@ class EnhancedChatViewModel(
             val pathSeguro = imageHelper.saveImageToInternalStorage(android.net.Uri.parse(uriTemporal))
 
             if (pathSeguro != null) {
-                _parteSession.value?.let { session ->
-                    val nuevasImagenes = session.parteData.imagenes + pathSeguro
-                    val datosActualizados = session.parteData.copy(imagenes = nuevasImagenes)
-                    val progreso = parteLogicUseCase.calcularProgreso(datosActualizados)
-
-                    _parteSession.value = session.copy(
-                        parteData = datosActualizados.copy(
-                            porcentajeCompletado = progreso.porcentaje,
-                            camposFaltantes = progreso.camposFaltantes
-                        )
-                    )
-                }
+                updateParteData { it.copy(imagenes = it.imagenes + pathSeguro) }
 
                 val userMessage = ChatMessageWithMode(
                     content = pathSeguro,
@@ -460,12 +534,12 @@ class EnhancedChatViewModel(
                     timestamp = DateUtils.timestampChat(),
                     mode = ChatMode.CREAR_PARTE
                 )
-                addMessageToParteSession(userMessage)
+                addMessageToParteChat(userMessage)
 
                 delay(1000)
                 addBotMessage(
                     "📸 **Foto agregada al parte.**\n\n" +
-                            generarResumenProgreso(_parteSession.value?.parteData)
+                            generarResumenProgreso(_parteData.value)
                 )
 
             } else {
@@ -488,21 +562,24 @@ class EnhancedChatViewModel(
             mode = ChatMode.CREAR_PARTE,
             metadata = mapOf("fieldType" to campo.name)
         )
-        addMessageToParteSession(pregunta)
+        addMessageToParteChat(pregunta)
 
         if (campo == CampoParte.UBICACION) _showMapPicker.value = true
         if (campo == CampoParte.FOTOS) _showImagePicker.value = true
     }
     fun guardarParteDesdeWizard(parteData: ParteEnProgreso) {
-        // Armamos una sesión mínima con los datos del wizard
-        _parteSession.value = ParteSessionChat(
-            parteData = parteData.copy(porcentajeCompletado = 100),
-            messages = emptyList(),
-            estado = EstadoParte.EN_PROGRESO
-        )
+        // Tomamos los datos del wizard y los pasamos por la misma infra del chat:
+        // se persisten como borrador en Room hasta que el upload remoto sale OK.
+        val nuevoId = localStorageHelper.generarBorradorId()
+        _borradorActivoId.value = nuevoId
+        _parteData.value = parteData.copy(porcentajeCompletado = 100)
+        _parteMessages.value = emptyList()
         _currentMode.value = ChatMode.CREAR_PARTE
-        // Reutilizamos la lógica existente de subida a Firebase + imágenes
-        completarYEnviarParte()
+        viewModelScope.launch {
+            localStorageHelper.saveBorrador(nuevoId, _parteData.value!!)
+            // Reutilizamos la lógica existente de subida a Firebase + imágenes
+            completarYEnviarParte()
+        }
     }
 
     private fun procesarRespuestaCampo(content: String, campo: CampoParte) {
@@ -536,33 +613,17 @@ class EnhancedChatViewModel(
     }
 
     private fun actualizarObservaciones(content: String) {
-        _parteSession.value?.let { session ->
-            val datos = session.parteData.copy(observaciones = content)
-            val progreso = parteLogicUseCase.calcularProgreso(datos)
-
-            _parteSession.value = session.copy(
-                parteData = datos.copy(
-                    porcentajeCompletado = progreso.porcentaje,
-                    camposFaltantes = progreso.camposFaltantes
-                )
-            )
-            addBotMessage("📝 **Notas anotadas.**")
-            _currentFieldInProgress.value = null
-            _waitingForFieldResponse.value = null
-        }
+        if (_parteData.value == null) return
+        updateParteData { it.copy(observaciones = content) }
+        addBotMessage("📝 **Notas anotadas.**")
+        _currentFieldInProgress.value = null
+        _waitingForFieldResponse.value = null
     }
 
     private fun actualizarDatosPartePorCampo(campo: CampoParte, extractionResult: MLKitExtractionResult) {
-        _parteSession.value?.let { session ->
-            val datosActualizados = parteLogicUseCase.actualizarDatosPorCampo(session.parteData, campo, extractionResult)
-            val progreso = parteLogicUseCase.calcularProgreso(datosActualizados)
-
-            _parteSession.value = session.copy(
-                parteData = datosActualizados.copy(
-                    porcentajeCompletado = progreso.porcentaje,
-                    camposFaltantes = progreso.camposFaltantes
-                )
-            )
+        if (_parteData.value == null) return
+        updateParteData { actual ->
+            parteLogicUseCase.actualizarDatosPorCampo(actual, campo, extractionResult)
         }
     }
 
@@ -577,12 +638,36 @@ class EnhancedChatViewModel(
         _generalMessages.value = _generalMessages.value + message
     }
 
-    private fun addMessageToParteSession(message: ChatMessageWithMode) {
-        _parteSession.value?.let { session ->
-            val updatedMessages = session.messages.toMutableList()
-            updatedMessages.add(message)
-            _parteSession.value = session.copy(messages = updatedMessages)
-        }
+    /**
+     * Agrega un mensaje al chat de creación de parte. Sólo agrega si hay un
+     * parte activo (parteData != null) — de lo contrario se descarta para no
+     * acumular mensajes huérfanos.
+     */
+    private fun addMessageToParteChat(message: ChatMessageWithMode) {
+        if (_parteData.value == null) return
+        _parteMessages.value = _parteMessages.value + message
+    }
+
+    /**
+     * Actualiza el ParteEnProgreso aplicando una transformación, recalcula el
+     * progreso y persiste el resultado como borrador en Room (asíncrono,
+     * fire-and-forget). Es el único lugar donde se debe modificar _parteData
+     * mientras hay un parte activo.
+     */
+    private fun updateParteData(transform: (ParteEnProgreso) -> ParteEnProgreso) {
+        val actual = _parteData.value ?: return
+        val idActivo = _borradorActivoId.value ?: return
+        val transformado = transform(actual)
+        val progreso = parteLogicUseCase.calcularProgreso(transformado)
+        val finales = transformado.copy(
+            porcentajeCompletado = progreso.porcentaje,
+            camposFaltantes = progreso.camposFaltantes
+        )
+        // Update sincrónico del StateFlow: la UI ve el cambio inmediato.
+        _parteData.value = finales
+        // Persistencia async sobre el borrador activo. Si la app se cierra
+        // antes de que termine, el siguiente save igual sobrescribe.
+        viewModelScope.launch { localStorageHelper.saveBorrador(idActivo, finales) }
     }
 
     private fun saveGeneralMessageToFile(message: ChatMessageWithMode, customContent: String? = null) {
@@ -669,63 +754,76 @@ class EnhancedChatViewModel(
 
     fun completarYEnviarParte() {
         val auth = FirebaseAuth.getInstance()
-        _parteSession.value?.let { session ->
-            if (session.parteData.porcentajeCompletado >= 70) {
-                _firebaseStatus.value = "Intentando subir..."
-                viewModelScope.launch {
-                    try {
-                        _isSendingParte.value = true
-                        val urlsRemotas = session.parteData.imagenes.map { pathLocal ->
-                            if (pathLocal.startsWith("http")) pathLocal
-                            else {
-                                val url = storageService.subirImagen(pathLocal)
-                                url ?: throw Exception("No se pudo subir imagen (posiblemente sin señal)")
-                            }
-                        }
+        val parteActual = _parteData.value ?: return
+        val idActivo = _borradorActivoId.value
 
-                        val datosFinales = session.parteData.copy(imagenes = urlsRemotas)
-                        val sessionFinal = session.copy(parteData = datosFinales)
+        if (parteActual.porcentajeCompletado < 70) {
+            addBotMessage(
+                "⚠️ **Faltan datos para enviar el parte.**\n\n" +
+                        "Tenés que completar al menos el 70%. " +
+                        "Tocá los íconos de arriba para sumar lo que falta."
+            )
+            return
+        }
 
-                        val achievementsChecker = AchievementsChecker(achievementsViewModel)
-                        achievementsChecker.checkParteAchievements(
-                            datosFinales,
-                            auth.currentUser?.uid ?: ""
-                        )
-
-                        _firebaseStatus.value = "Sincronizando..."
-                        val resultado = firebaseManager.convertirSessionAParte(sessionFinal)
-
-                        if (resultado is FirebaseResult.Success) {
-                            _firebaseStatus.value = "¡Subido!"
-                            // DESPUÉS — emit() garantiza entrega
-                            val eventoId = java.util.UUID.randomUUID().toString()
-                            _parteSavedEvent.emit(Pair(eventoId, datosFinales))
-                            _isSendingParte.value = false
-                            addMessageToParteSession(ChatMessageWithMode(
-                                "🎉 **¡Parte enviado!**\n\nQuedó guardado en la nube. Gracias por sumar tu jornada. 🎣",
-                                false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE
-                            ))
-                            localStorageHelper.clearBorrador()
-                            delay(2000)
-                            volverAChatGeneral()
-                        } else {
-                            throw Exception("Error al guardar en Firestore")
-                        }
-                    } catch (e: Exception) {
-                        localStorageHelper.saveParteBorrador(session.parteData)
-                        _firebaseStatus.value = "Guardado Localmente"
-                        addMessageToParteSession(ChatMessageWithMode(
-                            "📶 **Sin señal, pero no te preocupes.**\n\nGuardé tu parte y las fotos en este celular como **Borrador**.\nCuando tengas internet, entrá de nuevo y tocá 'Enviar'.",
-                            false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE
-                        ))
+        _firebaseStatus.value = "Intentando subir..."
+        viewModelScope.launch {
+            try {
+                _isSendingParte.value = true
+                val urlsRemotas = parteActual.imagenes.map { pathLocal ->
+                    if (pathLocal.startsWith("http")) pathLocal
+                    else {
+                        val url = storageService.subirImagen(pathLocal)
+                        url ?: throw Exception("No se pudo subir imagen (posiblemente sin señal)")
                     }
                 }
-            } else {
-                addBotMessage(
-                    "⚠️ **Faltan datos para enviar el parte.**\n\n" +
-                            "Tenés que completar al menos el 70%. " +
-                            "Tocá los íconos de arriba para sumar lo que falta."
+
+                val datosFinales = parteActual.copy(imagenes = urlsRemotas)
+
+                val achievementsChecker = AchievementsChecker(achievementsViewModel)
+                achievementsChecker.checkParteAchievements(
+                    datosFinales,
+                    auth.currentUser?.uid ?: ""
                 )
+
+                _firebaseStatus.value = "Sincronizando..."
+                val transcripcion = com.example.juka.data.firebase.UtilsFirebase
+                    .extraerTranscripcion(_parteMessages.value)
+                val resultado = firebaseManager.guardarParteCompletado(datosFinales, transcripcion)
+
+                if (resultado is FirebaseResult.Success) {
+                    _firebaseStatus.value = "¡Subido!"
+                    val eventoId = java.util.UUID.randomUUID().toString()
+                    _parteSavedEvent.emit(Pair(eventoId, datosFinales))
+                    _isSendingParte.value = false
+                    addMessageToParteChat(ChatMessageWithMode(
+                        "🎉 **¡Parte enviado!**\n\nQuedó guardado en la nube. Gracias por sumar tu jornada. 🎣",
+                        false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE
+                    ))
+                    // Subió OK: borramos ESTE borrador específico, los otros
+                    // (si los hay) se mantienen para que el usuario los envíe.
+                    if (idActivo != null) localStorageHelper.deleteBorrador(idActivo)
+                    _borradorActivoId.value = null
+                    _parteData.value = null
+                    _parteMessages.value = emptyList()
+                    _borradoresPendientes.value = localStorageHelper.getAllBorradores()
+                    delay(2000)
+                    volverAChatGeneral()
+                } else {
+                    throw Exception("Error al guardar en Firestore")
+                }
+            } catch (e: Exception) {
+                // Sin señal o error remoto: dejamos este borrador en Room para
+                // que el usuario lo retome cuando tenga internet.
+                if (idActivo != null) {
+                    localStorageHelper.saveBorrador(idActivo, parteActual)
+                }
+                _firebaseStatus.value = "Guardado Localmente"
+                _isSendingParte.value = false
+                addMessageToParteChat(ChatMessageWithMode(
+                    "📶 **Sin señal, pero no te preocupes.**\n\nGuardé tu parte y las fotos en este celular como **Borrador**.\nCuando tengas internet, podés volver y enviarlo, o seguir cargando otros partes.",
+                    false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE
+                ))
             }
         }
     }
@@ -784,32 +882,19 @@ class EnhancedChatViewModel(
 
     fun saveLocation(latitude: Double, longitude: Double, name: String?) {
         if (_currentMode.value != ChatMode.CREAR_PARTE) return
+        if (_parteData.value == null) return
         val geoPoint = GeoPoint(latitude, longitude)
         val locationName = name ?: "Ubicación sin nombre"
 
-        _parteSession.value?.let { session ->
-            val datosActualizados = session.parteData.copy(ubicacion = geoPoint, nombreLugar = locationName)
-            val progreso = parteLogicUseCase.calcularProgreso(datosActualizados)
-
-            _parteSession.value = session.copy(
-                parteData = datosActualizados.copy(
-                    porcentajeCompletado = progreso.porcentaje,
-                    camposFaltantes = progreso.camposFaltantes
-                )
-            )
-            addMessageToParteSession(ChatMessageWithMode("📍 **Lugar:** $locationName", false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE))
-        }
-    }
-
-    fun retomarBorrador(session: ParteSessionChat) {
-        _currentMode.value = ChatMode.CREAR_PARTE
-        _parteSession.value = session.copy(estado = EstadoParte.EN_PROGRESO)
-        addMessageToParteSession(ChatMessageWithMode("🔄 **Retomamos el borrador.** Seguimos donde habíamos quedado.", false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE))
+        updateParteData { it.copy(ubicacion = geoPoint, nombreLugar = locationName) }
+        addMessageToParteChat(
+            ChatMessageWithMode("📍 **Lugar:** $locationName", false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE)
+        )
     }
 
     fun getConversationStats(): String {
         val generalCount = _generalMessages.value.size
-        val parteCount = _parteSession.value?.messages?.size ?: 0
+        val parteCount = _parteMessages.value.size
         return "📊 General: $generalCount | Parte: $parteCount"
     }
 
@@ -818,7 +903,7 @@ class EnhancedChatViewModel(
         CampoParte.HORARIOS -> "\"de 6 a 11\" o \"empecé 7am, terminé 13hs\""
         CampoParte.UBICACION -> "\"Playa Unión\" o tocá el botón del mapa 📍"
         CampoParte.ESPECIES -> "\"2 pejerreyes y 1 róbalo\""
-        CampoParte.MODALIDAD -> "\"de costa\", \"embarcado\" o \"submarina\""
+        CampoParte.MODALIDAD -> "\"de costa\", \"embarcado\", \"con red\", \"submarina costa\", \"submarina embarcado\", o describime cualquier otra forma"
         CampoParte.CANAS -> "\"con 3 cañas\" o el número directo"
         CampoParte.OBSERVACIONES -> "\"llovía, viento del sur, carnada masa\""
         CampoParte.FOTOS -> "tocá el botón de cámara 📸"
@@ -847,27 +932,29 @@ class EnhancedChatViewModel(
         if (pecesContados.isEmpty()) return
 
         val datosIniciales = ParteEnProgreso(especiesCapturadas = pecesContados)
+        val nuevoId = localStorageHelper.generarBorradorId()
 
         _currentMode.value = ChatMode.CREAR_PARTE
-        localStorageHelper.saveParteBorrador(datosIniciales)
+        _borradorActivoId.value = nuevoId
+        _parteData.value = datosIniciales
 
         val resumenPeces = pecesContados.joinToString("\n") { pez ->
             "   • ${pez.numeroEjemplares} ${formatearValor(pez.nombre)}"
         }
 
-        _parteSession.value = ParteSessionChat(
-            parteData = datosIniciales,
-            messages = listOf(
-                ChatMessageWithMode(
-                    "🎣 **Parte iniciado desde el contador.**\n\n" +
-                            "Ya cargué tus capturas:\n$resumenPeces\n\n" +
-                            "Ahora contame el resto: ¿dónde pescaste y qué fecha?",
-                    false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE
-                )
+        _parteMessages.value = listOf(
+            ChatMessageWithMode(
+                "🎣 **Parte iniciado desde el contador.**\n\n" +
+                        "Ya cargué tus capturas:\n$resumenPeces\n\n" +
+                        "Ahora contame el resto: ¿dónde pescaste y qué fecha?",
+                false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE
             )
         )
 
-        // Limpiamos usando el manager
+        // Persistimos el borrador inicial y limpiamos el contador.
+        viewModelScope.launch {
+            localStorageHelper.saveBorrador(nuevoId, datosIniciales)
+        }
         fishCounterManager.limpiarContador()
     }
     suspend fun loadAllSpecies(): List<FishInfo> {

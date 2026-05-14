@@ -21,7 +21,8 @@ class JukaApplication : Application() {
     val localStorageHelper by lazy {
         LocalStorageHelper(
             context = applicationContext,
-            chatDao = roomDatabase.chatDao()
+            chatDao = roomDatabase.chatDao(),
+            borradorDao = roomDatabase.borradorDao()
         )
     }
 

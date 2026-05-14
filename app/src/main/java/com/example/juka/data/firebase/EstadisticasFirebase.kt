@@ -16,7 +16,7 @@ class EstadisticasFirebase(private val manager: FirebaseManager) {
             Log.d(TAG, "📊 Obteniendo estadísticas para usuario: $userId")
 
             val query = manager.firestore
-                .collection("$Constants.COLLECTION_PARTES/$userId/$SUBCOLLECTION_PARTES")
+                .collection("${Constants.Firebase.PARTES_COLLECTION}/$userId/$SUBCOLLECTION_PARTES")
                 .orderBy("timestamp", Query.Direction.DESCENDING)
 
             val snapshot = query.get().await()
@@ -64,7 +64,4 @@ class EstadisticasFirebase(private val manager: FirebaseManager) {
     }
 
 
-/*    @RequiresApi(Build.VERSION_CODES.O)
-    suspend fun obtenerHistorialChat(sessionId: String) =
-        SesionesFirebase(manager).obtenerHistorialChat(sessionId)  // CAMBIO: manager en lugar de this*/
 }

@@ -4,7 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.example.juka.FishDatabase
 import com.example.juka.domain.usecase.FishingData
-import com.example.juka.domain.model.ParteSessionChat
+import com.example.juka.domain.model.ParteEnProgreso
 import com.example.juka.data.encuesta.EncuestaData
 import com.example.juka.data.encuesta.RespuestaPregunta
 import com.example.juka.data.firebase.EncuestaFirebase.Companion.TAG
@@ -45,8 +45,13 @@ class FirebaseManager(val context: Context) {
     suspend fun obtenerMisPartes(limite: Int = 50) =
         PartesFirebase(this).obtenerMisPartes(limite)
 
-    suspend fun convertirSessionAParte(session: ParteSessionChat) =
-        SesionesFirebase(this).convertirSessionAParte(session)
+    /**
+     * Persiste un parte finalizado a partir de los datos del chat o el wizard.
+     * Reemplaza al antiguo convertirSessionAParte: ya no se persisten sesiones,
+     * sólo el parte en sí (el chat queda local en Room si hace falta).
+     */
+    suspend fun guardarParteCompletado(parteData: ParteEnProgreso, transcripcion: String? = null) =
+        PartesFirebase(this).guardarParteCompletado(parteData, transcripcion)
 
     suspend fun obtenerEstadisticas() =
         EstadisticasFirebase(this).obtenerEstadisticas()
@@ -91,11 +96,17 @@ class FirebaseManager(val context: Context) {
                 "horaInicio" to (parte.horaInicio ?: ""),
                 "horaFin" to (parte.horaFin ?: ""),
                 "tipo" to (parte.tipo ?: "general"),
-                "ubicacion" to mapOf(
-                    "lat" to (parte.ubicacion?.latitud ?: 0.0),
-                    "lng" to (parte.ubicacion?.longitud ?: 0.0),
-                    "nombre" to (parte.ubicacion?.nombre ?: "")
-                ),
+                "modalidadOtra" to (parte.modalidadOtra ?: ""),
+                // Mismas claves que usa el modelo UbicacionParte para que las queries
+                // y los reads desde otras rutas sean consistentes.
+                "ubicacion" to parte.ubicacion?.let { ubi ->
+                    mapOf(
+                        "nombre" to (ubi.nombre ?: ""),
+                        "latitud" to ubi.latitud,
+                        "longitud" to ubi.longitud,
+                        "zona" to (ubi.zona ?: "")
+                    )
+                },
                 "cantidadTotal" to parte.cantidadTotal,
                 "observaciones" to (parte.observaciones ?: ""),
                 "timestamp" to Timestamp.now(),

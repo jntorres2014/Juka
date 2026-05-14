@@ -142,7 +142,7 @@ class SendMessageUseCase(
             }
 
             if (encontrado) {
-                candidatos.add(Captura(especie = especieData.nombre, cantidad = 1, pesoAproximado = 0.0))
+                candidatos.add(Captura(especie = especieData.nombre, cantidad = 1))
             }
         }
 

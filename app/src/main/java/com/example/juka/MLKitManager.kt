@@ -55,17 +55,41 @@ class MLKitManager(
             "tierra del fuego" to Provincia.TIERRA_DEL_FUEGO
         )
 
-        private val PATRONES_MODALIDAD = mapOf(
-            "costa" to ModalidadPesca.CON_LINEA_COSTA,
-            "orilla" to ModalidadPesca.CON_LINEA_COSTA,
-            "playa" to ModalidadPesca.CON_LINEA_COSTA,
+        // Orden importa: las claves más largas/específicas primero para que
+        // "submarina embarcado" pegue antes que "submarina" sola, etc.
+        // extraerModalidades usa firstOrNull{ tipo == "MODALIDAD" } al final.
+        private val PATRONES_MODALIDAD = linkedMapOf(
+            // PESCA_SUBMARINA_EMBARCACION (frases largas primero)
+            "submarina embarcado" to ModalidadPesca.PESCA_SUBMARINA_EMBARCACION,
+            "submarina embarcada" to ModalidadPesca.PESCA_SUBMARINA_EMBARCACION,
+            "buceo embarcado" to ModalidadPesca.PESCA_SUBMARINA_EMBARCACION,
+            // PESCA_SUBMARINA_COSTA
+            "submarina costa" to ModalidadPesca.PESCA_SUBMARINA_COSTA,
+            "submarina" to ModalidadPesca.PESCA_SUBMARINA_COSTA,
+            "buceo" to ModalidadPesca.PESCA_SUBMARINA_COSTA,
+            // CON_RED
+            "agallera" to ModalidadPesca.CON_RED,
+            "arrastre" to ModalidadPesca.CON_RED,
+            "mediomundo" to ModalidadPesca.CON_RED,
+            "medio mundo" to ModalidadPesca.CON_RED,
+            "redes" to ModalidadPesca.CON_RED,
+            "malla" to ModalidadPesca.CON_RED,
+            "red" to ModalidadPesca.CON_RED,
+            // CON_LINEA_EMBARCACION
             "embarcado" to ModalidadPesca.CON_LINEA_EMBARCACION,
+            "embarcada" to ModalidadPesca.CON_LINEA_EMBARCACION,
             "barco" to ModalidadPesca.CON_LINEA_EMBARCACION,
             "lancha" to ModalidadPesca.CON_LINEA_EMBARCACION,
             "kayak" to ModalidadPesca.CON_LINEA_EMBARCACION,
-            "submarina" to ModalidadPesca.PESCA_SUBMARINA_COSTA,
-            "buceo" to ModalidadPesca.PESCA_SUBMARINA_COSTA,
-            "red" to ModalidadPesca.CON_RED
+            "gomon" to ModalidadPesca.CON_LINEA_EMBARCACION,
+            "gomón" to ModalidadPesca.CON_LINEA_EMBARCACION,
+            "velero" to ModalidadPesca.CON_LINEA_EMBARCACION,
+            // CON_LINEA_COSTA
+            "costa" to ModalidadPesca.CON_LINEA_COSTA,
+            "orilla" to ModalidadPesca.CON_LINEA_COSTA,
+            "playa" to ModalidadPesca.CON_LINEA_COSTA,
+            "muelle" to ModalidadPesca.CON_LINEA_COSTA,
+            "escollera" to ModalidadPesca.CON_LINEA_COSTA
         )
     }
 
@@ -235,11 +259,20 @@ class MLKitManager(
 
     private fun extraerModalidades(texto: String, textoLower: String): List<MLKitEntity> {
         val entidades = mutableListOf<MLKitEntity>()
+        // Iteramos en el orden definido en PATRONES_MODALIDAD (más específico
+        // primero gracias al linkedMapOf). Cuando un patrón pega, marcamos su
+        // rango como ocupado para que patrones más cortos que estén dentro
+        // (ej. "embarcado" dentro de "submarina embarcado") no se detecten
+        // como una segunda modalidad distinta.
+        val rangosOcupados = mutableListOf<IntRange>()
         PATRONES_MODALIDAD.forEach { (patron, modalidad) ->
-            if (textoLower.contains(patron)) {
-                val inicio = textoLower.indexOf(patron)
-                entidades.add(MLKitEntity("MODALIDAD", modalidad.displayName, 0.85f, inicio, inicio + patron.length))
-            }
+            val inicio = textoLower.indexOf(patron)
+            if (inicio == -1) return@forEach
+            val fin = inicio + patron.length
+            val solapa = rangosOcupados.any { rango -> inicio in rango || (fin - 1) in rango }
+            if (solapa) return@forEach
+            entidades.add(MLKitEntity("MODALIDAD", modalidad.displayName, 0.85f, inicio, fin))
+            rangosOcupados.add(inicio until fin)
         }
         return entidades
     }

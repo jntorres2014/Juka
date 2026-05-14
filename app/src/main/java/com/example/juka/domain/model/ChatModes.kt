@@ -2,7 +2,6 @@
 package com.example.juka.domain.model
 
 import com.example.juka.data.ChatOption
-import com.example.juka.util.DateUtils
 import com.example.juka.viewmodel.ChatMessage
 import com.example.juka.viewmodel.MessageType
 import com.google.firebase.firestore.GeoPoint
@@ -34,16 +33,6 @@ data class ChatMessageWithMode(
     val metadata: Map<String, String> = emptyMap()
 ) : IMessage
 
-// Data class para sesiones de chat de partes
-data class ParteSessionChat(
-    //val sessionId: String = "",
-    val messages: List<ChatMessageWithMode> = emptyList(),
-    val estado: EstadoParte = EstadoParte.BORRADOR,
-    val fechaCreacion: String = DateUtils.timestampFull(),
-    val parteData: ParteEnProgreso = ParteEnProgreso(),
-
-    )
-
 // Estados posibles de un parte
 enum class EstadoParte {
     EN_PROGRESO,    // Se está completando
@@ -65,8 +54,12 @@ data class ParteEnProgreso(
     val ubicacion: GeoPoint? = null,
     val nombreLugar: String? = null,
 
-    // Modalidad de pesca
+    // Modalidad de pesca. Si el usuario eligió "Otra" en el wizard o describió
+    // una modalidad no listada en el chat, el texto libre va en modalidadOtra
+    // y modalidad queda en null. La precedencia al mostrar/persistir es:
+    // modalidadOtra ?: modalidad?.displayName.
     val modalidad: ModalidadPesca? = null,
+    val modalidadOtra: String? = null,
     val numeroCanas: Int? = null,
     val tipoEmbarcacion: TipoEmbarcacion? = null,
 
@@ -164,7 +157,6 @@ enum class TipoRed(val displayName: String) {
 data class EspecieCapturada(
     val nombre: String,
     val numeroEjemplares: Int = 0,
-    val pesoEstimado: Double? = null,
     val numeroRetenidos: Int = 0,
     val esEspecieDesconocida: Boolean = false
 )

@@ -31,10 +31,16 @@ class TorneosFirebase {
 
     suspend fun crearTorneo(torneo: Torneo): Result<String> {
         return try {
-            val userId = auth.currentUser?.uid ?: return Result.failure(Exception("No autenticado"))
+            val user = auth.currentUser ?: return Result.failure(Exception("No autenticado"))
             val codigo = generarCodigo()
             val docRef = firestore.collection(COL_TORNEOS).document()
-            val torneoFinal = torneo.copy(id = docRef.id, creatorId = userId, codigoInvitacion = codigo, creadoEn = Timestamp.now())
+            val torneoFinal = torneo.copy(
+                id = docRef.id,
+                creatorId = user.uid,
+                creatorName = user.displayName?.takeIf { it.isNotBlank() } ?: "Organizador",
+                codigoInvitacion = codigo,
+                creadoEn = Timestamp.now()
+            )
             docRef.set(torneoFinal).await()
             Log.i(TAG, "✅ Torneo creado: ${docRef.id} — código: $codigo")
             Result.success(docRef.id)
@@ -216,12 +222,22 @@ class TorneosFirebase {
                 val participantesAnonimos = obtenerParticipantesAnonimos(torneoId)
                 val misPartes = obtenerPartesUsuario(torneoId, userId)
 
+                // Ranking: posición del usuario en el leaderboard de aceptados
+                // ordenado por puntaje descendente. 0 si no participa o no
+                // está en la lista (caso muy raro).
+                val miPosicion = participantesAnonimos
+                    .filter { it.estadoEnum == EstadoParticipante.ACEPTADO }
+                    .sortedByDescending { it.puntaje }
+                    .indexOfFirst { it.userId == userId }
+                    .let { if (it >= 0) it + 1 else 0 }
+
                 resultado.add(TorneoConParticipantes(
                     torneo = torneo,
                     participantes = participantesAnonimos,
                     partes = misPartes,
                     miEstado = participante.estadoEnum,
-                    miPuntaje = participante.puntaje
+                    miPuntaje = participante.puntaje,
+                    miPosicion = miPosicion
                 ))
             }
 

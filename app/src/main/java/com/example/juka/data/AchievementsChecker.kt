@@ -93,9 +93,9 @@ class AchievementsChecker(
                     // Siempre desbloquea "cazador" la primera vez
                     achievementsViewModel.unlockAchievement("cazador_de_dorados")
 
-                    // ✅ BUG FIX: rey_del_rio requiere peso ≥ 5 kg
-                    val peso = especie.pesoEstimado
-                    if (peso != null && peso >= 5.0) {
+                    // rey_del_rio: 5+ dorados en una sola jornada (antes era por
+                    // peso, pero el peso se sacó del modelo de capturas).
+                    if (especie.numeroEjemplares >= 5) {
                         achievementsViewModel.unlockAchievement("rey_del_rio")
                     }
                 }

@@ -54,7 +54,9 @@ enum class CampoParte(
     MODALIDAD(
         "🎣 Modalidad",
         Icons.Default.Sailing,
-        "¿Cómo pescaste? Desde costa, embarcado, kayak, etc.",
+        "¿Cómo pescaste? Las opciones son: desde costa, embarcado, con red, " +
+                "submarina costa o submarina embarcado. Si fue de otra forma " +
+                ", contame y la anoto.",
         true
     ),
     FOTOS(
@@ -70,7 +72,7 @@ enum class CampoParte(
     OBSERVACIONES(
         "📝 Notas",
         Icons.Default.Notes,
-        "¿Algun detalle adicional sobre tu jornada? Carnada, peso de especie"
+        "¿Algun detalle adicional sobre tu jornada? Carnada, clima, condiciones del agua..."
     )
 }
 @Composable

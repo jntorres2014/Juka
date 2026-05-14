@@ -178,12 +178,12 @@ fun JukaAppWithUser(user: FirebaseUser, authManager: AuthManager) {
 
                 composable("partes_torneo/{torneoId}") { backStackEntry ->
                     val torneoId = backStackEntry.arguments?.getString("torneoId") ?: return@composable
-                    val torneoConP = torneosViewModel.uiState.value.torneos
-                        .firstOrNull { it.torneo.id == torneoId } ?: return@composable
-
+                    // Pasamos solo el id: la screen collecta el state del VM
+                    // y se reactiva sola cuando cambian los datos (rechazo,
+                    // refresh, etc.) sin necesidad de salir y volver a entrar.
                     PartesTorneoScreen(
-                        torneoConP = torneoConP,
-                        viewModel = torneosViewModel,       // ✅ misma instancia
+                        torneoId = torneoId,
+                        viewModel = torneosViewModel,
                         onBack = { navController.popBackStack() }
                     )
                 }

@@ -1,6 +1,7 @@
 package com.example.juka.ui.torneos
 
 import android.content.Intent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -87,14 +88,44 @@ fun TorneosScreen(
             }
 
             uiState.torneos.isEmpty() -> {
-                Box(modifier = Modifier.fillMaxSize().padding(paddingValues), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("🏆", fontSize = 64.sp)
-                        Text("No tenés torneos todavía", fontSize = 18.sp, fontWeight = FontWeight.Medium)
-                        Text("Creá uno o unite con un código", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = onUnirse) { Text("Unirme") }
-                            Button(onClick = onCrearTorneo) { Text("Crear torneo") }
+                Box(modifier = Modifier.fillMaxSize().padding(paddingValues).padding(32.dp), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                            modifier = Modifier.size(120.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text("🏆", fontSize = 64.sp)
+                            }
+                        }
+                        Text("Sumate a la competencia", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            "Creá un torneo entre amigos o unite con el código que te compartieron.",
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            OutlinedButton(
+                                onClick = onUnirse,
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.Search, null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Unirme")
+                            }
+                            Button(
+                                onClick = onCrearTorneo,
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1D9E75))
+                            ) {
+                                Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Crear torneo")
+                            }
                         }
                     }
                 }
@@ -104,9 +135,18 @@ fun TorneosScreen(
                 LazyColumn(
                     modifier = Modifier.fillMaxSize().padding(paddingValues),
                     contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    item { Text("Mis Torneos", fontSize = 24.sp, fontWeight = FontWeight.Bold) }
+                    item {
+                        Column {
+                            Text("🏆 Mis Torneos", fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                "${uiState.torneos.size} torneo${if (uiState.torneos.size == 1) "" else "s"} en tu cuenta",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
 
                     items(uiState.torneos, key = { it.torneo.id }) { torneoConP ->
                         TorneoCard(
@@ -115,10 +155,7 @@ fun TorneosScreen(
                             onRechazar = { participanteId -> viewModel.responderSolicitud(torneoConP.torneo.id, participanteId, false) },
                             onVerCodigo = { viewModel.mostrarCodigoTorneo(torneoConP.torneo.codigoInvitacion) },
                             onVerPartes = { onVerPartes(torneoConP.torneo.id) }
-
-
                         )
-
                     }
 
                     item { Spacer(modifier = Modifier.height(80.dp)) }
@@ -300,24 +337,86 @@ private fun SolicitudRow(nombre: String, onAceptar: () -> Unit, onRechazar: () -
 
 @Composable
 private fun LeaderboardRow(posicion: Int, participante: ParticipanteTorneo) {
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            text = when (posicion) { 1 -> "🥇"; 2 -> "🥈"; 3 -> "🥉"; else -> "#$posicion" },
-            fontSize = if (posicion <= 3) 20.sp else 14.sp,
-            modifier = Modifier.width(36.dp)
-        )
+    // El top 3 se destaca con fondo dorado/plateado/bronce y texto más grande
+    val (bgColor, badgeColor) = when (posicion) {
+        1 -> Color(0xFFFFF8E1) to Color(0xFFFFB300)
+        2 -> Color(0xFFF5F5F5) to Color(0xFF9E9E9E)
+        3 -> Color(0xFFFBE9E7) to Color(0xFFCD7F32)
+        else -> Color.Transparent to MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val esPodio = posicion <= 3
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(bgColor)
+            .padding(horizontal = if (esPodio) 8.dp else 0.dp, vertical = if (esPodio) 6.dp else 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Badge de posición
+        Surface(
+            modifier = Modifier.size(if (esPodio) 36.dp else 28.dp),
+            shape = CircleShape,
+            color = if (esPodio) badgeColor else MaterialTheme.colorScheme.surfaceVariant
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    text = when (posicion) { 1 -> "🥇"; 2 -> "🥈"; 3 -> "🥉"; else -> "$posicion" },
+                    fontSize = if (esPodio) 18.sp else 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (esPodio) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.width(10.dp))
+
+        // Avatar
         if (participante.userPhoto.isNotBlank()) {
-            AsyncImage(model = participante.userPhoto, contentDescription = null, modifier = Modifier.size(32.dp).clip(CircleShape), contentScale = ContentScale.Crop)
+            AsyncImage(
+                model = participante.userPhoto,
+                contentDescription = null,
+                modifier = Modifier.size(36.dp).clip(CircleShape),
+                contentScale = ContentScale.Crop
+            )
         } else {
-            Surface(modifier = Modifier.size(32.dp), shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer) {
+            Surface(
+                modifier = Modifier.size(36.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.secondaryContainer
+            ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Text(participante.userName.first().uppercase(), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        participante.userName.first().uppercase(),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }
+
         Spacer(modifier = Modifier.width(10.dp))
-        Text(participante.userName, modifier = Modifier.weight(1f), fontSize = 14.sp, fontWeight = FontWeight.Medium)
-        Text("${participante.puntaje} pts", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        Text(
+            participante.userName,
+            modifier = Modifier.weight(1f),
+            fontSize = if (esPodio) 15.sp else 14.sp,
+            fontWeight = if (esPodio) FontWeight.SemiBold else FontWeight.Medium
+        )
+
+        // Puntaje en chip
+        Surface(
+            color = if (esPodio) badgeColor.copy(alpha = 0.15f) else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+            shape = RoundedCornerShape(8.dp)
+        ) {
+            Text(
+                "${participante.puntaje} pts",
+                fontSize = if (esPodio) 14.sp else 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (esPodio) badgeColor else MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+            )
+        }
     }
 }
 

@@ -148,9 +148,8 @@ class TorneosViewModel : ViewModel() {
     private fun calcularPuntaje(tipo: TipoPuntaje, parteData: ParteEnProgreso): Int {
         return when (tipo) {
             TipoPuntaje.CANTIDAD_PECES     -> parteData.especiesCapturadas.sumOf { it.numeroEjemplares }
-            TipoPuntaje.PESO_TOTAL         -> parteData.especiesCapturadas.sumOf { (it.pesoEstimado ?: 0.0) * it.numeroEjemplares }.toInt()
             TipoPuntaje.ESPECIES_DISTINTAS -> parteData.especiesCapturadas.size
-            TipoPuntaje.PERSONALIZADO      -> 0
+            TipoPuntaje.PERSONALIZADO      -> 0  // El admin gestiona los puntos manualmente.
         }
     }
 

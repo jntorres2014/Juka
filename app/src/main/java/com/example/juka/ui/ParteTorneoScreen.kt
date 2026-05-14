@@ -40,17 +40,42 @@ private data class GrupoParticipante(
     val partes: List<ParteTorneo>
 )
 
+private enum class FiltroPartes(val label: String) {
+    ACTIVOS("Activos"),
+    RECHAZADOS("Rechazados"),
+    TODOS("Todos")
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PartesTorneoScreen(
-    torneoConP: TorneoConParticipantes,
+    torneoId: String,
     viewModel: TorneosViewModel,
     onBack: () -> Unit
 ) {
+    // Reactivo: cualquier cambio que dispare cargarTorneos() en el VM
+    // (rechazar parte, refresh manual, etc.) refresca esta pantalla.
+    val uiState by viewModel.uiState.collectAsState()
+    val torneoConP = uiState.torneos.firstOrNull { it.torneo.id == torneoId }
+
+    // Si el torneo desapareció (raro: lo eliminó el admin, perdimos acceso, etc.)
+    // volvemos atrás solos en lugar de quedar en una pantalla rota.
+    LaunchedEffect(torneoConP, uiState.isLoading) {
+        if (torneoConP == null && !uiState.isLoading) onBack()
+    }
+    if (torneoConP == null) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        return
+    }
+
     val esAdmin = torneoConP.soyCreador
     var parteArechazar by remember { mutableStateOf<ParteTorneo?>(null) }
     var motivoRechazo by remember { mutableStateOf("") }
     var fotoExpandida by remember { mutableStateOf<String?>(null) }
+    // Filtro: ACTIVOS (default) | RECHAZADOS | TODOS
+    var filtroEstado by remember { mutableStateOf(FiltroPartes.ACTIVOS) }
 
     // Agrupar partes por participante, ordenados por puntaje desc
     val grupos: List<GrupoParticipante> = remember(torneoConP) {
@@ -65,6 +90,10 @@ fun PartesTorneoScreen(
             GrupoParticipante(participante, partesDeEste)
         }
     }
+
+    // Totales para el header
+    val totalActivos = torneoConP.partes.count { it.estadoEnum == EstadoParteTorneo.ACTIVO }
+    val totalRechazados = torneoConP.partes.count { it.estadoEnum == EstadoParteTorneo.RECHAZADO }
 
     // Diálogo de rechazo
     parteArechazar?.let { parte ->
@@ -150,40 +179,101 @@ fun PartesTorneoScreen(
     ) { paddingValues ->
 
         if (grupos.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize().padding(paddingValues), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("🎣", fontSize = 48.sp)
-                    Text("Todavía no hay partes", fontSize = 16.sp, fontWeight = FontWeight.Medium)
-                    Text("Los partes aparecen cuando los participantes los guardan durante el torneo.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Box(modifier = Modifier.fillMaxSize().padding(paddingValues).padding(32.dp), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                        modifier = Modifier.size(96.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text("🎣", fontSize = 48.sp)
+                        }
+                    }
+                    Text("Todavía no hay partes", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Los partes aparecen acá cuando los participantes los guardan durante el torneo.",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
                 }
             }
             return@Scaffold
         }
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(paddingValues),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            item {
-                Text(
-                    "${grupos.size} participantes · ${torneoConP.partes.size} partes en total",
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+        Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+            // Header con totales destacados
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    StatPill(numero = grupos.size, label = "Participantes", color = MaterialTheme.colorScheme.primary)
+                    StatPill(numero = totalActivos, label = "Activos", color = Color(0xFF1D9E75))
+                    if (totalRechazados > 0) {
+                        StatPill(numero = totalRechazados, label = "Rechazados", color = MaterialTheme.colorScheme.error)
+                    }
+                }
             }
 
-            items(grupos, key = { it.participante.userId }) { grupo ->
-                GrupoParticipanteCard(
-                    grupo = grupo,
-                    esAdmin = esAdmin,
-                    onRechazar = { parte -> parteArechazar = parte },
-                    onVerFoto = { url -> fotoExpandida = url }
-                )
+            // Filtro: solo aparece si hay partes rechazados, sino no tiene sentido
+            if (totalRechazados > 0) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FiltroPartes.values().forEach { filtro ->
+                        FilterChip(
+                            selected = filtroEstado == filtro,
+                            onClick = { filtroEstado = filtro },
+                            label = { Text(filtro.label, fontSize = 12.sp) }
+                        )
+                    }
+                }
             }
 
-            item { Spacer(modifier = Modifier.height(32.dp)) }
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(grupos, key = { it.participante.userId }) { grupo ->
+                    val posicion = grupos.indexOf(grupo) + 1
+                    GrupoParticipanteCard(
+                        grupo = grupo,
+                        posicion = posicion,
+                        esAdmin = esAdmin,
+                        filtro = filtroEstado,
+                        onRechazar = { parte -> parteArechazar = parte },
+                        onVerFoto = { url -> fotoExpandida = url }
+                    )
+                }
+
+                item { Spacer(modifier = Modifier.height(32.dp)) }
+            }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun StatPill(numero: Int, label: String, color: Color) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            "$numero",
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold,
+            color = color
+        )
+        Text(
+            label,
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -192,14 +282,23 @@ fun PartesTorneoScreen(
 @Composable
 private fun GrupoParticipanteCard(
     grupo: GrupoParticipante,
+    posicion: Int,
     esAdmin: Boolean,
+    filtro: FiltroPartes,
     onRechazar: (ParteTorneo) -> Unit,
     onVerFoto: (String) -> Unit
 ) {
     var expandido by remember { mutableStateOf(true) }  // Expandido por defecto
     val participante = grupo.participante
-    val partesActivos = grupo.partes.filter { false }
-    val partesRechazados = grupo.partes.filter { false }
+    val partesActivos = grupo.partes.filter { it.estadoEnum == EstadoParteTorneo.ACTIVO }
+    val partesRechazados = grupo.partes.filter { it.estadoEnum == EstadoParteTorneo.RECHAZADO }
+
+    // Lo que efectivamente se renderiza depende del filtro elegido
+    val activosVisibles = if (filtro == FiltroPartes.RECHAZADOS) emptyList() else partesActivos
+    val rechazadosVisibles = if (filtro == FiltroPartes.ACTIVOS) emptyList() else partesRechazados
+
+    // Medalla del top 3
+    val medalla = when (posicion) { 1 -> "🥇"; 2 -> "🥈"; 3 -> "🥉"; else -> null }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -242,16 +341,22 @@ private fun GrupoParticipanteCard(
                 Spacer(modifier = Modifier.width(12.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(participante.userName, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (medalla != null) {
+                            Text(medalla, fontSize = 16.sp)
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+                        Text(participante.userName, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            "${grupo.partes.size} ${if (grupo.partes.size == 1) "parte" else "partes"}",
+                            "${partesActivos.size} ${if (partesActivos.size == 1) "parte" else "partes"}",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         if (partesRechazados.isNotEmpty()) {
                             Text(
-                                "${partesRechazados.size} rechazado${if (partesRechazados.size > 1) "s" else ""}",
+                                "· ${partesRechazados.size} rechazado${if (partesRechazados.size > 1) "s" else ""}",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.error
                             )
@@ -293,41 +398,48 @@ private fun GrupoParticipanteCard(
                 Column {
                     HorizontalDivider()
 
-                    if (grupo.partes.isEmpty()) {
+                    val nadaVisible = activosVisibles.isEmpty() && rechazadosVisibles.isEmpty()
+                    if (nadaVisible) {
                         Box(
                             modifier = Modifier.fillMaxWidth().padding(16.dp),
                             contentAlignment = Alignment.Center
                         ) {
+                            val mensaje = when {
+                                grupo.partes.isEmpty() -> "Todavía no cargó partes"
+                                filtro == FiltroPartes.ACTIVOS -> "Sin partes activos en este filtro"
+                                filtro == FiltroPartes.RECHAZADOS -> "Sin partes rechazados"
+                                else -> "Sin partes que mostrar"
+                            }
                             Text(
-                                "Todavía no cargó partes",
+                                mensaje,
                                 fontSize = 13.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
                             )
                         }
                     } else {
-                        // Partes activos
-                        partesActivos.forEachIndexed { index, parte ->
+                        // Partes activos visibles
+                        activosVisibles.forEachIndexed { index, parte ->
                             ParteRow(
                                 parte = parte,
                                 esAdmin = esAdmin,
                                 onRechazar = { onRechazar(parte) },
                                 onVerFoto = onVerFoto
                             )
-                            if (index < partesActivos.lastIndex || partesRechazados.isNotEmpty()) {
+                            if (index < activosVisibles.lastIndex || rechazadosVisibles.isNotEmpty()) {
                                 HorizontalDivider(modifier = Modifier.padding(horizontal = 14.dp))
                             }
                         }
 
                         // Partes rechazados (al final del grupo)
-                        partesRechazados.forEachIndexed { index, parte ->
+                        rechazadosVisibles.forEachIndexed { index, parte ->
                             ParteRow(
                                 parte = parte,
                                 esAdmin = esAdmin,
                                 onRechazar = null,
                                 onVerFoto = onVerFoto
                             )
-                            if (index < partesRechazados.lastIndex) {
+                            if (index < rechazadosVisibles.lastIndex) {
                                 HorizontalDivider(modifier = Modifier.padding(horizontal = 14.dp))
                             }
                         }
@@ -347,7 +459,7 @@ private fun ParteRow(
     onRechazar: (() -> Unit)?,
     onVerFoto: (String) -> Unit
 ) {
-    val rechazado = false
+    val rechazado = parte.estadoEnum == EstadoParteTorneo.RECHAZADO
 
     Row(
         modifier = Modifier

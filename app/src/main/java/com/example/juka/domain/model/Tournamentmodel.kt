@@ -11,7 +11,6 @@ enum class EstadoParticipante {
 
 enum class TipoPuntaje(val displayName: String) {
     CANTIDAD_PECES("Cantidad de peces"),
-    PESO_TOTAL("Peso total de capturas"),
     ESPECIES_DISTINTAS("Especies distintas"),
     PERSONALIZADO("Reglas personalizadas")
 }

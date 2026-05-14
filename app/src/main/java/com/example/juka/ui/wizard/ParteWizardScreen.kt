@@ -46,6 +46,8 @@ private data class WizardData(
     val horaFin: String = "",
     val modalidad: ModalidadPesca? = null,
     val esOtraModalidad: Boolean = false,
+    // Texto libre cuando el usuario eligió "Otra" como modalidad.
+    val otraModalidadTexto: String = "",
     val ubicacion: GeoPoint? = null,
     val nombreLugar: String = "",
     val especies: List<EspecieCapturada> = emptyList(),
@@ -58,7 +60,8 @@ private data class WizardData(
 // Opcionales:   ubicación (2), especies (3), foto (6)
 private fun stepIsValid(step: Int, data: WizardData): Boolean = when (step) {
     0 -> data.horaInicio.isNotBlank() && data.horaFin.isNotBlank()
-    1 -> data.modalidad != null || data.esOtraModalidad
+    1 -> data.modalidad != null ||
+            (data.esOtraModalidad && data.otraModalidadTexto.isNotBlank())
     4 -> data.numeroCanas != null
     5 -> data.observaciones.isNotBlank()
     else -> true
@@ -253,11 +256,14 @@ private fun Step1_DateTime(data: WizardData, showError: Boolean, onUpdate: (Wiza
 @Composable
 private fun Step2_Modalidad(data: WizardData, showError: Boolean, onUpdate: (WizardData) -> Unit) {
     data class Opcion(val emoji: String, val label: String, val modalidad: ModalidadPesca?, val isOtra: Boolean = false)
+    // 5 modalidades del enum + "Otra" con texto libre.
     val opciones = listOf(
         Opcion("🏖️", "Pesca de costa", ModalidadPesca.CON_LINEA_COSTA),
         Opcion("🚤", "Pesca embarcado", ModalidadPesca.CON_LINEA_EMBARCACION),
-        Opcion("🤿", "Pesca submarina", ModalidadPesca.PESCA_SUBMARINA_COSTA),
-        Opcion("🎣", "Otras", null, isOtra = true)
+        Opcion("🕸️", "Con red", ModalidadPesca.CON_RED),
+        Opcion("🤿", "Submarina costa", ModalidadPesca.PESCA_SUBMARINA_COSTA),
+        Opcion("🤿🚤", "Submarina embarcado", ModalidadPesca.PESCA_SUBMARINA_EMBARCACION),
+        Opcion("🎣", "Otra", null, isOtra = true)
     )
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         opciones.chunked(2).forEach { fila ->
@@ -265,11 +271,39 @@ private fun Step2_Modalidad(data: WizardData, showError: Boolean, onUpdate: (Wiz
                 fila.forEach { op ->
                     val selected = if (op.isOtra) data.esOtraModalidad else data.modalidad == op.modalidad
                     ModeCard(op.emoji, op.label, selected, Modifier.weight(1f)) {
-                        onUpdate(data.copy(modalidad = op.modalidad, esOtraModalidad = op.isOtra))
+                        // Al cambiar de selección limpiamos el texto de "otra"
+                        // para que no quede colgando si después elige una estándar.
+                        onUpdate(
+                            data.copy(
+                                modalidad = op.modalidad,
+                                esOtraModalidad = op.isOtra,
+                                otraModalidadTexto = if (op.isOtra) data.otraModalidadTexto else ""
+                            )
+                        )
                     }
                 }
             }
         }
+
+        // Si eligió "Otra", se habilita el campo de texto libre.
+        if (data.esOtraModalidad) {
+            OutlinedTextField(
+                value = data.otraModalidadTexto,
+                onValueChange = { onUpdate(data.copy(otraModalidadTexto = it)) },
+                label = { Text("Decinos cómo pescaste") },
+                placeholder = { Text("Ej: trampa, lanza, mosca...") },
+                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true,
+                isError = showError && data.otraModalidadTexto.isBlank(),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)
+            )
+            if (showError && data.otraModalidadTexto.isBlank()) {
+                StepErrorText("Escribí qué tipo de pesca usaste.")
+            }
+        }
+
         if (showError && data.modalidad == null && !data.esOtraModalidad) StepErrorText("Seleccioná cómo pescaste.")
     }
 }
@@ -463,6 +497,9 @@ private fun buildAndSave(data: WizardData, viewModel: EnhancedChatViewModel) {
         horaInicio = data.horaInicio.ifBlank { null },
         horaFin = data.horaFin.ifBlank { null },
         modalidad = data.modalidad,
+        // Si el usuario eligió "Otra" guardamos el texto libre. La precedencia
+        // (modalidadOtra > modalidad.displayName) la maneja la persistencia.
+        modalidadOtra = if (data.esOtraModalidad) data.otraModalidadTexto.ifBlank { null } else null,
         ubicacion = data.ubicacion,
         nombreLugar = data.nombreLugar.ifBlank { null },
         especiesCapturadas = data.especies,

@@ -9,13 +9,6 @@ data class PezCapturado @JvmOverloads constructor(
     val observaciones: String? = null
 )
 
-data class UbicacionPesca @JvmOverloads constructor(
-    val nombre: String? = null,
-    val latitud: Double? = null,
-    val longitud: Double? = null,
-    val zona: String? = null
-)
-
 data class DeviceInfo @JvmOverloads constructor(
     val modelo: String = "",
     val marca: String = "",
@@ -43,6 +36,9 @@ data class PartePesca(
     val deviceInfo: DeviceInfo? = null,
     val tipo: String? = null,
     val modalidad: String? = null,
+    // Texto libre cuando el usuario eligió "Otra" modalidad en el wizard
+    // (no encajaba en ninguna de las 5 predefinidas).
+    val modalidadOtra: String? = null,
     val cantidadTotal: Int = 0,
     val observaciones: String? = null,
     val transcripcionOriginal: String? = null,
@@ -56,18 +52,25 @@ data class PartePesca(
     val fotos: List<String> = emptyList()
 )
 
-// Sub-clase para ubicación
-data class UbicacionParte(
-    val latitud: Double = 0.0,
-    val longitud: Double = 0.0,
-    val nombre: String? = null
+/**
+ * Ubicación de un parte de pesca.
+ *
+ * Reemplaza a la antigua `UbicacionPesca`: ahora `latitud` y `longitud` son
+ * nullable para distinguir "no informado" de "0.0", y se incorpora `zona`
+ * para conservar la provincia/región cuando el usuario la cargó por chat.
+ */
+data class UbicacionParte @JvmOverloads constructor(
+    val nombre: String? = null,
+    val latitud: Double? = null,
+    val longitud: Double? = null,
+    val zona: String? = null
 )
 
-// Sub-clase para cada especie capturada
+// Sub-clase para cada especie capturada en un parte. (Se sacó pesoAproximado:
+// el peso del pez no se carga en partes — se cargaba como 0.0 dummy.)
 data class Captura(
     val especie: String = "",
-    val cantidad: Int = 0,
-    val pesoAproximado: Double = 0.0
+    val cantidad: Int = 0
 )
 sealed class FirebaseResult {
     object Success : FirebaseResult()

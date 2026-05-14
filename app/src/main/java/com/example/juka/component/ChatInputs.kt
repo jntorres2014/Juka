@@ -260,7 +260,7 @@ fun SimpleParteInput(
                                 CampoParte.ESPECIES -> "Ej: 2 pejerreyes y 1 róbalo"
                                 CampoParte.FECHA -> "Ej: hoy, ayer, 25/10/2024"
                                 CampoParte.HORARIOS -> "Ej: de 6 a 11"
-                                CampoParte.MODALIDAD -> "Ej: Embarcado, de Costa"
+                                CampoParte.MODALIDAD -> "Ej: De costa, embarcado, con red, submarina..."
                                 CampoParte.CANAS -> "Ej: Con 3 cañas"
                                 CampoParte.OBSERVACIONES -> "Ej: llovía mucho"
                                 else -> "Escribí tu respuesta..."

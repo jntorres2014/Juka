@@ -31,9 +31,11 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.juka.component.AnalyzingIndicator
 import com.example.juka.CampoParte
+import com.example.juka.data.local.BorradorMeta
 import com.example.juka.viewmodel.EnhancedChatViewModel
 import com.example.juka.ui.theme.MapPickerScreen
 import com.example.juka.component.MessageBubble
@@ -46,7 +48,6 @@ import com.example.juka.component.TypingIndicator
 import com.example.juka.component.WorkingAudioButton
 import com.example.juka.domain.model.ChatMode
 import com.example.juka.domain.model.ParteEnProgreso
-import com.example.juka.domain.model.ParteSessionChat
 import com.example.juka.viewmodel.AppViewModelProvider
 import com.google.firebase.auth.FirebaseUser
 import kotlinx.coroutines.delay
@@ -66,7 +67,9 @@ fun EnhancedChatScreen(
     // Estados del ViewModel
     //val currentMode by viewModel.currentMode.collectAsState()
     val generalMessages by viewModel.generalMessages.collectAsState()
-    val parteSession by viewModel.parteSession.collectAsState()
+    val parteData by viewModel.parteData.collectAsState()
+    val parteMessages by viewModel.parteMessages.collectAsState()
+    val borradoresPendientes by viewModel.borradoresPendientes.collectAsState()
     val isTyping by viewModel.isTyping.collectAsState()
     val isAnalyzing by viewModel.isAnalyzing.collectAsState()
     val firebaseStatus by viewModel.firebaseStatus.collectAsState()
@@ -101,11 +104,27 @@ fun EnhancedChatScreen(
         )
     }
 
+    // Dialog de borradores pendientes: aparece al entrar a "Crear parte"
+    // cuando hay 1+ partes sin terminar y el usuario aún no eligió cuál
+    // retomar (parteData == null).
+    if (
+        currentMode == ChatMode.CREAR_PARTE &&
+        parteData == null &&
+        borradoresPendientes.isNotEmpty()
+    ) {
+        BorradoresPendientesDialog(
+            borradores = borradoresPendientes,
+            onRetomar = { id -> viewModel.retomarBorradorPorId(id) },
+            onDescartar = { id -> viewModel.descartarBorrador(id) },
+            onNuevoParte = { viewModel.crearNuevoParte() },
+            onCerrar = { viewModel.volverAChatGeneral() }
+        )
+    }
+
     // Determinar qué mensajes mostrar según el modo
     val currentMessages = when (currentMode) {
         ChatMode.GENERAL -> generalMessages
-        ChatMode.CREAR_PARTE -> parteSession?.messages ?: emptyList()
-
+        ChatMode.CREAR_PARTE -> parteMessages
     }
 
     // Launcher para imágenes
@@ -134,7 +153,7 @@ fun EnhancedChatScreen(
             EnhancedChatHeader(
                 user = user,
                 currentMode = currentMode,
-                parteSession = parteSession,
+                parteData = parteData,
                 firebaseStatus = firebaseStatus,
                 onModeChange = { mode ->
                     when (mode) {
@@ -154,7 +173,7 @@ fun EnhancedChatScreen(
 
 
             // ================== PROGRESO DEL PARTE (SI APLICA) ==================
-            if (currentMode == ChatMode.CREAR_PARTE && parteSession != null) {
+            if (currentMode == ChatMode.CREAR_PARTE && parteData != null) {
                 AnimatedVisibility(
                     visible = true,
                     enter = expandVertically() + fadeIn(),
@@ -163,26 +182,28 @@ fun EnhancedChatScreen(
                     Column {
                         // Progreso simplificado
                         LinearProgressIndicator(
-                            progress = parteSession!!.parteData.porcentajeCompletado / 100f,
+                            progress = parteData!!.porcentajeCompletado / 100f,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 8.dp),
                             color = when {
-                                parteSession!!.parteData.porcentajeCompletado >= 80 -> Color(0xFF4CAF50)
-                                parteSession!!.parteData.porcentajeCompletado >= 50 -> Color(0xFFFF9800)
+                                parteData!!.porcentajeCompletado >= 80 -> Color(0xFF4CAF50)
+                                parteData!!.porcentajeCompletado >= 50 -> Color(0xFFFF9800)
                                 else -> MaterialTheme.colorScheme.primary
                             }
                         )
 
                         // NUEVO: Botones de acción rápida
                         ParteQuickActions(
-                            parteData = parteSession!!.parteData,
+                            parteData = parteData!!,
                             onCampoSelected = { campo ->
                                 viewModel.onCampoParteSelected(campo)
                             },
                             currentFieldInProgress = currentFieldInProgress,
                             onGuardarBorrador = {
-                                //viewModel.guardarParteBorrador()
+                                // Cierra este parte sin enviarlo; queda en la
+                                // lista de borradores para retomarlo después.
+                                viewModel.guardarBorradorYVolver()
                             },
                             onCompletarParte = {
                                 viewModel.completarYEnviarParte()
@@ -351,6 +372,151 @@ fun EnhancedChatScreen(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Dialog de borradores pendientes
+//
+// Aparece al entrar a "Crear parte" cuando hay 1+ partes sin terminar. Le da
+// al usuario tres opciones: retomar uno existente, descartar uno, o arrancar
+// un parte nuevo (que se suma a la lista). Cerrar el dialog vuelve al menú
+// general sin tocar los borradores.
+// ─────────────────────────────────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BorradoresPendientesDialog(
+    borradores: List<BorradorMeta>,
+    onRetomar: (String) -> Unit,
+    onDescartar: (String) -> Unit,
+    onNuevoParte: () -> Unit,
+    onCerrar: () -> Unit
+) {
+    Dialog(onDismissRequest = onCerrar) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            shape = RoundedCornerShape(20.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "📂 Borradores pendientes",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            "Tenés ${borradores.size} parte${if (borradores.size == 1) "" else "s"} sin terminar.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    IconButton(onClick = onCerrar) {
+                        Icon(Icons.Default.Close, contentDescription = "Cerrar")
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = onNuevoParte,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1D9E75))
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Nuevo parte", fontWeight = FontWeight.SemiBold)
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(8.dp))
+
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 360.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(borradores) { borrador ->
+                        BorradorCard(
+                            borrador = borrador,
+                            onRetomar = { onRetomar(borrador.id) },
+                            onDescartar = { onDescartar(borrador.id) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BorradorCard(
+    borrador: BorradorMeta,
+    onRetomar: () -> Unit,
+    onDescartar: () -> Unit
+) {
+    val lugar = borrador.resumenLugar?.takeIf { it.isNotBlank() } ?: "Sin lugar"
+    val fecha = borrador.resumenFecha?.takeIf { it.isNotBlank() } ?: "Sin fecha"
+    val pct = borrador.porcentajeCompletado
+
+    Card(
+        onClick = onRetomar,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+        )
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    lugar,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1
+                )
+                Text(
+                    "📅 $fecha",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                LinearProgressIndicator(
+                    progress = { pct / 100f },
+                    modifier = Modifier.fillMaxWidth().height(4.dp),
+                    color = when {
+                        pct >= 80 -> Color(0xFF4CAF50)
+                        pct >= 50 -> Color(0xFFFF9800)
+                        else -> MaterialTheme.colorScheme.primary
+                    }
+                )
+                Text(
+                    "$pct% completo",
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            IconButton(onClick = onDescartar) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = "Descartar borrador",
+                    tint = MaterialTheme.colorScheme.error
+                )
             }
         }
     }

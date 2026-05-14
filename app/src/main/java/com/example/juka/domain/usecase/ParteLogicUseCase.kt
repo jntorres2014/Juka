@@ -26,6 +26,7 @@ class ParteLogicUseCase(
             ubicacion = nuevo.ubicacion ?: existente.ubicacion,
             nombreLugar = nuevo.nombreLugar ?: existente.nombreLugar,
             modalidad = nuevo.modalidad ?: existente.modalidad,
+            modalidadOtra = nuevo.modalidadOtra ?: existente.modalidadOtra,
             numeroCanas = nuevo.numeroCanas ?: existente.numeroCanas,
             especiesCapturadas = (existente.especiesCapturadas + nuevo.especiesCapturadas).distinctBy { it.nombre },
             imagenes = existente.imagenes + nuevo.imagenes,
@@ -98,7 +99,16 @@ class ParteLogicUseCase(
                     }
                 }
             }
-            CampoParte.MODALIDAD -> extractionResult.entidadesDetectadas.firstOrNull { it.tipo == "MODALIDAD" }?.let { datosActualizados = datosActualizados.copy(modalidad = ModalidadPesca.fromString(it.valor)) }
+            CampoParte.MODALIDAD -> extractionResult.entidadesDetectadas.firstOrNull { it.tipo == "MODALIDAD" }?.let { entity ->
+                val modalidadEnum = ModalidadPesca.fromString(entity.valor)
+                datosActualizados = if (modalidadEnum != null) {
+                    // Encajó en una de las modalidades estándar.
+                    datosActualizados.copy(modalidad = modalidadEnum, modalidadOtra = null)
+                } else {
+                    // No matcheó ningún enum: lo guardamos como texto libre.
+                    datosActualizados.copy(modalidad = null, modalidadOtra = entity.valor)
+                }
+            }
             CampoParte.CANAS -> extractionResult.entidadesDetectadas.firstOrNull { it.tipo == "NUMERO_CANAS" }?.let { datosActualizados = datosActualizados.copy(numeroCanas = it.valor.toIntOrNull() ?: 0) }
             CampoParte.UBICACION -> {
                 extractionResult.entidadesDetectadas.forEach {
@@ -117,9 +127,13 @@ class ParteLogicUseCase(
         // Si marcó "sin capturas", damos la sección de especies por completada
         val estadoEspecies = if (datos.sinCapturas || datos.especiesCapturadas.isNotEmpty()) "completado" else null
 
+        // La modalidad se considera completa si hay un enum estándar O un texto
+        // libre cargado vía "Otra".
+        val modalidadResuelta = datos.modalidadOtra ?: datos.modalidad?.displayName
+
         val camposObligatorios = listOf(
             "fecha" to datos.fecha,
-            "modalidad" to datos.modalidad?.displayName,
+            "modalidad" to modalidadResuelta,
             "especies" to estadoEspecies
         )
 
@@ -158,7 +172,7 @@ class ParteLogicUseCase(
             progreso.camposFaltantes.take(2).forEach { campo ->
                 val pregunta = when (campo.lowercase()) {
                     "fecha" -> "• ¿Qué día saliste a pescar?"
-                    "modalidad" -> "• ¿Pescaste de costa o embarcado?"
+                    "modalidad" -> "• ¿Cómo pescaste? Costa, embarcado, con red, submarina (de costa o embarcado), u otra modalidad."
                     "especies" -> "• ¿Qué especies lograste capturar?"
                     "ubicacion", "nombrelugar" -> "• ¿En qué lugar o playa estuviste?"
                     "horarios" -> "• ¿En qué horario estuviste pescando?"
@@ -184,7 +198,7 @@ class ParteLogicUseCase(
 • **Cuándo:** "Ayer de mañana" o "El sábado"
 • **Dónde:** "En el río Paraná" o "Playa tal"
 • **Qué pescaste:** "Dos surubíes" o "Me fui zapatero"
-• **Cómo:** "Desde costa" o "Embarcado"
+• **Cómo:** "Desde costa", "Embarcado", "Con red", "Submarina costa" o "Submarina embarcado"
             """.trimIndent()
         }
 

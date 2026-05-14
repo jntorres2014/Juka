@@ -36,14 +36,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.juka.domain.model.ChatMode
-import com.example.juka.domain.model.ParteSessionChat
+import com.example.juka.domain.model.ParteEnProgreso
 import com.google.firebase.auth.FirebaseUser
 
 @Composable
 fun EnhancedChatHeader(
     user: FirebaseUser,
     currentMode: ChatMode,
-    parteSession: ParteSessionChat?,
+    parteData: ParteEnProgreso?,
     firebaseStatus: String?,
     onModeChange: (ChatMode) -> Unit,
     onCancelarParte: () -> Unit,
@@ -95,8 +95,8 @@ fun EnhancedChatHeader(
                     Text(
                         text = when (currentMode) {
                             ChatMode.GENERAL -> "Hola ${user.displayName?.split(" ")?.first() ?: "Pescador"} 🎣"
-                            ChatMode.CREAR_PARTE -> parteSession?.let {
-                                "Progreso: ${it.parteData.porcentajeCompletado}"
+                            ChatMode.CREAR_PARTE -> parteData?.let {
+                                "Progreso: ${it.porcentajeCompletado}"
                             } ?: "Iniciando nuevo parte..."
                         },
                         fontSize = 12.sp,

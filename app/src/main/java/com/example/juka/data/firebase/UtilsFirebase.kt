@@ -8,7 +8,6 @@ import com.example.juka.domain.model.ChatMessageWithMode
 import com.example.juka.domain.model.EspecieCapturada
 import com.example.juka.domain.usecase.FishingData
 import com.example.juka.domain.model.ParteEnProgreso
-import com.example.juka.domain.model.ParteSessionChat
 import com.google.firebase.Timestamp
 import java.text.SimpleDateFormat
 import java.util.*
@@ -224,12 +223,11 @@ object UtilsFirebase {
     }
 
     /**
-     * Extrae la transcripción de una sesión a partir de los mensajes del usuario.
+     * Extrae la transcripción a partir de la lista de mensajes del usuario en el chat de creación.
      */
-    fun extraerTranscripcionFromSession(session: ParteSessionChat): String {
+    fun extraerTranscripcion(messages: List<ChatMessageWithMode>): String {
         return try {
-            session.messages
-                .filterIsInstance<ChatMessageWithMode>()
+            messages
                 .filter { it.isFromUser }
                 .joinToString(" ") { it.content }
                 .take(500) // Limitar longitud para evitar datos excesivos
@@ -237,26 +235,6 @@ object UtilsFirebase {
             Log.e(TAG, "Error extrayendo transcripción: ${e.message}", e)
             ""
         }
-    }
-
-    /**
-     * Determina si una sesión y un parte están relacionados basándose en datos clave.
-     */
-    fun sonSesionYParteRelacionados(session: ParteSessionChat, parte: PartePesca): Boolean {
-        val parteData = session.parteData
-
-        val fechaCoincide = parteData.fecha == parte.fecha
-        val cantidadCoincide = parteData.especiesCapturadas.sumOf { it.numeroEjemplares } == parte.cantidadTotal
-        val horaCoincide = parteData.horaInicio == parte.horaInicio || parteData.horaFin == parte.horaFin
-
-        val transcripcionSimilar = if (!parte.transcripcionOriginal.isNullOrBlank()) {
-            val transcripcionSession = session.messages
-                .filter { it.isFromUser }
-                .joinToString(" ") { it.content }
-            transcripcionSession.take(100) in (parte.transcripcionOriginal ?: "")
-        } else false
-
-        return fechaCoincide && (cantidadCoincide || horaCoincide || transcripcionSimilar)
     }
 
     /**
@@ -288,13 +266,8 @@ object UtilsFirebase {
             horaInicio = data.startTime,
             horaFin = data.endTime,
             duracionHoras = duracion,
-            //peces = peces,
             peces = especiesDetectadas.map { pez ->
-                Captura(
-                    especie = pez.especie,
-                    cantidad = pez.cantidad,
-                    pesoAproximado = 0.0 // Valor por defecto
-                )
+                Captura(especie = pez.especie, cantidad = pez.cantidad)
             },
             cantidadTotal = data.fishCount ?: 0,
             tipo = data.type,
