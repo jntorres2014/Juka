@@ -27,6 +27,46 @@ interface ChatMessageDao {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// NOTIFICACIONES — historial local de notificaciones que vio el usuario.
+// Incluye pushes FCM recibidos en foreground y logros desbloqueados.
+// La "campanita" del header lee de acá.
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Entity(tableName = "notificaciones")
+data class NotificacionEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val titulo: String,
+    val cuerpo: String,
+    /** ms epoch del momento en que llegó/se generó. Para ordenar y mostrar "hace X". */
+    val timestamp: Long,
+    /** false cuando aparece nueva; true cuando el usuario abre la pantalla. */
+    val leida: Boolean = false,
+    /** "FCM" | "LOGRO" | "SISTEMA" — para mostrar ícono distinto en la lista. */
+    val origen: String = "SISTEMA"
+)
+
+@Dao
+interface NotificacionDao {
+    @Query("SELECT * FROM notificaciones ORDER BY timestamp DESC")
+    suspend fun getAll(): List<NotificacionEntity>
+
+    @Query("SELECT COUNT(*) FROM notificaciones WHERE leida = 0")
+    suspend fun countUnread(): Int
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(notificacion: NotificacionEntity): Long
+
+    @Query("UPDATE notificaciones SET leida = 1")
+    suspend fun markAllRead()
+
+    @Query("DELETE FROM notificaciones WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
+    @Query("DELETE FROM notificaciones")
+    suspend fun deleteAll()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // BORRADORES DE PARTE — múltiples partes a medio cargar persistidos local
 // para que el usuario pueda volver a cualquiera, retomarlos y enviarlos
 // cuando vuelva a tener señal.
@@ -71,24 +111,29 @@ interface BorradorParteDao {
 
 // 3. LA BASE DE DATOS (El cerebro)
 @Database(
-    entities = [ChatMessageEntity::class, BorradorParteEntity::class],
-    version = 2,
+    entities = [
+        ChatMessageEntity::class,
+        BorradorParteEntity::class,
+        NotificacionEntity::class
+    ],
+    version = 3,
     exportSchema = false
 )
-abstract class JukaRoomDatabase : RoomDatabase() {
+abstract class HukaRoomDatabase : RoomDatabase() {
 
     abstract fun chatDao(): ChatMessageDao
     abstract fun borradorDao(): BorradorParteDao
+    abstract fun notificacionDao(): NotificacionDao
 
     companion object {
         @Volatile
-        private var INSTANCE: JukaRoomDatabase? = null
+        private var INSTANCE: HukaRoomDatabase? = null
 
-        fun getDatabase(context: Context): JukaRoomDatabase {
+        fun getDatabase(context: Context): HukaRoomDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
-                    JukaRoomDatabase::class.java,
+                    HukaRoomDatabase::class.java,
                     "juka_chat_database"
                 )
                     // En dev usamos destructive: si bumpeamos versión, se borran

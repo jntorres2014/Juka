@@ -1,6 +1,8 @@
 package com.example.juka.auth
 
+import android.widget.Toast
 import androidx.compose.foundation.clickable
+import com.example.juka.HukaApplication
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -23,7 +25,8 @@ import coil.compose.AsyncImage
 import com.example.juka.data.Achievement
 import com.example.juka.data.AchievementsViewModel
 import com.example.juka.data.AuthManager
-import com.example.juka.navigation.JukaAppWithUser
+import com.example.juka.navigation.HukaAppWithUser
+import com.example.juka.service.HukaNotifications
 import com.example.juka.ui.theme.logros.AchievementItem
 import com.example.juka.ui.theme.logros.AchievementItemCompact
 import com.google.firebase.auth.FirebaseUser
@@ -512,6 +515,44 @@ fun SimpleProfileScreen(
                     }
 
                     Spacer(modifier = Modifier.height(24.dp))
+
+                    // 🔔 BOTÓN PROBAR NOTIFICACIÓN
+                    // Dispara una notificación local directa para verificar
+                    // canal + permiso POST_NOTIFICATIONS + ícono. Si el
+                    // usuario no ve nada al tocarlo, hay que revisar:
+                    //   (a) Permiso de notificaciones (Ajustes → Apps → Huka),
+                    //   (b) Canal "huka_channel" habilitado,
+                    //   (c) Modo "No molestar" del dispositivo.
+                    OutlinedButton(
+                        onClick = {
+                            val titulo = "🎣 Notificación de prueba"
+                            val cuerpo = "Si ves esto, las notificaciones de Huka funcionan correctamente."
+                            val ok = HukaNotifications.mostrar(
+                                context = context,
+                                titulo = titulo,
+                                cuerpo = cuerpo
+                            )
+                            if (!ok) {
+                                Toast.makeText(
+                                    context,
+                                    "No se pudo mostrar. Habilitá las notificaciones de Huka en Ajustes.",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                            // Persistir también en la campanita para verificar el flujo end-to-end.
+                            val storage = (context.applicationContext as HukaApplication).localStorageHelper
+                            coroutineScope.launch {
+                                storage.guardarNotificacion(titulo, cuerpo, origen = "SISTEMA")
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Notifications, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Probar notificación")
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     // ✅ BOTÓN DE CERRAR SESIÓN
                     Button(

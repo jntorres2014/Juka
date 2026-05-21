@@ -14,6 +14,29 @@ import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeoutOrNull
+
+private const val OP_TIMEOUT_MS = 12_000L
+
+/**
+ * Envuelve una operación de Firestore con timeout y devuelve un Result
+ * con mensaje claro según el caso. Centraliza el manejo para no repetir
+ * en cada función.
+ */
+private suspend fun <T> withFirestoreTimeout(
+    block: suspend () -> T
+): Result<T> {
+    val out = try {
+        withTimeoutOrNull(OP_TIMEOUT_MS) { block() }
+    } catch (e: Exception) {
+        return Result.failure(Exception("Error de red: ${e.localizedMessage}"))
+    }
+    return if (out == null) {
+        Result.failure(Exception("Sin conexión o red muy lenta. Probá de nuevo."))
+    } else {
+        Result.success(out)
+    }
+}
 
 class TorneosFirebase {
 
@@ -41,7 +64,13 @@ class TorneosFirebase {
                 codigoInvitacion = codigo,
                 creadoEn = Timestamp.now()
             )
-            docRef.set(torneoFinal).await()
+            val ok = withTimeoutOrNull(OP_TIMEOUT_MS) {
+                docRef.set(torneoFinal).await()
+                true
+            }
+            if (ok != true) {
+                return Result.failure(Exception("Sin conexión o red lenta. Probá de nuevo."))
+            }
             Log.i(TAG, "✅ Torneo creado: ${docRef.id} — código: $codigo")
             Result.success(docRef.id)
         } catch (e: Exception) {
@@ -54,9 +83,11 @@ class TorneosFirebase {
 
     suspend fun buscarTorneoPorCodigo(codigo: String): Result<Torneo?> {
         return try {
-            val snapshot = firestore.collection(COL_TORNEOS)
-                .whereEqualTo("codigoInvitacion", codigo.trim().uppercase())
-                .limit(1).get().await()
+            val snapshot = withTimeoutOrNull(OP_TIMEOUT_MS) {
+                firestore.collection(COL_TORNEOS)
+                    .whereEqualTo("codigoInvitacion", codigo.trim().uppercase())
+                    .limit(1).get().await()
+            } ?: return Result.failure(Exception("Sin conexión. No pudimos buscar el torneo."))
             Result.success(snapshot.documents.firstOrNull()?.toObject(Torneo::class.java))
         } catch (e: Exception) {
             Log.e(TAG, "Error buscando torneo: ${e.message}")
@@ -72,16 +103,21 @@ class TorneosFirebase {
             val ref = firestore.collection(COL_TORNEOS).document(torneoId)
                 .collection(COL_PARTICIPANTES).document(user.uid)
 
-            if (ref.get().await().exists())
-                return Result.failure(Exception("Ya tenés una solicitud para este torneo"))
+            val existe = withTimeoutOrNull(OP_TIMEOUT_MS) { ref.get().await().exists() }
+                ?: return Result.failure(Exception("Sin conexión. Probá de nuevo."))
+            if (existe) return Result.failure(Exception("Ya tenés una solicitud para este torneo"))
 
-            ref.set(ParticipanteTorneo(
-                userId = user.uid,
-                userName = user.displayName ?: "Pescador",
-                userPhoto = user.photoUrl?.toString() ?: "",
-                estado = EstadoParticipante.PENDIENTE.name,
-                solicitadoEn = Timestamp.now()
-            )).await()
+            val ok = withTimeoutOrNull(OP_TIMEOUT_MS) {
+                ref.set(ParticipanteTorneo(
+                    userId = user.uid,
+                    userName = user.displayName ?: "Pescador",
+                    userPhoto = user.photoUrl?.toString() ?: "",
+                    estado = EstadoParticipante.PENDIENTE.name,
+                    solicitadoEn = Timestamp.now()
+                )).await()
+                true
+            }
+            if (ok != true) return Result.failure(Exception("Sin conexión. La solicitud no se envió."))
 
             Result.success(Unit)
         } catch (e: Exception) {
@@ -94,10 +130,14 @@ class TorneosFirebase {
 
     suspend fun responderSolicitud(torneoId: String, participanteId: String, aceptar: Boolean): Result<Unit> {
         return try {
-            firestore.collection(COL_TORNEOS).document(torneoId)
-                .collection(COL_PARTICIPANTES).document(participanteId)
-                .update("estado", if (aceptar) EstadoParticipante.ACEPTADO.name else EstadoParticipante.RECHAZADO.name, "respondidoEn", Timestamp.now())
-                .await()
+            val ok = withTimeoutOrNull(OP_TIMEOUT_MS) {
+                firestore.collection(COL_TORNEOS).document(torneoId)
+                    .collection(COL_PARTICIPANTES).document(participanteId)
+                    .update("estado", if (aceptar) EstadoParticipante.ACEPTADO.name else EstadoParticipante.RECHAZADO.name, "respondidoEn", Timestamp.now())
+                    .await()
+                true
+            }
+            if (ok != true) return Result.failure(Exception("Sin conexión. La respuesta no se envió."))
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Error respondiendo solicitud: ${e.message}")
@@ -130,10 +170,14 @@ class TorneosFirebase {
                 creadoEn = Timestamp.now()
             )
 
-            // Guardar el parte en la subcolección
-            firestore.collection(COL_TORNEOS).document(torneoId)
-                .collection(COL_PARTES).document(parteId)
-                .set(parteTorneo).await()
+            // Guardar el parte en la subcolección (con timeout)
+            val ok = withTimeoutOrNull(OP_TIMEOUT_MS) {
+                firestore.collection(COL_TORNEOS).document(torneoId)
+                    .collection(COL_PARTES).document(parteId)
+                    .set(parteTorneo).await()
+                true
+            }
+            if (ok != true) return Result.failure(Exception("Sin conexión. El parte no se sumó al torneo."))
 
             // Sumar puntaje al participante
             actualizarPuntaje(torneoId, puntaje, parteId)
@@ -153,34 +197,36 @@ class TorneosFirebase {
             val parteRef = firestore.collection(COL_TORNEOS).document(torneoId)
                 .collection(COL_PARTES).document(parteId)
 
-            val parteSnap = parteRef.get().await()
-            val parte = parteSnap.toObject(ParteTorneo::class.java)
-                ?: return Result.failure(Exception("Parte no encontrado"))
+            // Toda la operación bajo timeout — son 3 round-trips a Firestore.
+            val ok = withTimeoutOrNull(OP_TIMEOUT_MS) {
+                val parteSnap = parteRef.get().await()
+                val parte = parteSnap.toObject(ParteTorneo::class.java)
+                    ?: return@withTimeoutOrNull "not-found"
 
+                parteRef.update(
+                    "estado", EstadoParteTorneo.RECHAZADO.name,
+                    "motivoRechazo", motivo
+                ).await()
 
+                val participanteRef = firestore.collection(COL_TORNEOS).document(torneoId)
+                    .collection(COL_PARTICIPANTES).document(parte.userId)
 
-            // Marcar parte como rechazado
-            parteRef.update(
-                "estado", EstadoParteTorneo.RECHAZADO.name,
-                "motivoRechazo", motivo
-            ).await()
+                firestore.runTransaction { transaction ->
+                    val snap = transaction.get(participanteRef)
+                    val puntajeActual = (snap.getLong("puntaje") ?: 0).toInt()
+                    val nuevoPuntaje = maxOf(0, puntajeActual - parte.puntaje)
+                    val partesActuales = (snap.get("parteIds") as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+                    transaction.update(participanteRef,
+                        "puntaje", nuevoPuntaje,
+                        "parteIds", partesActuales - parteId
+                    )
+                }.await()
+                "ok-${parte.puntaje}"
+            } ?: return Result.failure(Exception("Sin conexión. El rechazo no se aplicó."))
 
-            // Restar puntaje al participante
-            val participanteRef = firestore.collection(COL_TORNEOS).document(torneoId)
-                .collection(COL_PARTICIPANTES).document(parte.userId)
+            if (ok == "not-found") return Result.failure(Exception("Parte no encontrado"))
 
-            firestore.runTransaction { transaction ->
-                val snap = transaction.get(participanteRef)
-                val puntajeActual = (snap.getLong("puntaje") ?: 0).toInt()
-                val nuevoPuntaje = maxOf(0, puntajeActual - parte.puntaje)
-                val partesActuales = (snap.get("parteIds") as? List<*>)?.filterIsInstance<String>() ?: emptyList()
-                transaction.update(participanteRef,
-                    "puntaje", nuevoPuntaje,
-                    "parteIds", partesActuales - parteId
-                )
-            }.await()
-
-            Log.i(TAG, "✅ Parte rechazado: $parteId — -${parte.puntaje} pts")
+            Log.i(TAG, "✅ Parte rechazado: $parteId")
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Error rechazando parte: ${e.message}")
@@ -195,9 +241,13 @@ class TorneosFirebase {
             val userId = auth.currentUser?.uid ?: return Result.failure(Exception("No autenticado"))
             val resultado = mutableListOf<TorneoConParticipantes>()
 
-            // Torneos donde soy creador
-            val comoCreador = firestore.collection(COL_TORNEOS)
-                .whereEqualTo("creatorId", userId).get().await()
+            // Timeout generoso porque internamente hay 1 query + 2 queries
+            // por torneo donde participás. Si pasa el timeout, devolvemos
+            // lista vacía para que la pantalla no quede colgada.
+            val comoCreador = withTimeoutOrNull(OP_TIMEOUT_MS) {
+                firestore.collection(COL_TORNEOS)
+                    .whereEqualTo("creatorId", userId).get().await()
+            } ?: return Result.failure(Exception("Sin conexión. No pudimos cargar tus torneos."))
 
             comoCreador.documents.forEach { doc ->
                 val torneo = doc.toObject(Torneo::class.java)?.copy(id = doc.id) ?: return@forEach

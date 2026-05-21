@@ -6,6 +6,8 @@ import com.example.juka.data.local.room.BorradorParteDao
 import com.example.juka.data.local.room.BorradorParteEntity
 import com.example.juka.data.local.room.ChatMessageDao
 import com.example.juka.data.local.room.ChatMessageEntity
+import com.example.juka.data.local.room.NotificacionDao
+import com.example.juka.data.local.room.NotificacionEntity
 import com.example.juka.domain.model.ChatMessageWithMode
 import com.example.juka.domain.model.ChatMode
 import com.example.juka.domain.model.ParteEnProgreso
@@ -36,7 +38,8 @@ data class BorradorMeta(
 class LocalStorageHelper(
     private val context: Context,
     private val chatDao: ChatMessageDao,
-    private val borradorDao: BorradorParteDao
+    private val borradorDao: BorradorParteDao,
+    private val notificacionDao: NotificacionDao
 ) {
 
     // Herramientas
@@ -44,7 +47,7 @@ class LocalStorageHelper(
 
     // SharedPreferences para datos pequeños y rápidos
     private val sharedPreferences: SharedPreferences by lazy {
-        context.getSharedPreferences("JukaPreferences", Context.MODE_PRIVATE)
+        context.getSharedPreferences("HukaPreferences", Context.MODE_PRIVATE)
     }
 
     // ==========================================
@@ -194,6 +197,61 @@ class LocalStorageHelper(
     /** Cantidad de borradores pendientes (no requiere parsear los JSON). */
     suspend fun countBorradores(): Int = withContext(Dispatchers.IO) {
         try { borradorDao.count() } catch (e: Exception) { 0 }
+    }
+
+    // ==========================================
+    // 🔔 SECCIÓN 5: NOTIFICACIONES (Room, historial local)
+    // ==========================================
+    //
+    // Persiste las notificaciones que vio el usuario para que pueda
+    // consultarlas en la "campanita" del header. Incluye pushes FCM
+    // recibidos en foreground y logros desbloqueados.
+
+    /** Registra una notificación nueva. Devuelve el id generado. */
+    suspend fun guardarNotificacion(
+        titulo: String,
+        cuerpo: String,
+        origen: String = "SISTEMA"
+    ): Long = withContext(Dispatchers.IO) {
+        try {
+            notificacionDao.insert(
+                NotificacionEntity(
+                    titulo = titulo,
+                    cuerpo = cuerpo,
+                    timestamp = System.currentTimeMillis(),
+                    leida = false,
+                    origen = origen
+                )
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+            -1L
+        }
+    }
+
+    /** Lista todas las notificaciones, más recientes primero. */
+    suspend fun getNotificaciones(): List<NotificacionEntity> = withContext(Dispatchers.IO) {
+        try { notificacionDao.getAll() } catch (e: Exception) { emptyList() }
+    }
+
+    /** Conteo de no-leídas (para el badge de la campana). */
+    suspend fun countUnreadNotificaciones(): Int = withContext(Dispatchers.IO) {
+        try { notificacionDao.countUnread() } catch (e: Exception) { 0 }
+    }
+
+    /** Marca todas como leídas — se llama al abrir la pantalla de notificaciones. */
+    suspend fun markAllNotificacionesAsRead() = withContext(Dispatchers.IO) {
+        try { notificacionDao.markAllRead() } catch (e: Exception) { e.printStackTrace() }
+    }
+
+    /** Borra una notificación puntual (swipe). */
+    suspend fun deleteNotificacion(id: Long) = withContext(Dispatchers.IO) {
+        try { notificacionDao.deleteById(id) } catch (e: Exception) { e.printStackTrace() }
+    }
+
+    /** Borra todo el historial (útil para "limpiar" desde la UI). */
+    suspend fun deleteAllNotificaciones() = withContext(Dispatchers.IO) {
+        try { notificacionDao.deleteAll() } catch (e: Exception) { e.printStackTrace() }
     }
 
     // ==========================================

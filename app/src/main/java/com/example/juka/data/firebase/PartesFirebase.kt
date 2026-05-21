@@ -14,6 +14,7 @@ import com.google.firebase.Timestamp
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeoutOrNull
 
 class PartesFirebase(private val manager: FirebaseManager) {
     private val TAG = "${Constants.Firebase.TAG} - Partes"
@@ -74,9 +75,16 @@ class PartesFirebase(private val manager: FirebaseManager) {
             )
 
             val partePath = "$PARTES_COLLECTION/$userId/$SUBCOLLECTION_PARTES/$parteId"
-            manager.firestore.document(partePath)
-                .set(parte, SetOptions.merge())
-                .await()
+            val ok = withTimeoutOrNull(15_000) {
+                manager.firestore.document(partePath)
+                    .set(parte, SetOptions.merge())
+                    .await()
+                true
+            }
+            if (ok != true) {
+                Log.w(TAG, "⏳ Timeout o sin red guardando parte $parteId")
+                return FirebaseResult.Error("Sin conexión o red lenta. El parte no se subió.")
+            }
 
             Log.i(TAG, "✅ Parte completado guardado: $parteId")
             FirebaseResult.Success
@@ -148,7 +156,14 @@ class PartesFirebase(private val manager: FirebaseManager) {
                 .orderBy("timestamp", Query.Direction.DESCENDING)
                 .limit(limite.toLong())
 
-            val snapshot = query.get().await()
+            // Timeout: si no hay red, devolvemos lista vacía para que la
+            // pantalla de "Mis Reportes" salga del spinner y muestre el
+            // empty state en lugar de quedar girando.
+            val snapshot = withTimeoutOrNull(12_000) { query.get().await() }
+                ?: run {
+                    Log.w(TAG, "⏳ Timeout/sin red obteniendo partes")
+                    return emptyList()
+                }
             val partes = snapshot.documents.mapNotNull { document ->
                 try {
                     document.toObject(PartePesca::class.java)?.copy(id = document.id)

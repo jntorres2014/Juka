@@ -134,7 +134,7 @@ class AchievementsViewModel : ViewModel() {
             // === INICIACIÓN ===
             "mi_primer_parte" -> Pair(
                 "Mi Primer Parte",
-                "¡Bienvenido a Juka! Creaste tu primer reporte de pesca"
+                "¡Bienvenido a Huka! Creaste tu primer reporte de pesca"
             )
 
             // === ESTACIONALES ===
@@ -309,7 +309,7 @@ class AchievementsViewModel : ViewModel() {
                     action = Intent.ACTION_SEND
                     type = "image/*"
                     //putExtra(Intent.EXTRA_STREAM, imageUri)
-                    putExtra(Intent.EXTRA_TEXT, "¡Mira mi logro en Juka! 🎣\n${achievement.title}")
+                    putExtra(Intent.EXTRA_TEXT, "¡Mira mi logro en Huka! 🎣\n${achievement.title}")
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
                 context.startActivity(Intent.createChooser(shareIntent, "Compartir logro"))
@@ -325,7 +325,7 @@ class AchievementsViewModel : ViewModel() {
             type = "text/plain"
             putExtra(
                 Intent.EXTRA_TEXT,
-                "¡Mira mi nueva estampita en Juka! 🎣\n\n" +
+                "¡Mira mi nueva estampita en Huka! 🎣\n\n" +
                         "🏆 *${achievement.title}*\n" +
                         "_${achievement.description}_\n\n" +
                         "Descargá la app y vení a pescar!"
@@ -377,7 +377,23 @@ class AchievementsViewModel : ViewModel() {
                                 )
                             }
                         }
+                        .addOnFailureListener { e ->
+                            // Sin red: el logro NO queda en Firestore. Lo
+                            // registramos para que el próximo check vuelva
+                            // a intentarlo (AchievementsChecker se llama
+                            // cada vez que se guarda un parte).
+                            android.util.Log.w(
+                                "Achievements",
+                                "⚠️ No se pudo persistir logro $achievementId (sin red?): ${e.message}"
+                            )
+                        }
                 }
+            }
+            .addOnFailureListener { e ->
+                android.util.Log.w(
+                    "Achievements",
+                    "⚠️ No se pudo verificar logro $achievementId (sin red?): ${e.message}"
+                )
             }
     }
 }

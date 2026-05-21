@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeoutOrNull
 
 sealed class AuthState {
     object Loading : AuthState()
@@ -184,26 +185,43 @@ class AuthManager(private val context: Context) {
             Log.d(TAG, "🔥 Autenticando con Firebase...")
 
             val credential = GoogleAuthProvider.getCredential(account.idToken, null)
-            val authResult = auth.signInWithCredential(credential).await()
+            // Timeout: si la red está muy mala, queremos fallar limpio en
+            // 15s en lugar de dejar el spinner colgado indefinidamente.
+            val authResult = withTimeoutOrNull(15_000) {
+                auth.signInWithCredential(credential).await()
+            } ?: run {
+                val msg = "Sin conexión o red muy lenta. Probá de nuevo cuando tengas mejor señal."
+                val errorState = AuthState.Error(msg)
+                _authState.value = errorState
+                return errorState
+            }
 
             val user = authResult.user
             if (user != null) {
                 Log.i(TAG, "🎉 Login exitoso: ${user.displayName}")
 
+                // Pasos secundarios (Firestore + FCM) son "best effort" —
+                // si fallan, el usuario igual queda autenticado.
                 try {
-                    val userDoc = db.collection("users").document(user.uid).get().await()
-                    var surveyCompleted = userDoc.getBoolean("surveyCompleted") ?: false
+                    val userDoc = withTimeoutOrNull(8_000) {
+                        db.collection("users").document(user.uid).get().await()
+                    }
+                    var surveyCompleted = userDoc?.getBoolean("surveyCompleted") ?: false
 
-                    if (!userDoc.exists()) {
-                        db.collection("users").document(user.uid)
-                            .set(mapOf("surveyCompleted" to true)).await()
+                    if (userDoc != null && !userDoc.exists()) {
+                        withTimeoutOrNull(5_000) {
+                            db.collection("users").document(user.uid)
+                                .set(mapOf("surveyCompleted" to true)).await()
+                        }
                         surveyCompleted = true
                     }
-                    com.google.firebase.messaging.FirebaseMessaging.getInstance().token.await()?.let { token ->
-                        db.collection("users").document(user.uid)
-                            .update("fcmToken", token)
-                            .await()
-                        Log.d(TAG, "✅ Token FCM guardado")
+                    withTimeoutOrNull(5_000) {
+                        com.google.firebase.messaging.FirebaseMessaging.getInstance().token.await()?.let { token ->
+                            db.collection("users").document(user.uid)
+                                .update("fcmToken", token)
+                                .await()
+                            Log.d(TAG, "✅ Token FCM guardado")
+                        }
                     }
                     val authState = AuthState.Authenticated(user, surveyCompleted)
                     _authState.value = authState
@@ -222,7 +240,7 @@ class AuthManager(private val context: Context) {
 
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error Firebase: ${e.message}")
-            val errorState = AuthState.Error("Error Firebase: ${e.message}")
+            val errorState = AuthState.Error("Error de conexión: ${e.message}")
             _authState.value = errorState
             errorState
         }
@@ -288,22 +306,32 @@ class AuthManager(private val context: Context) {
                 "versionApp" to "1.0.0"
             )
 
-            // Guardar encuesta en subcolección
-            db.collection("users")
-                .document(user.uid)
-                .collection("encuestas")
-                .document("respuestas")
-                .set(encuestaData)
-                .await()
+            // Guardar encuesta + marcar usuario, con timeout para que el
+            // botón "Enviar encuesta" no quede esperando para siempre si no
+            // hay señal. Si falla, devolvemos false y el caller decide UX
+            // (toast/retry/etc.).
+            val ok = withTimeoutOrNull(15_000) {
+                db.collection("users")
+                    .document(user.uid)
+                    .collection("encuestas")
+                    .document("respuestas")
+                    .set(encuestaData)
+                    .await()
 
-            // Marcar usuario como encuesta completada
-            db.collection("users")
-                .document(user.uid)
-                .update(
-                    "encuestaCompleta", true,
-                    "fechaEncuesta", FieldValue.serverTimestamp()
-                )
-                .await()
+                db.collection("users")
+                    .document(user.uid)
+                    .update(
+                        "encuestaCompleta", true,
+                        "fechaEncuesta", FieldValue.serverTimestamp()
+                    )
+                    .await()
+                true
+            }
+
+            if (ok != true) {
+                Log.w(TAG, "⚠️ Encuesta no se pudo guardar (timeout/sin red)")
+                return false
+            }
 
             // Actualizar estado de autenticación
             _authState.value = AuthState.Authenticated(user, true)

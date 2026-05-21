@@ -2,6 +2,7 @@ import android.util.Log
 import com.example.juka.data.remote.GeminiPescaService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 class GeminiChatService {
     private val geminiService = GeminiPescaService()
@@ -17,10 +18,24 @@ class GeminiChatService {
         try {
             Log.d(TAG, "Procesando mensaje: $message")
 
-            // Llamar a Gemini
-            val response = geminiService.obtenerConsejoPesca(
-                pregunta = message,
-                contexto = null // Por ahora sin contexto
+            // Timeout duro: Gemini es lento de por sí, pero si pasa 30s
+            // asumimos que es la red. Mejor avisar que dejar al usuario
+            // viendo el indicador de "typing" eternamente.
+            val response = withTimeoutOrNull(30_000) {
+                geminiService.obtenerConsejoPesca(
+                    pregunta = message,
+                    contexto = null
+                )
+            } ?: return@withContext ChatResult.Error(
+                """
+                    ⏱️ **La respuesta está demorando demasiado**
+
+                    Puede ser que estés con poca señal o que el servidor esté lento.
+                    Probá de nuevo en unos segundos.
+
+                    Esta consulta no se descontó.
+                """.trimIndent(),
+                shouldConsumeQuota = false
             )
 
             ChatResult.Success(response)

@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.juka.domain.model.ChatMode
 import com.example.juka.domain.model.ParteEnProgreso
+import com.example.juka.ui.notificaciones.CampanaIcon
 import com.google.firebase.auth.FirebaseUser
 
 @Composable
@@ -49,7 +50,9 @@ fun EnhancedChatHeader(
     onCancelarParte: () -> Unit,
     onInfoClick: () -> Unit,
     showMenuButton: Boolean = false,
-    onMenuClick: () -> Unit = {}
+    onMenuClick: () -> Unit = {},
+    onOpenDrawer: () -> Unit = {},
+    onOpenNotificaciones: () -> Unit = {}
 ) {
     Surface(
         shadowElevation = 4.dp,
@@ -68,6 +71,20 @@ fun EnhancedChatHeader(
             ) {
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Ícono ☰ para abrir el drawer global (visible siempre).
+                        // Tap → abre el menú lateral con todas las features.
+                        IconButton(
+                            onClick = onOpenDrawer,
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Menu,
+                                contentDescription = "Abrir menú",
+                                tint = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+
                         // Icono del modo
                         Icon(
                             when (currentMode) {
@@ -147,6 +164,13 @@ fun EnhancedChatHeader(
                             )
                         }
                     }
+
+                    // 🔔 Campana con badge — tap abre la pantalla de notificaciones.
+                    // En el chat el ícono va blanco porque el header tiene fondo verde.
+                    CampanaIcon(
+                        onClick = onOpenNotificaciones,
+                        tint = MaterialTheme.colorScheme.onPrimary
+                    )
 
                     // Botón de info
                     IconButton(onClick = onInfoClick) {

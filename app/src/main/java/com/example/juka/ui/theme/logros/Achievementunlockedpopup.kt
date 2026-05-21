@@ -29,7 +29,7 @@ import kotlinx.coroutines.delay
  * Popup que aparece en la parte INFERIOR de la pantalla cuando se desbloquea un logro.
  * Se muestra automáticamente y desaparece a los 4 segundos.
  *
- * Uso en JukaAppWithUser.kt:
+ * Uso en HukaAppWithUser.kt:
  *   AchievementUnlockedPopup(achievement = achievement, onDismiss = { ... })
  */
 @Composable

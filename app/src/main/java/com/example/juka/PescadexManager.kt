@@ -3,16 +3,26 @@ package com.example.juka
 
 import android.content.Context
 import com.google.firebase.Timestamp
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.tasks.await
 import android.provider.Settings
 
 class PescadexManager(private val context: Context) {
-    
+
     private val firestore = FirebaseFirestore.getInstance()
-    private val deviceId = getDeviceId()
-    
+    private val auth = FirebaseAuth.getInstance()
+
+    /**
+     * Identificador del Pescadex en Firestore. Hoy usamos el UID de Firebase
+     * Auth para que el Pescadex viaje con la cuenta (no con el celular).
+     * Si por alguna razón no hay usuario autenticado caemos al deviceId
+     * legacy como fallback — esto solo aplica en escenarios degradados.
+     */
+    private val pescadexId: String
+        get() = auth.currentUser?.uid ?: getDeviceId()
+
     companion object {
         private const val TAG = "🐟 PescadexManager"
         private const val COLLECTION_PESCADEX = "pescadex_usuarios"
@@ -85,7 +95,7 @@ class PescadexManager(private val context: Context) {
             )
             
             // Guardar en Firebase
-            firestore.document("$COLLECTION_PESCADEX/$deviceId")
+            firestore.document("$COLLECTION_PESCADEX/$pescadexId")
                 .set(pescadexActualizado, SetOptions.merge())
                 .await()
             
@@ -112,14 +122,14 @@ class PescadexManager(private val context: Context) {
      */
     suspend fun obtenerPescadexUsuario(): PescadexUsuario {
         return try {
-            val document = firestore.document("$COLLECTION_PESCADEX/$deviceId").get().await()
+            val document = firestore.document("$COLLECTION_PESCADEX/$pescadexId").get().await()
             
             if (document.exists()) {
                 document.toObject(PescadexUsuario::class.java) ?: crearPescadexNuevo()
             } else {
                 // Primera vez del usuario
                 val nuevaPescadex = crearPescadexNuevo()
-                firestore.document("$COLLECTION_PESCADEX/$deviceId")
+                firestore.document("$COLLECTION_PESCADEX/$pescadexId")
                     .set(nuevaPescadex)
                     .await()
                 nuevaPescadex
@@ -191,16 +201,32 @@ class PescadexManager(private val context: Context) {
         }
     }
     
+    /**
+     * Mapping del id legacy del Pescadex al id unificado en AchievementCatalog.
+     * Los achievements del Pescadex ahora viven en /users/{uid}/unlocked_achievements
+     * junto al resto, y aparecen en la pantalla "Mis Logros" con categoría ESPECIES.
+     */
+    private val LOGRO_TO_ACHIEVEMENT = mapOf(
+        "primer_pez" to "pescadex_primer_pez",
+        "explorador" to "pescadex_explorador",
+        "coleccionista" to "pescadex_coleccionista",
+        "especialista" to "pescadex_especialista",
+        "maestro" to "pescadex_maestro",
+        "cazador_raros" to "pescadex_cazador_raros",
+        "cazador_epicos" to "pescadex_cazador_epicos",
+        "completista" to "pescadex_completista"
+    )
+
     private suspend fun verificarLogros(pescadex: PescadexUsuario): List<LogroPescadex> {
         val logrosDesbloqueados = mutableListOf<LogroPescadex>()
         val especiesCount = pescadex.especiesDescubiertas.size
-        val tieneEspecieRara = pescadex.especiesDescubiertas.values.any { 
-            it.rareza in listOf("raro", "epico", "legendario") 
+        val tieneEspecieRara = pescadex.especiesDescubiertas.values.any {
+            it.rareza in listOf("raro", "epico", "legendario")
         }
-        val tieneEspecieEpica = pescadex.especiesDescubiertas.values.any { 
-            it.rareza in listOf("epico", "legendario") 
+        val tieneEspecieEpica = pescadex.especiesDescubiertas.values.any {
+            it.rareza in listOf("epico", "legendario")
         }
-        
+
         LOGROS_DISPONIBLES.forEach { logro ->
             val cumpleCondicion = when (logro.condicion) {
                 "primera_captura" -> especiesCount >= 1
@@ -213,34 +239,91 @@ class PescadexManager(private val context: Context) {
                 "especie_epica" -> tieneEspecieEpica
                 else -> false
             }
-            
+
             if (cumpleCondicion && !pescadex.logrosDesbloqueados.contains(logro.id)) {
                 logrosDesbloqueados.add(logro.copy(
                     desbloqueado = true,
                     fechaDesbloqueo = Timestamp.now()
                 ))
+
+                // Disparar también el achievement unificado en /users/{uid}/unlocked_achievements
+                // para que aparezca en la pantalla "Mis Logros" general.
+                val achievementId = LOGRO_TO_ACHIEVEMENT[logro.id]
+                if (achievementId != null) {
+                    try {
+                        val ref = firestore.collection("users")
+                            .document(auth.currentUser?.uid ?: return@forEach)
+                            .collection("unlocked_achievements")
+                            .document(achievementId)
+                        val doc = ref.get().await()
+                        if (!doc.exists()) {
+                            ref.set(mapOf("timestamp" to System.currentTimeMillis())).await()
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.w(TAG, "No se pudo persistir achievement $achievementId: ${e.message}")
+                    }
+                }
             }
         }
-        
-        // Actualizar logros en Firebase si hay nuevos
+
+        // Actualizar logros legacy del Pescadex (compat con pantalla actual del Pescadex)
         if (logrosDesbloqueados.isNotEmpty()) {
             val nuevosLogros = pescadex.logrosDesbloqueados + logrosDesbloqueados.map { it.id }
-            firestore.document("$COLLECTION_PESCADEX/$deviceId")
+            firestore.document("$COLLECTION_PESCADEX/$pescadexId")
                 .update("logros_desbloqueados", nuevosLogros)
                 .await()
         }
-        
+
         return logrosDesbloqueados
     }
     
     private fun crearPescadexNuevo(): PescadexUsuario {
         return PescadexUsuario(
-            deviceId = deviceId,
+            deviceId = pescadexId,  // legacy: el campo se llama deviceId pero hoy guarda el UID
             especiesDescubiertas = emptyMap(),
             fechaInicio = Timestamp.now(),
             ultimaActividad = Timestamp.now(),
             logrosDesbloqueados = emptyList()
         )
+    }
+
+    /**
+     * Auto-registro de las especies de un parte. Llamado desde el flujo
+     * de guardarParteCompletado: por cada especie del parte se intenta
+     * matchear con el catálogo `EspeciesArgentinas` por nombre normalizado;
+     * si hay match, se llama a `registrarEspecieCapturada`. Los nombres
+     * que no estén en el catálogo se descartan en silencio — el Pescadex
+     * es una colección curada de especies argentinas conocidas.
+     */
+    suspend fun registrarEspeciesDeParte(
+        nombresEspecies: List<String>,
+        locacion: String? = null,
+        fotoPath: String? = null
+    ): List<RegistroResult> {
+        val resultados = mutableListOf<RegistroResult>()
+        nombresEspecies.distinct().forEach { nombre ->
+            val id = matchearEspecie(nombre) ?: return@forEach
+            resultados.add(registrarEspecieCapturada(id, peso = null, locacion = locacion, fotoPath = fotoPath))
+        }
+        return resultados
+    }
+
+    /**
+     * Devuelve el id del catálogo correspondiente al nombre dado, o null
+     * si no hay coincidencia. Normaliza: lowercase, sin acentos, sin
+     * caracteres especiales, así "Pejerrey", "pejerrey" y "PEJERREY" matchean
+     * todos contra el id "pejerrey".
+     */
+    private fun matchearEspecie(nombre: String): String? {
+        val normalizado = nombre
+            .lowercase()
+            .replace("á", "a").replace("é", "e").replace("í", "i")
+            .replace("ó", "o").replace("ú", "u").replace("ñ", "n")
+            .trim()
+        // Match exacto contra los ids del catálogo (los ids ya están en minúsculas)
+        if (EspeciesArgentinas.especies.containsKey(normalizado)) return normalizado
+        // Match parcial: por ejemplo "dorado del paraná" contiene "dorado"
+        return EspeciesArgentinas.especies.keys.firstOrNull { id -> normalizado.contains(id) }
     }
     
     private fun getDeviceId(): String {

@@ -11,6 +11,7 @@ import com.example.juka.CampoParte
 import com.example.juka.FishDatabase
 import com.example.juka.FishInfo
 import com.example.juka.MLKitManager
+import com.example.juka.PescadexManager
 import com.example.juka.data.AchievementsViewModel
 import com.example.juka.data.ActionResult
 import com.example.juka.data.ChatBotActionHandler
@@ -20,6 +21,10 @@ import com.example.juka.data.firebase.FirebaseManager
 import com.example.juka.data.firebase.FirebaseResult
 import com.example.juka.data.local.BorradorMeta
 import com.example.juka.data.local.LocalStorageHelper
+import com.example.juka.data.network.IMAGE_UPLOAD_TIMEOUT_MS
+import com.example.juka.data.network.NetworkMonitor
+import com.example.juka.data.network.NetworkResult
+import com.example.juka.data.network.withNetworkTimeout
 import com.example.juka.domain.chat.ChatQuotaManager
 import com.example.juka.domain.model.ChatMessageWithMode
 import com.example.juka.domain.model.ChatMode
@@ -56,7 +61,9 @@ class EnhancedChatViewModel(
     private val imageHelper: com.example.juka.data.local.ImageHelper,
     private val storageService: com.example.juka.data.firebase.StorageService,
     val fishCounterManager: FishCounterManager,
-    val achievementsViewModel: AchievementsViewModel
+    val achievementsViewModel: AchievementsViewModel,
+    private val networkMonitor: NetworkMonitor,
+    private val pescadexManager: PescadexManager
 ) : ViewModel() {
 
     val quotaState = quotaManager.quotaState
@@ -766,15 +773,54 @@ class EnhancedChatViewModel(
             return
         }
 
+        // Chequeo upfront: si no hay red, no vale la pena ni intentar —
+        // vamos directo al borrador con mensaje claro. Esto evita el caso
+        // típico de quedar girando el spinner sin feedback.
+        if (!networkMonitor.isOnlineNow()) {
+            viewModelScope.launch {
+                guardarComoBorradorOffline(idActivo, parteActual, motivo = OfflineMotivo.SIN_SENAL)
+            }
+            return
+        }
+
         _firebaseStatus.value = "Intentando subir..."
         viewModelScope.launch {
+            _isSendingParte.value = true
             try {
-                _isSendingParte.value = true
-                val urlsRemotas = parteActual.imagenes.map { pathLocal ->
-                    if (pathLocal.startsWith("http")) pathLocal
-                    else {
-                        val url = storageService.subirImagen(pathLocal)
-                        url ?: throw Exception("No se pudo subir imagen (posiblemente sin señal)")
+                // 1. Subir imágenes con timeout por cada una. Mostramos
+                //    progreso para que el usuario vea que algo pasa.
+                val totalImgs = parteActual.imagenes.size
+                val urlsRemotas = mutableListOf<String>()
+                parteActual.imagenes.forEachIndexed { idx, pathLocal ->
+                    if (pathLocal.startsWith("http")) {
+                        urlsRemotas.add(pathLocal)
+                        return@forEachIndexed
+                    }
+                    if (totalImgs > 0) {
+                        _firebaseStatus.value = "Subiendo foto ${idx + 1}/$totalImgs..."
+                    }
+                    val res = withNetworkTimeout(
+                        monitor = networkMonitor,
+                        timeoutMillis = IMAGE_UPLOAD_TIMEOUT_MS
+                    ) { storageService.subirImagen(pathLocal) }
+
+                    when (res) {
+                        is NetworkResult.Success -> {
+                            val url = res.data ?: throw Exception("upload-null")
+                            urlsRemotas.add(url)
+                        }
+                        is NetworkResult.NoConnection -> {
+                            guardarComoBorradorOffline(idActivo, parteActual, OfflineMotivo.SIN_SENAL)
+                            return@launch
+                        }
+                        is NetworkResult.Timeout -> {
+                            guardarComoBorradorOffline(idActivo, parteActual, OfflineMotivo.TIMEOUT)
+                            return@launch
+                        }
+                        is NetworkResult.Error -> {
+                            guardarComoBorradorOffline(idActivo, parteActual, OfflineMotivo.ERROR)
+                            return@launch
+                        }
                     }
                 }
 
@@ -789,43 +835,110 @@ class EnhancedChatViewModel(
                 _firebaseStatus.value = "Sincronizando..."
                 val transcripcion = com.example.juka.data.firebase.UtilsFirebase
                     .extraerTranscripcion(_parteMessages.value)
-                val resultado = firebaseManager.guardarParteCompletado(datosFinales, transcripcion)
 
-                if (resultado is FirebaseResult.Success) {
-                    _firebaseStatus.value = "¡Subido!"
-                    val eventoId = java.util.UUID.randomUUID().toString()
-                    _parteSavedEvent.emit(Pair(eventoId, datosFinales))
-                    _isSendingParte.value = false
-                    addMessageToParteChat(ChatMessageWithMode(
-                        "🎉 **¡Parte enviado!**\n\nQuedó guardado en la nube. Gracias por sumar tu jornada. 🎣",
-                        false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE
-                    ))
-                    // Subió OK: borramos ESTE borrador específico, los otros
-                    // (si los hay) se mantienen para que el usuario los envíe.
-                    if (idActivo != null) localStorageHelper.deleteBorrador(idActivo)
-                    _borradorActivoId.value = null
-                    _parteData.value = null
-                    _parteMessages.value = emptyList()
-                    _borradoresPendientes.value = localStorageHelper.getAllBorradores()
-                    delay(2000)
-                    volverAChatGeneral()
-                } else {
-                    throw Exception("Error al guardar en Firestore")
+                // 2. Guardar el parte en Firestore con timeout.
+                val resPersist = withNetworkTimeout(networkMonitor) {
+                    firebaseManager.guardarParteCompletado(datosFinales, transcripcion)
                 }
-            } catch (e: Exception) {
-                // Sin señal o error remoto: dejamos este borrador en Room para
-                // que el usuario lo retome cuando tenga internet.
-                if (idActivo != null) {
-                    localStorageHelper.saveBorrador(idActivo, parteActual)
+
+                when (resPersist) {
+                    is NetworkResult.NoConnection -> {
+                        guardarComoBorradorOffline(idActivo, parteActual, OfflineMotivo.SIN_SENAL)
+                        return@launch
+                    }
+                    is NetworkResult.Timeout -> {
+                        guardarComoBorradorOffline(idActivo, parteActual, OfflineMotivo.TIMEOUT)
+                        return@launch
+                    }
+                    is NetworkResult.Error -> {
+                        guardarComoBorradorOffline(idActivo, parteActual, OfflineMotivo.ERROR)
+                        return@launch
+                    }
+                    is NetworkResult.Success -> {
+                        if (resPersist.data !is FirebaseResult.Success) {
+                            guardarComoBorradorOffline(idActivo, parteActual, OfflineMotivo.ERROR)
+                            return@launch
+                        }
+                    }
                 }
-                _firebaseStatus.value = "Guardado Localmente"
+
+                _firebaseStatus.value = "¡Subido!"
+                val eventoId = java.util.UUID.randomUUID().toString()
+                _parteSavedEvent.emit(Pair(eventoId, datosFinales))
+
+                // Auto-registro en Pescadex (best-effort, no bloquea el flujo)
+                try {
+                    pescadexManager.registrarEspeciesDeParte(
+                        nombresEspecies = datosFinales.especiesCapturadas.map { it.nombre },
+                        locacion = datosFinales.nombreLugar,
+                        fotoPath = datosFinales.imagenes.firstOrNull()
+                    )
+                } catch (e: Exception) {
+                    Log.w(TAG, "No se pudo actualizar Pescadex: ${e.message}")
+                }
+
                 _isSendingParte.value = false
                 addMessageToParteChat(ChatMessageWithMode(
-                    "📶 **Sin señal, pero no te preocupes.**\n\nGuardé tu parte y las fotos en este celular como **Borrador**.\nCuando tengas internet, podés volver y enviarlo, o seguir cargando otros partes.",
+                    "🎉 **¡Parte enviado!**\n\nQuedó guardado en la nube. Gracias por sumar tu jornada. 🎣",
                     false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE
                 ))
+                if (idActivo != null) localStorageHelper.deleteBorrador(idActivo)
+                _borradorActivoId.value = null
+                _parteData.value = null
+                _parteMessages.value = emptyList()
+                _borradoresPendientes.value = localStorageHelper.getAllBorradores()
+                delay(2000)
+                volverAChatGeneral()
+            } catch (e: Exception) {
+                // Cualquier otra excepción inesperada cae acá. Tratamos como
+                // "error" — el borrador queda persistido para reintento.
+                Log.e(TAG, "Error inesperado enviando parte: ${e.message}")
+                guardarComoBorradorOffline(idActivo, parteActual, OfflineMotivo.ERROR)
             }
         }
+    }
+
+    /**
+     * Razones por las cuales no pudimos subir el parte. Cada una merece
+     * un mensaje distinto en el chat para no confundir al usuario.
+     */
+    private enum class OfflineMotivo { SIN_SENAL, TIMEOUT, ERROR }
+
+    /**
+     * Persiste el parte como borrador local y muestra al usuario un mensaje
+     * acorde al motivo. Termina el flujo de envío (resetea spinners) pero
+     * NO sale del modo "crear parte" — el usuario puede tocar "Enviar"
+     * de nuevo cuando vea el banner de "Conexión restablecida".
+     */
+    private suspend fun guardarComoBorradorOffline(
+        idActivo: String?,
+        parteActual: ParteEnProgreso,
+        motivo: OfflineMotivo
+    ) {
+        if (idActivo != null) {
+            localStorageHelper.saveBorrador(idActivo, parteActual)
+        }
+        _isSendingParte.value = false
+        _firebaseStatus.value = when (motivo) {
+            OfflineMotivo.SIN_SENAL -> "Guardado sin conexión"
+            OfflineMotivo.TIMEOUT -> "Guardado (red lenta)"
+            OfflineMotivo.ERROR -> "Guardado localmente"
+        }
+        val mensaje = when (motivo) {
+            OfflineMotivo.SIN_SENAL -> "📶 **No tenés conexión a internet.**\n\n" +
+                    "Tu parte quedó guardado en este celular como **borrador**.\n" +
+                    "Cuando vuelva la conexión vas a ver el aviso arriba: entrá de nuevo a 'Crear parte' y tocá **Enviar**."
+            OfflineMotivo.TIMEOUT -> "⏳ **La red está lenta y se cortó el envío.**\n\n" +
+                    "Tu parte quedó guardado en este celular como **borrador**.\n" +
+                    "Probá enviarlo de nuevo más tarde cuando tengas mejor señal."
+            OfflineMotivo.ERROR -> "⚠️ **No pudimos subir el parte ahora mismo.**\n\n" +
+                    "Lo guardé en este celular como **borrador** así no perdés nada.\n" +
+                    "Volvé a 'Crear parte' más tarde y tocá **Enviar**."
+        }
+        addMessageToParteChat(ChatMessageWithMode(
+            mensaje, false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE
+        ))
+        _borradoresPendientes.value = localStorageHelper.getAllBorradores()
     }
 
     fun habilitarChat() {

@@ -58,7 +58,9 @@ import kotlinx.coroutines.delay
 fun EnhancedChatScreen(
     user: FirebaseUser,
     viewModel: EnhancedChatViewModel = viewModel(factory = AppViewModelProvider.Factory),
-    onNavigateToWizard: () -> Unit = {}
+    onNavigateToWizard: () -> Unit = {},
+    onOpenDrawer: () -> Unit = {},
+    onOpenNotificaciones: () -> Unit = {}
 
 ) {
     val context = LocalContext.current
@@ -166,9 +168,11 @@ fun EnhancedChatScreen(
                     val stats = viewModel.getConversationStats()
                     Toast.makeText(context, stats, Toast.LENGTH_LONG)
                         .show()
-                },  // ← CERRAR EL onInfoClick AQUÍ
-                showMenuButton = chatEnabled && currentMode == ChatMode.GENERAL,  // ← ESTOS VAN FUERA
-                onMenuClick = { viewModel.volverAlMenuPrincipal() }  // ← ESTOS VAN FUERA
+                },
+                showMenuButton = chatEnabled && currentMode == ChatMode.GENERAL,
+                onMenuClick = { viewModel.volverAlMenuPrincipal() },
+                onOpenDrawer = onOpenDrawer,
+                onOpenNotificaciones = onOpenNotificaciones
             )
 
 

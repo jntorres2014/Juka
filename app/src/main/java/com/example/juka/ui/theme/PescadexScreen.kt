@@ -19,19 +19,15 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.juka.EspecieConEstado
 import com.example.juka.EstadisticasPescadex
 import com.example.juka.PescadexManager
 import com.example.juka.RegistroResult
-import com.example.juka.viewmodel.ChatViewModel
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PescadexScreen(
-    chatViewModel: ChatViewModel = viewModel()
-) {
+fun PescadexScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val pescadexManager = remember { PescadexManager(context) }

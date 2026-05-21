@@ -31,7 +31,7 @@
     </queries>
 
     <application
-        android:name=".JukaApplication"
+        android:name=".HukaApplication"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -64,7 +64,7 @@
         <!-- 🔔 CANAL POR DEFECTO PARA NOTIFICACIONES EN SEGUNDO PLANO -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
-            android:value="juka_channel" />
+            android:value="huka_channel" />
 
         <!-- 🔔 ÍCONO POR DEFECTO EN NOTIFICACIONES -->
         <meta-data

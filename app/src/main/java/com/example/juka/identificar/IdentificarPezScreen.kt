@@ -49,7 +49,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.graphicsLayer
-import com.example.juka.JukaApplication
+import com.example.juka.HukaApplication
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,7 +66,7 @@ fun IdentificarPezScreen() {
     val scrollState = rememberScrollState()
 
     // ✅ MOVER ESTAS DECLARACIONES AQUÍ ARRIBA (ANTES DE USARLAS)
-    val application = context.applicationContext as JukaApplication
+    val application = context.applicationContext as HukaApplication
     val quotaManager = remember { application.chatQuotaManager }
     val quotaState by quotaManager.quotaState.collectAsState()
 

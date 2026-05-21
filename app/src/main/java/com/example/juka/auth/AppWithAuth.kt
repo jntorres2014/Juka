@@ -12,17 +12,17 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.example.juka.JukaApplication
+import com.example.juka.HukaApplication
 import com.example.juka.data.AuthManager
 import com.example.juka.data.AuthState
-import com.example.juka.navigation.JukaAppWithUser
+import com.example.juka.navigation.HukaAppWithUser
 import com.example.juka.ui.theme.navigation.AuthRoute
 
 @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
 @Composable
 fun AppWithAuth() {
     val context = LocalContext.current
-    val authManager = (context.applicationContext as JukaApplication).authManager
+    val authManager = (context.applicationContext as HukaApplication).authManager
     val navController = rememberNavController()
     val authState by authManager.authState.collectAsState()
 
@@ -66,7 +66,7 @@ fun AppWithAuth() {
             composable(AuthRoute.MainApp.route) {
                 val user = (authState as? AuthState.Authenticated)?.user
                 if (user != null) {
-                    JukaAppWithUser(user = user, authManager = authManager)
+                    HukaAppWithUser(user = user, authManager = authManager)
                 }
             }
         }

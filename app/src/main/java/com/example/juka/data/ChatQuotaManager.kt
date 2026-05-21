@@ -42,10 +42,18 @@ class ChatQuotaManager(
         val userId = auth.currentUser?.uid ?: return
 
         try {
-            val quotaDoc = firestore.collection(COLLECTION_NAME)
-                .document(userId)
-                .get()
-                .await()
+            val quotaDoc = kotlinx.coroutines.withTimeoutOrNull(10_000) {
+                firestore.collection(COLLECTION_NAME)
+                    .document(userId)
+                    .get()
+                    .await()
+            } ?: run {
+                // Timeout o sin red: marcamos que no se pudo verificar.
+                // getQuotaMessage() interpreta este flag para no decir
+                // "límite alcanzado" engañosamente.
+                _quotaState.value = _quotaState.value.copy(quotaCheckFailed = true)
+                return
+            }
 
             if (!quotaDoc.exists()) {
                 // Primera vez - crear documento
@@ -68,13 +76,15 @@ class ChatQuotaManager(
                     remaining = limit - queriesUsed,
                     total = limit,
                     lastReset = formatDate(lastReset.toDate()),
-                    isPremium = isPremium
+                    isPremium = isPremium,
+                    quotaCheckFailed = false
                 )
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error checking quota", e)
-            // Fallback a valores por defecto
-            _quotaState.value = QuotaState()
+            // No pudimos consultar — marcamos el flag para que el caller
+            // sepa diferenciar de "límite alcanzado".
+            _quotaState.value = _quotaState.value.copy(quotaCheckFailed = true)
         }
     }
 
@@ -186,21 +196,26 @@ class ChatQuotaManager(
     }
 
     fun getQuotaMessage(): String {
-        return when (_quotaState.value.remaining) {
-            0 -> """
+        return when {
+            // Indica explícitamente cuando NO pudimos verificar la cuota
+            // (por sin conexión o error). Antes este caso caía en "límite
+            // alcanzado" y confundía al usuario.
+            _quotaState.value.quotaCheckFailed -> "📶 **No pudimos verificar tu cuota.**\n\n" +
+                    "Probablemente no tenés conexión. Cuando vuelva la red podés volver a consultar."
+            _quotaState.value.remaining == 0 -> """
                 ⚠️ **Límite diario alcanzado**
-                
+
                 Has usado tus consultas diarias.
                 Se reinician a medianoche 🕐
-                
+
                 Mientras tanto podés:
                 • 📝 Crear un parte de pesca
                 • 📊 Ver tus estadísticas
                 • 🐟 Identificar peces con fotos
             """.trimIndent()
 
-            1 -> "⚠️ Te queda 1 consulta para hoy. ¡Usala sabiamente!"
-            in 2..3 -> "💡 Te quedan ${_quotaState.value.remaining} consultas para hoy"
+            _quotaState.value.remaining == 1 -> "⚠️ Te queda 1 consulta para hoy. ¡Usala sabiamente!"
+            _quotaState.value.remaining in 2..3 -> "💡 Te quedan ${_quotaState.value.remaining} consultas para hoy"
             else -> "Consultas restantes: ${_quotaState.value.remaining} de ${_quotaState.value.total} diarias"
         }
     }
@@ -257,5 +272,7 @@ data class QuotaState(
     val remaining: Int = 5,
     val total: Int = 5,
     val lastReset: String = "",
-    val isPremium: Boolean = false
+    val isPremium: Boolean = false,
+    /** true cuando la última verificación falló (sin red, timeout, etc.). */
+    val quotaCheckFailed: Boolean = false
 )

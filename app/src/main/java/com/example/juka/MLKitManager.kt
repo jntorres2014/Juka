@@ -17,7 +17,7 @@ import java.util.regex.Pattern
 // ✅ CAMBIO: fishDatabase se recibe como parámetro en lugar de crearse internamente
 class MLKitManager(
     private val context: Context,
-    private val fishDatabase: FishDatabase          // ← inyectado desde JukaApplication
+    private val fishDatabase: FishDatabase          // ← inyectado desde HukaApplication
 ) {
 
     private val entityExtractor: EntityExtractor

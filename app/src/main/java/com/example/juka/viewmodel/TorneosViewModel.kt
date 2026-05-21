@@ -89,7 +89,7 @@ class TorneosViewModel : ViewModel() {
     }
 
     /**
-     * Llamado desde JukaAppWithUser cuando se guarda un parte.
+     * Llamado desde HukaAppWithUser cuando se guarda un parte.
      * Guarda el parte en todos los torneos activos Y suma el puntaje automáticamente.
      */
     fun onParteSaved(parteId: String, parteData: ParteEnProgreso) {
