@@ -184,34 +184,40 @@ fun EncuestaScreen(
                                     return@Button
                                 }
 
-                                // <-- 2. LANZAR LA COROUTINE AQUÍ
+                                // Guardar la encuesta. NO navegamos manualmente desde acá:
+                                // `guardarEncuestaCompleta` actualiza el AuthState a
+                                // Authenticated(encuestaCompleta=true), y el `LaunchedEffect`
+                                // de AppWithAuth observa ese cambio y navega solo a
+                                // AuthRoute.MainApp.
+                                //
+                                // Antes acá había `navigate("home")` y `popUpTo("survey")` con
+                                // rutas hardcoded que ni siquiera existen en el nav graph
+                                // (las reales son "login_screen", "encuesta_screen" y
+                                // "main_app_root") — eso tiraba IllegalArgumentException y
+                                // gatillaba el "Error al guardar la encuesta" aunque los
+                                // datos ya se hubieran persistido OK en Firestore.
                                 scope.launch {
                                     try {
                                         isLoading = true
                                         val guardado =
                                             authManager.guardarEncuestaCompleta(respuestas)
-                                        if (guardado) {
-                                            navController.navigate("home") {
-                                                popUpTo("survey") { inclusive = true }
-                                            }
-                                        } else {
-                                            Log.e("Entre acaaaEncuestaViewModel", "Error al guardar la encuesta")
+
+                                        if (!guardado) {
+                                            Log.e(
+                                                "EncuestaScreen",
+                                                "guardarEncuestaCompleta devolvió false"
+                                            )
                                             mensajeError = "Error al guardar la encuesta"
                                             isLoading = false
+                                            return@launch
                                         }
-
-                                        // Ahora la llamada a la función suspend es segura
-                                        authManager.markSurveyCompleted()
-                                        //EncuestaViewModel.completarEncuesta()
-                                        // La navegación también debe ir aquí para asegurar que se
-                                        // ejecute después de que `markSurveyCompleted` termine.
-                                        navController.navigate("home") {
-                                            popUpTo("survey") { inclusive = true }
-                                        }
-                                        // Podrías poner isLoading = false aquí si la pantalla no desaparece
-                                        // inmediatamente, pero con la navegación, no es estrictamente necesario.
+                                        // Listo: AppWithAuth se encarga de la navegación.
                                     } catch (e: Exception) {
-                                        Log.e("EntrePor esteeeee", "Error al guardar la encuesta", e)
+                                        Log.e(
+                                            "EncuestaScreen",
+                                            "Excepción al guardar la encuesta",
+                                            e
+                                        )
                                         mensajeError = "Error al guardar la encuesta"
                                         isLoading = false
                                     }

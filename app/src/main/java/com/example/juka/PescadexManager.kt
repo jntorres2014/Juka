@@ -6,6 +6,7 @@ import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.tasks.await
 import android.provider.Settings
 
@@ -15,6 +16,18 @@ class PescadexManager(private val context: Context) {
     private val auth = FirebaseAuth.getInstance()
 
     /**
+     * `FishDatabase` es la fuente de verdad de especies argentinas
+     * (carga el JSON `peces_argentinos1.json` con todas las especies).
+     * Antes el Pescadex usaba un catálogo paralelo hardcoded de 10 entries
+     * (`EspeciesArgentinas` en `Pescadex.kt`) lo cual hacía que muchas
+     * especies legítimas no se reconocieran al cargar partes. Ahora usamos
+     * la misma fuente que el chat y el wizard — una única fuente.
+     */
+    private val fishDatabase: FishDatabase by lazy {
+        (context.applicationContext as HukaApplication).fishDatabase
+    }
+
+    /**
      * Identificador del Pescadex en Firestore. Hoy usamos el UID de Firebase
      * Auth para que el Pescadex viaje con la cuenta (no con el celular).
      * Si por alguna razón no hay usuario autenticado caemos al deviceId
@@ -22,6 +35,57 @@ class PescadexManager(private val context: Context) {
      */
     private val pescadexId: String
         get() = auth.currentUser?.uid ?: getDeviceId()
+
+    /**
+     * Devuelve el catálogo actual de especies (id normalizado -> EspecieInfo).
+     * Se construye on-demand desde `FishDatabase`. La inicialización del
+     * JSON es idempotente: solo cargas una vez aunque llamés muchas veces.
+     *
+     * El "id" es el nombre normalizado (lowercase, sin acentos, espacios
+     * → underscore). Esto se persiste en Firestore como key en
+     * `especiesDescubiertas`. Si el JSON cambia un nombre, podría romper
+     * la lectura de docs viejos — riesgo aceptable mientras el catálogo
+     * esté estable.
+     */
+    private suspend fun catalogoActual(): Map<String, EspecieInfo> {
+        if (!fishDatabase.isInitialized()) {
+            android.util.Log.d(TAG, "🔄 FishDatabase no estaba inicializada, inicializando...")
+            fishDatabase.initialize()
+        }
+        val especies = fishDatabase.getAllSpecies()
+        android.util.Log.d(TAG, "📚 catalogoActual(): ${especies.size} especies del FishDatabase")
+        if (especies.isEmpty()) {
+            android.util.Log.w(TAG, "⚠️ FishDatabase.getAllSpecies() devolvió lista vacía — el grid del Pescadex va a estar vacío")
+        }
+        return especies.associate { fish ->
+            val id = normalizarParaId(fish.name)
+            id to EspecieInfo(
+                id = id,
+                nombreComun = fish.name,
+                nombreCientifico = fish.scientificName,
+                habitat = fish.habitat,
+                mejoresCarnadas = fish.bestBaits,
+                mejorHorario = fish.bestTime,
+                tecnica = fish.technique,
+                tamaño = fish.avgSize,
+                temporada = fish.season,
+                // FishInfo no tiene rareza/descripcion/region. Quedan en
+                // default para no romper la UI que las consume.
+                rareza = "comun",
+                descripcion = "",
+                region = "",
+                consejoEspecial = ""
+            )
+        }
+    }
+
+    /** Normaliza para usar como id estable de una especie. */
+    private fun normalizarParaId(nombre: String): String =
+        nombre.lowercase()
+            .replace("á", "a").replace("é", "e").replace("í", "i")
+            .replace("ó", "o").replace("ú", "u").replace("ñ", "n")
+            .replace(Regex("[^a-z0-9]+"), "_")
+            .trim('_')
 
     companion object {
         private const val TAG = "🐟 PescadexManager"
@@ -41,64 +105,93 @@ class PescadexManager(private val context: Context) {
     }
     
     /**
-     * Registra una nueva especie capturada desde el chat o identificación
+     * Registra una nueva captura de una especie en el Pescadex. Pensado para
+     * ser llamado desde el flujo automático de `registrarEspeciesDeParte`
+     * (al guardar un parte).
+     *
+     * - `cantidadEnParte`: cuántos ejemplares de esta especie se capturaron
+     *   en este parte particular. Se usa para mantener el récord de "mejor día".
+     * - `fechaParte`: fecha del parte (string libre, normalmente "dd/MM/yyyy").
+     *   Se guarda tal cual viene para acompañar la marca de "mejor día".
+     *
+     * Importante: NO acepta `peso` ni `fotoPath` como parámetros — esos campos
+     * son récord personal manual y se editan vía `actualizarRecordPersonal`.
      */
     suspend fun registrarEspecieCapturada(
-        especieId: String, 
-        peso: Double? = null, 
+        especieId: String,
+        cantidadEnParte: Int = 1,
         locacion: String? = null,
-        fotoPath: String? = null
+        fechaParte: String? = null
     ): RegistroResult {
         return try {
-            android.util.Log.d(TAG, "🎯 Registrando especie: $especieId")
-            
-            val especieInfo = EspeciesArgentinas.especies[especieId]
+            android.util.Log.d(TAG, "🎯 Registrando especie: $especieId (x$cantidadEnParte)")
+
+            val catalogo = catalogoActual()
+            val especieInfo = catalogo[especieId]
             if (especieInfo == null) {
                 android.util.Log.w(TAG, "⚠️ Especie desconocida: $especieId")
                 return RegistroResult.Error("Especie no reconocida")
             }
-            
+
             val pescadexActual = obtenerPescadexUsuario()
             val especieExistente = pescadexActual.especiesDescubiertas[especieId]
-            
+
             val esNuevaEspecie = especieExistente == null
-            
+            val cantidadSegura = cantidadEnParte.coerceAtLeast(1)
+
             val especieActualizada = if (esNuevaEspecie) {
-                // Primera vez capturando esta especie
+                // Primera vez capturando esta especie. La cantidad de este
+                // parte queda como el primer "mejor día".
                 EspecieDescubierta(
                     especieId = especieId,
                     nombreComun = especieInfo.nombreComun,
                     nombreCientifico = especieInfo.nombreCientifico,
                     fechaDescubrimiento = Timestamp.now(),
-                    totalCapturas = 1,
-                    pesoRecord = peso,
-                    primeraFoto = fotoPath,
+                    totalCapturas = cantidadSegura,
+                    pesoRecord = null,
+                    primeraFoto = null,
                     locaciones = listOfNotNull(locacion),
-                    rareza = especieInfo.rareza
+                    rareza = especieInfo.rareza,
+                    mejorDiaFecha = fechaParte,
+                    mejorDiaCantidad = cantidadSegura
                 )
             } else {
-                // Actualizar especie existente
-                especieExistente!!.copy(
-                    totalCapturas = especieExistente.totalCapturas + 1,
-                    pesoRecord = maxOfNotNull(especieExistente.pesoRecord, peso),
-                    locaciones = (especieExistente.locaciones + listOfNotNull(locacion)).distinct()
+                // Actualizar especie existente. Si la cantidad de este parte
+                // supera (o iguala) el récord previo, lo reemplazamos —
+                // empate gana al más reciente.
+                val superaMejorDia = cantidadSegura >= especieExistente!!.mejorDiaCantidad
+                especieExistente.copy(
+                    totalCapturas = especieExistente.totalCapturas + cantidadSegura,
+                    locaciones = (especieExistente.locaciones + listOfNotNull(locacion)).distinct(),
+                    mejorDiaFecha = if (superaMejorDia) fechaParte else especieExistente.mejorDiaFecha,
+                    mejorDiaCantidad = if (superaMejorDia) cantidadSegura else especieExistente.mejorDiaCantidad
                 )
             }
             
-            // Actualizar Pescadex
+            // Calcular tamaño FINAL del map (para devolver totalEspecies y para
+            // mantener consistencia con la lógica de logros que mira el contador).
             val especiesActualizadas = pescadexActual.especiesDescubiertas.toMutableMap()
             especiesActualizadas[especieId] = especieActualizada
-            
+
             val pescadexActualizado = pescadexActual.copy(
                 especiesDescubiertas = especiesActualizadas,
                 ultimaActividad = Timestamp.now()
             )
-            
-            // Guardar en Firebase
+
+            // IMPORTANTE: usamos `update` con dot notation y los nombres en
+            // camelCase (matching el default de Kotlin), no snake_case. Es
+            // consistente con cómo serializa/deserializa el SDK de Firestore
+            // sin @PropertyName. Antes mezclábamos snake_case en los updates
+            // explícitos y camelCase en la (de)serialización automática, y
+            // por eso se escribía a `especies_descubiertas` pero se leía
+            // buscando `especiesDescubiertas` → siempre vacío.
             firestore.document("$COLLECTION_PESCADEX/$pescadexId")
-                .set(pescadexActualizado, SetOptions.merge())
+                .update(
+                    "especiesDescubiertas.$especieId", especieActualizada,
+                    "ultimaActividad", Timestamp.now()
+                )
                 .await()
-            
+
             // Verificar y desbloquear logros
             val logrosDesbloqueados = verificarLogros(pescadexActualizado)
             
@@ -111,7 +204,7 @@ class PescadexManager(private val context: Context) {
                 logrosDesbloqueados = logrosDesbloqueados
             )
             
-        } catch (e: Exception) {
+        } catch (e: CancellationException) { throw e } catch (e: Exception) {
             android.util.Log.e(TAG, "💥 Error registrando especie: ${e.message}", e)
             RegistroResult.Error("Error guardando especie: ${e.localizedMessage}")
         }
@@ -122,20 +215,43 @@ class PescadexManager(private val context: Context) {
      */
     suspend fun obtenerPescadexUsuario(): PescadexUsuario {
         return try {
-            val document = firestore.document("$COLLECTION_PESCADEX/$pescadexId").get().await()
-            
+            val id = pescadexId
+            val uidAuth = auth.currentUser?.uid
+            android.util.Log.d(
+                TAG,
+                "📥 Leyendo Pescadex: pescadexId='$id' (auth.uid='$uidAuth')"
+            )
+            val document = firestore.document("$COLLECTION_PESCADEX/$id").get().await()
+
             if (document.exists()) {
-                document.toObject(PescadexUsuario::class.java) ?: crearPescadexNuevo()
+                val deserializado = document.toObject(PescadexUsuario::class.java)
+                if (deserializado == null) {
+                    android.util.Log.w(
+                        TAG,
+                        "⚠️ Doc existe pero toObject devolvió null. Campos raw: ${document.data?.keys}"
+                    )
+                    crearPescadexNuevo()
+                } else {
+                    android.util.Log.d(
+                        TAG,
+                        "📄 Doc deserializado OK. Tiene ${deserializado.especiesDescubiertas.size} especies " +
+                            "(keys: ${deserializado.especiesDescubiertas.keys})"
+                    )
+                    deserializado
+                }
             } else {
-                // Primera vez del usuario
+                // Primera vez del usuario. Usamos merge por defensa: si por
+                // algún race el doc apareciera entre el exists() y el set,
+                // no querríamos pisarlo con valores vacíos.
+                android.util.Log.d(TAG, "🆕 Doc no existe en path '$COLLECTION_PESCADEX/$id', creando uno nuevo")
                 val nuevaPescadex = crearPescadexNuevo()
-                firestore.document("$COLLECTION_PESCADEX/$pescadexId")
-                    .set(nuevaPescadex)
+                firestore.document("$COLLECTION_PESCADEX/$id")
+                    .set(nuevaPescadex, SetOptions.merge())
                     .await()
                 nuevaPescadex
             }
             
-        } catch (e: Exception) {
+        } catch (e: CancellationException) { throw e } catch (e: Exception) {
             android.util.Log.e(TAG, "Error obteniendo Pescadex: ${e.message}")
             crearPescadexNuevo() // Fallback local
         }
@@ -148,7 +264,7 @@ class PescadexManager(private val context: Context) {
         return try {
             val pescadex = obtenerPescadexUsuario()
             val especiesDescubiertas = pescadex.especiesDescubiertas.size
-            val totalEspecies = EspeciesArgentinas.especies.size
+            val totalEspecies = catalogoActual().size
             val progreso = if (totalEspecies > 0) especiesDescubiertas.toFloat() / totalEspecies * 100 else 0f
             
             val totalCapturas = pescadex.especiesDescubiertas.values.sumOf { it.totalCapturas }
@@ -171,7 +287,7 @@ class PescadexManager(private val context: Context) {
                 diasPescando = diasPescando
             )
             
-        } catch (e: Exception) {
+        } catch (e: CancellationException) { throw e } catch (e: Exception) {
             android.util.Log.e(TAG, "Error obteniendo estadísticas: ${e.message}")
             EstadisticasPescadex(0, 0, 0f, 0, null, 0, 0)
         }
@@ -183,20 +299,34 @@ class PescadexManager(private val context: Context) {
     suspend fun obtenerEspeciesConEstado(): List<EspecieConEstado> {
         return try {
             val pescadex = obtenerPescadexUsuario()
-            
-            EspeciesArgentinas.especies.map { (id, info) ->
+            val catalogo = catalogoActual()
+
+            android.util.Log.d(
+                TAG,
+                "🧮 obtenerEspeciesConEstado: catalogo=${catalogo.size} especies, " +
+                    "usuario tiene ${pescadex.especiesDescubiertas.size} capturadas"
+            )
+            if (pescadex.especiesDescubiertas.isNotEmpty()) {
+                android.util.Log.d(
+                    TAG,
+                    "🎣 Ids capturados: ${pescadex.especiesDescubiertas.keys}"
+                )
+            }
+
+            val resultado = catalogo.map { (id, info) ->
                 val especieCapturada = pescadex.especiesDescubiertas[id]
-                
                 EspecieConEstado(
                     info = info,
                     esCapturada = especieCapturada != null,
                     datosCaptura = especieCapturada,
                     orden = obtenerOrdenRareza(info.rareza)
                 )
-            }.sortedBy { it.orden }
-            
-        } catch (e: Exception) {
-            android.util.Log.e(TAG, "Error obteniendo especies: ${e.message}")
+            }.sortedWith(compareBy({ it.orden }, { it.info.nombreComun }))
+
+            android.util.Log.d(TAG, "📦 Devolviendo ${resultado.size} EspecieConEstado")
+            resultado
+        } catch (e: CancellationException) { throw e } catch (e: Exception) {
+            android.util.Log.e(TAG, "💥 Error obteniendo especies: ${e.message}", e)
             emptyList()
         }
     }
@@ -259,7 +389,7 @@ class PescadexManager(private val context: Context) {
                         if (!doc.exists()) {
                             ref.set(mapOf("timestamp" to System.currentTimeMillis())).await()
                         }
-                    } catch (e: Exception) {
+                    } catch (e: CancellationException) { throw e } catch (e: Exception) {
                         android.util.Log.w(TAG, "No se pudo persistir achievement $achievementId: ${e.message}")
                     }
                 }
@@ -270,7 +400,7 @@ class PescadexManager(private val context: Context) {
         if (logrosDesbloqueados.isNotEmpty()) {
             val nuevosLogros = pescadex.logrosDesbloqueados + logrosDesbloqueados.map { it.id }
             firestore.document("$COLLECTION_PESCADEX/$pescadexId")
-                .update("logros_desbloqueados", nuevosLogros)
+                .update("logrosDesbloqueados", nuevosLogros)
                 .await()
         }
 
@@ -290,47 +420,146 @@ class PescadexManager(private val context: Context) {
     /**
      * Auto-registro de las especies de un parte. Llamado desde el flujo
      * de guardarParteCompletado: por cada especie del parte se intenta
-     * matchear con el catálogo `EspeciesArgentinas` por nombre normalizado;
-     * si hay match, se llama a `registrarEspecieCapturada`. Los nombres
-     * que no estén en el catálogo se descartan en silencio — el Pescadex
-     * es una colección curada de especies argentinas conocidas.
+     * matchear con el catálogo de `FishDatabase` por nombre normalizado;
+     * si hay match, se llama a `registrarEspecieCapturada` pasando la
+     * cantidad de ejemplares y la fecha del parte (para llevar el récord
+     * de "mejor día"). Los nombres que no estén en el catálogo se descartan
+     * en silencio — el Pescadex es una colección curada de especies
+     * argentinas conocidas.
      */
     suspend fun registrarEspeciesDeParte(
-        nombresEspecies: List<String>,
+        especiesDelParte: List<EspecieDelParte>,
         locacion: String? = null,
-        fotoPath: String? = null
+        fechaParte: String? = null
     ): List<RegistroResult> {
+        val catalogo = catalogoActual()
         val resultados = mutableListOf<RegistroResult>()
-        nombresEspecies.distinct().forEach { nombre ->
-            val id = matchearEspecie(nombre) ?: return@forEach
-            resultados.add(registrarEspecieCapturada(id, peso = null, locacion = locacion, fotoPath = fotoPath))
-        }
+        // Si por alguna razón llegan duplicados de la misma especie en el
+        // parte, los agrupamos sumando cantidades para no contar dos veces.
+        especiesDelParte
+            .groupBy { it.nombre.trim().lowercase() }
+            .forEach { (_, grupo) ->
+                val nombre = grupo.first().nombre
+                val cantidad = grupo.sumOf { it.cantidad }.coerceAtLeast(1)
+                val id = matchearEspecie(nombre, catalogo) ?: return@forEach
+                resultados.add(
+                    registrarEspecieCapturada(
+                        especieId = id,
+                        cantidadEnParte = cantidad,
+                        locacion = locacion,
+                        fechaParte = fechaParte
+                    )
+                )
+            }
         return resultados
     }
 
     /**
-     * Devuelve el id del catálogo correspondiente al nombre dado, o null
-     * si no hay coincidencia. Normaliza: lowercase, sin acentos, sin
-     * caracteres especiales, así "Pejerrey", "pejerrey" y "PEJERREY" matchean
-     * todos contra el id "pejerrey".
+     * Edita el récord personal de una especie capturada: peso máximo y/o
+     * foto del récord. Pensado para el botón "Editar récord" del modal
+     * de detalle de la pantalla del Pescadex.
+     *
+     * - Si `fotoLocalPath` es no-null, sube la foto a Firebase Storage vía
+     *   `StorageService` y guarda la URL pública resultante. Si la subida
+     *   falla, se conserva la foto previa.
+     * - Si `peso` es no-null, reemplaza el `pesoRecord` previo (el usuario
+     *   es quien decide qué es su récord — no aplicamos max automático
+     *   para que pueda corregir un dato mal cargado).
+     * - Solo aplica si la especie ya fue capturada al menos una vez.
+     *   Si no existe en el Pescadex del usuario, devuelve Error.
+     *
+     * No toca `totalCapturas`, `locaciones`, `mejorDia*` ni la fecha de
+     * descubrimiento — esos vienen del flujo del parte.
      */
-    private fun matchearEspecie(nombre: String): String? {
-        val normalizado = nombre
-            .lowercase()
-            .replace("á", "a").replace("é", "e").replace("í", "i")
-            .replace("ó", "o").replace("ú", "u").replace("ñ", "n")
-            .trim()
-        // Match exacto contra los ids del catálogo (los ids ya están en minúsculas)
-        if (EspeciesArgentinas.especies.containsKey(normalizado)) return normalizado
-        // Match parcial: por ejemplo "dorado del paraná" contiene "dorado"
-        return EspeciesArgentinas.especies.keys.firstOrNull { id -> normalizado.contains(id) }
+    suspend fun actualizarRecordPersonal(
+        especieId: String,
+        peso: Double? = null,
+        fotoLocalPath: String? = null
+    ): RegistroResult {
+        return try {
+            val pescadexActual = obtenerPescadexUsuario()
+            val especieExistente = pescadexActual.especiesDescubiertas[especieId]
+                ?: return RegistroResult.Error("Esta especie todavía no está en tu Pescadex")
+
+            // Subir foto si vino una nueva. Si falla la subida, no pisamos la
+            // foto anterior — preferible perder la nueva que dejar al usuario
+            // sin ningún registro visual.
+            val nuevaUrlFoto = if (fotoLocalPath != null) {
+                val storage = com.example.juka.data.firebase.StorageService()
+                storage.subirImagen(fotoLocalPath) ?: especieExistente.primeraFoto
+            } else {
+                especieExistente.primeraFoto
+            }
+
+            val actualizada = especieExistente.copy(
+                pesoRecord = peso ?: especieExistente.pesoRecord,
+                primeraFoto = nuevaUrlFoto
+            )
+
+            // Misma técnica que en registrarEspecieCapturada: dot notation
+            // con camelCase para alinear con cómo (de)serializa el SDK.
+            firestore.document("$COLLECTION_PESCADEX/$pescadexId")
+                .update(
+                    "especiesDescubiertas.$especieId", actualizada,
+                    "ultimaActividad", Timestamp.now()
+                )
+                .await()
+
+            val mapaActualizado = pescadexActual.especiesDescubiertas.toMutableMap()
+            mapaActualizado[especieId] = actualizada
+
+            val catalogo = catalogoActual()
+            val info = catalogo[especieId]
+                ?: return RegistroResult.Error("Catálogo desactualizado")
+
+            android.util.Log.i(TAG, "✅ Récord personal actualizado: $especieId (peso=$peso)")
+            RegistroResult.Success(
+                esNuevaEspecie = false,
+                especieInfo = info,
+                totalEspecies = mapaActualizado.size,
+                logrosDesbloqueados = emptyList()
+            )
+        } catch (e: CancellationException) { throw e } catch (e: Exception) {
+            android.util.Log.e(TAG, "💥 Error actualizando récord: ${e.message}", e)
+            RegistroResult.Error("No se pudo guardar el récord: ${e.localizedMessage}")
+        }
+    }
+
+    /**
+     * Devuelve el id del catálogo correspondiente al nombre dado, o null
+     * si no hay coincidencia.
+     *
+     * Estrategia: normaliza ambos lados (el nombre del usuario Y los ids
+     * del catálogo) y compara. Esto evita el bug histórico donde el
+     * catálogo tenía "manguruyú" con acento y el nombre normalizado del
+     * usuario llegaba como "manguruyu" sin acento → no matcheaban nunca.
+     *
+     * Soporta dos modos de match:
+     *   - Exacto: "Pejerrey" → "pejerrey" → id "pejerrey".
+     *   - Parcial: "dorado del Paraná" contiene "dorado" → id "dorado".
+     */
+    private fun matchearEspecie(
+        nombre: String,
+        catalogo: Map<String, EspecieInfo>
+    ): String? {
+        val normalizado = normalizarParaId(nombre)
+        if (normalizado.isEmpty()) return null
+
+        // Match exacto contra ids del catálogo.
+        if (catalogo.containsKey(normalizado)) return normalizado
+
+        // Match parcial: alguno de los tokens del nombre coincide con un id.
+        // Útil para "dorado del Paraná" → "dorado", "trucha marrón" → "trucha".
+        return catalogo.keys.firstOrNull { id ->
+            normalizado.contains(id) || id.contains(normalizado)
+        }
     }
     
     private fun getDeviceId(): String {
         return try {
             Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
                 ?: "unknown_device_${System.currentTimeMillis()}"
-        } catch (e: Exception) {
+        } catch (e: CancellationException) { throw e } catch (e: Exception) {
             "fallback_device_${System.currentTimeMillis()}"
         }
     }
@@ -346,14 +575,6 @@ class PescadexManager(private val context: Context) {
         }
     }
     
-    private fun maxOfNotNull(a: Double?, b: Double?): Double? {
-        return when {
-            a == null && b == null -> null
-            a == null -> b
-            b == null -> a
-            else -> maxOf(a, b)
-        }
-    }
 }
 
 // Resultado de registro

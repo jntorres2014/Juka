@@ -26,12 +26,19 @@ fun AppWithAuth() {
     val navController = rememberNavController()
     val authState by authManager.authState.collectAsState()
 
-    // Control de navegación basado en el estado de autenticación
+    // Control de navegación basado en el estado de autenticación.
+    // Si el usuario está autenticado pero NO completó la encuesta, lo
+    // mandamos primero a la pantalla de encuesta. Solo cuando la completa
+    // (o si ya la había completado) pasa a la app principal.
     LaunchedEffect(authState) {
-        when (authState) {
+        when (val state = authState) {
             is AuthState.Authenticated -> {
-                // ✅ Al navegar a la App principal, eliminamos el Login y la Encuesta del historial
-                navController.navigate(AuthRoute.MainApp.route) {
+                val destino = if (state.encuestaCompleta) {
+                    AuthRoute.MainApp.route
+                } else {
+                    AuthRoute.Encuesta.route
+                }
+                navController.navigate(destino) {
                     popUpTo(AuthRoute.Login.route) { inclusive = true }
                 }
             }

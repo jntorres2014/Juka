@@ -17,6 +17,7 @@ import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.ktx.auth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -28,7 +29,17 @@ import kotlinx.coroutines.withTimeoutOrNull
 sealed class AuthState {
     object Loading : AuthState()
     object Unauthenticated : AuthState()
-    data class Authenticated(val user: FirebaseUser, val surveyCompleted: Boolean) : AuthState()
+    /**
+     * `encuestaCompleta` indica si el usuario ya completó la encuesta inicial.
+     * - false → la UI debe mandarlo a `EncuestaScreen` antes de entrar a la app.
+     * - true  → ya la completó, va directo al home.
+     *
+     * Nombre canónico unificado (antes coexistían `surveyCompleted` en inglés
+     * y `encuestaCompletada` con doble 'd'). Se mantiene `surveyCompleted`
+     * en Firestore como fallback de LECTURA para docs viejos, pero las
+     * escrituras nuevas usan siempre `encuestaCompleta`.
+     */
+    data class Authenticated(val user: FirebaseUser, val encuestaCompleta: Boolean) : AuthState()
     data class Error(val message: String) : AuthState()
 }
 
@@ -96,27 +107,44 @@ class AuthManager(private val context: Context) {
 
         if (currentUser != null) {
             Log.d(TAG, "✅ Usuario encontrado: ${currentUser.displayName}")
-            // Marcar como autenticado inmediatamente, Firestore después
-            _authState.value = AuthState.Authenticated(currentUser, true)
+            // Mientras Firestore responde mantenemos Loading. Antes
+            // marcábamos Authenticated(true) de entrada y eso mandaba al
+            // usuario directo a la app sin pasar por la encuesta nunca.
+            _authState.value = AuthState.Loading
 
-            // Verificar Firestore en background
             kotlinx.coroutines.GlobalScope.launch {
                 try {
-                    val userDoc = db.collection("users_encuesta").document(currentUser.uid).get().await()
+                    // OJO: la colección correcta es `users`, no `users_encuesta`
+                    // (esta última no existe — era un bug histórico).
+                    val userDoc = db.collection("users").document(currentUser.uid).get().await()
+
+                    // Actualizamos token FCM best-effort (no bloquea el flujo)
                     com.google.firebase.messaging.FirebaseMessaging.getInstance().token.await()?.let { token ->
                         db.collection("users").document(currentUser.uid)
-                            .update("fcmToken", token)
+                            .set(mapOf("fcmToken" to token), com.google.firebase.firestore.SetOptions.merge())
                     }
-                    val surveyCompleted = userDoc.getBoolean("surveyCompleted") ?: false
-                    if (!userDoc.exists()) {
+
+                    val encuestaCompleta = if (userDoc.exists()) {
+                        userDoc.getBoolean("encuestaCompleta")
+                            ?: userDoc.getBoolean("surveyCompleted")
+                            ?: false
+                    } else {
+                        // Usuario sin doc en Firestore — primera vez en este
+                        // cliente. Lo creamos con encuestaCompleta=FALSE para
+                        // que pase por la encuesta.
                         db.collection("users").document(currentUser.uid)
-                            .set(mapOf("surveyCompleted" to true)).await()
+                            .set(mapOf("encuestaCompleta" to false)).await()
+                        false
                     }
-                    _authState.value = AuthState.Authenticated(currentUser, true)
+                    _authState.value = AuthState.Authenticated(currentUser, encuestaCompleta)
 
                 } catch (e: Exception) {
-                    Log.w(TAG, "⚠️ Error consultando Firestore, pero usuario válido: ${e.message}")
-                    // Mantener el usuario autenticado aunque Firestore falle
+                    Log.w(TAG, "⚠️ Error consultando Firestore: ${e.message}")
+                    // No sabemos si completó la encuesta. Mostrar la encuesta
+                    // (false) es más seguro que saltearla — si fue una falla
+                    // transitoria, al reintentar va a leer el flag real y
+                    // ajustar el state.
+                    _authState.value = AuthState.Authenticated(currentUser, false)
                 }
             }
         } else {
@@ -206,14 +234,23 @@ class AuthManager(private val context: Context) {
                     val userDoc = withTimeoutOrNull(8_000) {
                         db.collection("users").document(user.uid).get().await()
                     }
-                    var surveyCompleted = userDoc?.getBoolean("surveyCompleted") ?: false
+
+                    // Leemos el flag real desde el doc. Aceptamos cualquiera
+                    // de los dos nombres (el "español" que escribe la encuesta
+                    // y el "inglés" legacy) — el OR cubre ambos esquemas.
+                    var encuestaCompleta = userDoc?.getBoolean("encuestaCompleta")
+                        ?: userDoc?.getBoolean("surveyCompleted")
+                        ?: false
 
                     if (userDoc != null && !userDoc.exists()) {
+                        // Usuario nuevo: creamos el doc con encuestaCompleta=FALSE
+                        // para que la app lo mande a la pantalla de encuesta.
+                        // (Antes esto ponía true y por eso nadie veía la encuesta.)
                         withTimeoutOrNull(5_000) {
                             db.collection("users").document(user.uid)
-                                .set(mapOf("surveyCompleted" to true)).await()
+                                .set(mapOf("encuestaCompleta" to false)).await()
                         }
-                        surveyCompleted = true
+                        encuestaCompleta = false
                     }
                     withTimeoutOrNull(5_000) {
                         com.google.firebase.messaging.FirebaseMessaging.getInstance().token.await()?.let { token ->
@@ -223,12 +260,16 @@ class AuthManager(private val context: Context) {
                             Log.d(TAG, "✅ Token FCM guardado")
                         }
                     }
-                    val authState = AuthState.Authenticated(user, surveyCompleted)
+                    val authState = AuthState.Authenticated(user, encuestaCompleta)
                     _authState.value = authState
                     authState
                 } catch (e: Exception) {
+                    // Si Firestore falla NO asumimos que la encuesta está
+                    // completa (eso le ocultaría la encuesta a un usuario que
+                    // no debía saltearla). Mejor mostrarla — si era una falla
+                    // transitoria, al reintentar va a leer el flag real.
                     Log.w(TAG, "⚠️ Error Firestore, pero login exitoso: ${e.message}")
-                    val authState = AuthState.Authenticated(user, true)
+                    val authState = AuthState.Authenticated(user, false)
                     _authState.value = authState
                     authState
                 }
@@ -249,11 +290,16 @@ class AuthManager(private val context: Context) {
     suspend fun markSurveyCompleted() {
         val user = auth.currentUser ?: return
         try {
-
+            // Usamos set(..., merge) en vez de update() para que no truene
+            // con NOT_FOUND si el doc padre todavía no existe (race entre
+            // creación inicial post-login y el primer guardado de encuesta).
             db.collection("users").document(user.uid)
-                .update(
-                    "encuestaCompleta", true,
-                    "fechaEncuesta", FieldValue.serverTimestamp()
+                .set(
+                    mapOf(
+                        "encuestaCompleta" to true,
+                        "fechaEncuesta" to FieldValue.serverTimestamp()
+                    ),
+                    SetOptions.merge()
                 ).await()
             _authState.value = AuthState.Authenticated(user, true)
             Log.d(TAG, "✅ Usuario marcado como encuesta completada: ${user.displayName}")
@@ -310,6 +356,10 @@ class AuthManager(private val context: Context) {
             // botón "Enviar encuesta" no quede esperando para siempre si no
             // hay señal. Si falla, devolvemos false y el caller decide UX
             // (toast/retry/etc.).
+            //
+            // OJO: la segunda escritura usa set(..., merge) en vez de update()
+            // para no tirar NOT_FOUND si por algún race el doc padre del user
+            // todavía no existe.
             val ok = withTimeoutOrNull(15_000) {
                 db.collection("users")
                     .document(user.uid)
@@ -320,9 +370,12 @@ class AuthManager(private val context: Context) {
 
                 db.collection("users")
                     .document(user.uid)
-                    .update(
-                        "encuestaCompleta", true,
-                        "fechaEncuesta", FieldValue.serverTimestamp()
+                    .set(
+                        mapOf(
+                            "encuestaCompleta" to true,
+                            "fechaEncuesta" to FieldValue.serverTimestamp()
+                        ),
+                        SetOptions.merge()
                     )
                     .await()
                 true

@@ -5,9 +5,6 @@ import android.util.Log
 import com.example.juka.FishDatabase
 import com.example.juka.domain.usecase.FishingData
 import com.example.juka.domain.model.ParteEnProgreso
-import com.example.juka.data.encuesta.EncuestaData
-import com.example.juka.data.encuesta.RespuestaPregunta
-import com.example.juka.data.firebase.EncuestaFirebase.Companion.TAG
 import kotlinx.coroutines.CoroutineScope
 import com.example.juka.data.firebase.PartePesca
 import kotlinx.coroutines.Dispatchers
@@ -19,6 +16,10 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.example.juka.util.Constants
 
 class FirebaseManager(val context: Context) {
+
+    companion object {
+        private const val TAG = "🔥 FirebaseManager"
+    }
 
     val firestore = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
@@ -59,23 +60,14 @@ class FirebaseManager(val context: Context) {
     suspend fun obtenerEstadisticasGlobales() =
         EstadisticasFirebase(this).obtenerEstadisticasGlobales()
 
-    suspend fun guardarRespuestasEncuesta(respuestas: EncuestaData) =
-        EncuestaFirebase(this).guardarRespuestasEncuesta(respuestas)
-
-    suspend fun verificarEncuestaCompletada() =
-        EncuestaFirebase(this).verificarEncuestaCompletada()
-
-    suspend fun obtenerRespuestasEncuesta() =
-        EncuestaFirebase(this).obtenerRespuestasEncuesta()
-
-    suspend fun guardarProgresoEncuesta(respuestas: List<RespuestaPregunta>, progreso: Int) =
-        EncuestaFirebase(this).guardarProgresoEncuesta(respuestas, progreso)
-
-    suspend fun obtenerProgresoEncuesta() =
-        EncuestaFirebase(this).obtenerProgresoEncuesta()
-
-    suspend fun limpiarProgresoEncuesta() =
-        EncuestaFirebase(this).limpiarProgresoEncuesta()
+    // NOTA: las delegaciones de encuesta (guardarRespuestasEncuesta,
+    // verificarEncuestaCompletada, obtenerRespuestasEncuesta,
+    // guardarProgresoEncuesta, obtenerProgresoEncuesta,
+    // limpiarProgresoEncuesta) y la clase EncuestaFirebase entera fueron
+    // eliminadas. Escribían a la colección `userEncuestas/` que no era la
+    // canónica — el flujo real vive en AuthManager.guardarEncuestaCompleta()
+    // / markSurveyCompleted() apuntando a `users/{uid}` y subcolección
+    // `users/{uid}/encuestas/`.
 
     // =================================================================
     // ✅ LA FUNCIÓN CLAVE (Debe estar AQUÍ, DENTRO de la clase)

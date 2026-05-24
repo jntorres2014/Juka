@@ -125,6 +125,14 @@ class EnhancedChatViewModel(
 
     private val _parteSavedEvent = MutableSharedFlow<Pair<String, ParteEnProgreso>>()
     val parteSavedEvent = _parteSavedEvent.asSharedFlow()
+
+    // Se emite con la lista de especies NUEVAS descubiertas al guardar un
+    // parte. La UI del chat lo observa para disparar el modal de celebración
+    // del Pescadex (CelebracionNuevaEspecieModal) sin tener que polear.
+    private val _nuevasEspeciesEvent =
+        MutableSharedFlow<List<com.example.juka.RegistroResult.Success>>()
+    val nuevasEspeciesEvent = _nuevasEspeciesEvent.asSharedFlow()
+
     companion object {
         private const val TAG = "🎣 EnhancedVM"
     }
@@ -139,18 +147,10 @@ class EnhancedChatViewModel(
     }
 
     private fun initializeData() {
-        viewModelScope.launch {
-            try {
-                val resultadoEncuesta = firebaseManager.verificarEncuestaCompletada()
-                val encuestaCompleta = when (resultadoEncuesta) {
-                    is FirebaseResult.Success -> true
-                    else -> false
-                }
-                if (!encuestaCompleta) Log.i(TAG, "ℹ️ Usuario sin encuesta completa")
-            } catch (e: Exception) {
-                Log.e(TAG, "❌ Error init data: ${e.message}")
-            }
-        }
+        // Antes acá había un chequeo de verificarEncuestaCompletada() que solo
+        // loggeaba info y no hacía nada accionable. El estado real de la
+        // encuesta lo controla AuthManager + AppWithAuth (si no está completa
+        // ni siquiera se llega al chat). Lo sacamos.
         _chatEnabled.value = true
         loadGeneralChatHistory()
         if (_generalMessages.value.isEmpty()) showMainMenu()
@@ -866,13 +866,28 @@ class EnhancedChatViewModel(
                 val eventoId = java.util.UUID.randomUUID().toString()
                 _parteSavedEvent.emit(Pair(eventoId, datosFinales))
 
-                // Auto-registro en Pescadex (best-effort, no bloquea el flujo)
+                // Auto-registro en Pescadex (best-effort, no bloquea el flujo).
+                // Pasamos cantidad por especie y fecha del parte para que el
+                // Pescadex pueda mantener el récord de "mejor día" por especie.
                 try {
-                    pescadexManager.registrarEspeciesDeParte(
-                        nombresEspecies = datosFinales.especiesCapturadas.map { it.nombre },
+                    val resultadosPescadex = pescadexManager.registrarEspeciesDeParte(
+                        especiesDelParte = datosFinales.especiesCapturadas.map {
+                            com.example.juka.EspecieDelParte(
+                                nombre = it.nombre,
+                                cantidad = it.numeroEjemplares
+                            )
+                        },
                         locacion = datosFinales.nombreLugar,
-                        fotoPath = datosFinales.imagenes.firstOrNull()
+                        fechaParte = datosFinales.fecha
                     )
+                    // Si hubo especies nuevas, las emitimos por un SharedFlow
+                    // para que la UI del chat dispare la celebración.
+                    val nuevas = resultadosPescadex
+                        .filterIsInstance<com.example.juka.RegistroResult.Success>()
+                        .filter { it.esNuevaEspecie }
+                    if (nuevas.isNotEmpty()) {
+                        _nuevasEspeciesEvent.emit(nuevas)
+                    }
                 } catch (e: Exception) {
                     Log.w(TAG, "No se pudo actualizar Pescadex: ${e.message}")
                 }
