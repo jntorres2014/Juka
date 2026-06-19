@@ -8,6 +8,8 @@ import com.example.juka.data.local.room.ChatMessageDao
 import com.example.juka.data.local.room.ChatMessageEntity
 import com.example.juka.data.local.room.NotificacionDao
 import com.example.juka.data.local.room.NotificacionEntity
+import com.example.juka.data.local.room.PescadexRecordDao
+import com.example.juka.data.local.room.PescadexRecordEntity
 import com.example.juka.domain.model.ChatMessageWithMode
 import com.example.juka.domain.model.ChatMode
 import com.example.juka.domain.model.ParteEnProgreso
@@ -39,7 +41,8 @@ class LocalStorageHelper(
     private val context: Context,
     private val chatDao: ChatMessageDao,
     private val borradorDao: BorradorParteDao,
-    private val notificacionDao: NotificacionDao
+    private val notificacionDao: NotificacionDao,
+    private val pescadexDao: PescadexRecordDao
 ) {
 
     // Herramientas
@@ -252,6 +255,43 @@ class LocalStorageHelper(
     /** Borra todo el historial (útil para "limpiar" desde la UI). */
     suspend fun deleteAllNotificaciones() = withContext(Dispatchers.IO) {
         try { notificacionDao.deleteAll() } catch (e: Exception) { e.printStackTrace() }
+    }
+
+    // ==========================================
+    // 🏆 SECCIÓN 6: PESCADEX (Room cache)
+    // ==========================================
+
+    suspend fun savePescadexRecords(records: List<PescadexRecordEntity>) = withContext(Dispatchers.IO) {
+        try {
+            pescadexDao.insertAll(records)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    suspend fun saveSinglePescadexRecord(record: PescadexRecordEntity) = withContext(Dispatchers.IO) {
+        try {
+            pescadexDao.upsert(record)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    suspend fun getPescadexRecords(): List<PescadexRecordEntity> = withContext(Dispatchers.IO) {
+        try {
+            pescadexDao.getAll()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    suspend fun clearPescadexRecords() = withContext(Dispatchers.IO) {
+        try {
+            pescadexDao.deleteAll()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     // ==========================================

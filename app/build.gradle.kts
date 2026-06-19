@@ -81,6 +81,9 @@ dependencies {
     // Google Sign In - esta SÍ lleva versión (no es Firebase)
     implementation("com.google.android.gms:play-services-auth:20.7.0")
 
+    // Firebase In-App Messaging
+    implementation("com.google.firebase:firebase-inappmessaging-display")
+
     // Core
     implementation("androidx.core:core-ktx:1.13.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.3")
@@ -130,6 +133,13 @@ dependencies {
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
+
+    // LiteRT (sucesor de TFLite — soporta ops v12+)
+    implementation("com.google.ai.edge.litert:litert:1.0.1")
+    implementation("com.google.ai.edge.litert:litert-support:1.0.1")
+
+    // WorkManager — sincronización offline de borradores
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
 
     // Testing
     testImplementation("junit:junit:4.13.2")

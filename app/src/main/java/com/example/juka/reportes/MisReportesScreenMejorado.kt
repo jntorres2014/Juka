@@ -45,6 +45,16 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.juka.domain.model.ModalidadPesca
 
+// Convierte "yyyy-MM-dd" → "dd/MM/yyyy". Devuelve el original si no puede parsear.
+fun formatearFecha(fecha: String?): String {
+    if (fecha.isNullOrBlank()) return "Sin fecha"
+    return try {
+        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+        val out = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault())
+        out.format(sdf.parse(fecha)!!)
+    } catch (e: Exception) { fecha }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MisReportesScreenMejorado(
@@ -57,9 +67,6 @@ fun MisReportesScreenMejorado(
     var mostrarEstadisticas by remember { mutableStateOf(false) }
     var selectedReporte by remember { mutableStateOf<PartePesca?>(null) }
     var mostrarMapaGeneral by remember { mutableStateOf(false) }
-
-    val bottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
-    val context = LocalContext.current
 
     val reportes = uiState.reportes
     val isLoading = uiState.isLoading
@@ -533,7 +540,7 @@ fun ReporteCardMejorado(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text(reporte.fecha.toString(), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text(formatearFecha(reporte.fecha), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     Text("${reporte.horaInicio ?: "?"} - ${reporte.horaFin ?: "?"}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
                 }
                 Surface(
@@ -652,7 +659,7 @@ fun DetalleParteBottomSheet(
         }
 
         Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-            InfoSectionMejorada(icon = Icons.Default.CalendarToday, titulo = "Fecha y Horario", contenido = "${reporte.fecha} • ${reporte.horaInicio ?: "--:--"} a ${reporte.horaFin ?: "--:--"}")
+            InfoSectionMejorada(icon = Icons.Default.CalendarToday, titulo = "Fecha y Horario", contenido = "${formatearFecha(reporte.fecha)} • ${reporte.horaInicio ?: "--:--"} a ${reporte.horaFin ?: "--:--"}")
             InfoSectionMejorada(icon = Icons.Default.Phishing, titulo = "Modalidad", contenido = reporte.tipo?.replaceFirstChar { it.uppercase() } ?: "No especificada")
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -776,8 +783,15 @@ fun UbicacionViewer(lat: Double?, lng: Double?, ubicacionName: String?, modifier
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MapaGeneralDeReportes(reportes: List<PartePesca>, onCerrar: () -> Unit) {
+    var selectedParte by remember { mutableStateOf<PartePesca?>(null) }
+
+    val reportesConUbicacion = remember(reportes) {
+        reportes.filter { it.ubicacion?.latitud != null }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
             factory = { ctx ->
@@ -785,15 +799,21 @@ fun MapaGeneralDeReportes(reportes: List<PartePesca>, onCerrar: () -> Unit) {
                 MapView(ctx).apply {
                     setTileSource(TileSourceFactory.MAPNIK)
                     setMultiTouchControls(true)
-                    val validos = reportes.filter { it.ubicacion?.latitud != null }
-                    if (validos.isNotEmpty()) {
+                    if (reportesConUbicacion.isNotEmpty()) {
                         controller.setZoom(6.5)
-                        controller.setCenter(GeoPoint(validos[0].ubicacion!!.latitud!!, validos[0].ubicacion!!.longitud!!))
-                        validos.forEach { r ->
+                        controller.setCenter(
+                            GeoPoint(
+                                reportesConUbicacion[0].ubicacion!!.latitud!!,
+                                reportesConUbicacion[0].ubicacion!!.longitud!!
+                            )
+                        )
+                        reportesConUbicacion.forEach { r ->
                             val m = Marker(this)
                             m.position = GeoPoint(r.ubicacion!!.latitud!!, r.ubicacion!!.longitud!!)
-                            m.title = r.fecha
-                            m.snippet = "Capturas: ${r.cantidadTotal}"
+                            m.setOnMarkerClickListener { _, _ ->
+                                selectedParte = r
+                                true
+                            }
                             overlays.add(m)
                         }
                     }
@@ -801,11 +821,178 @@ fun MapaGeneralDeReportes(reportes: List<PartePesca>, onCerrar: () -> Unit) {
             },
             modifier = Modifier.fillMaxSize()
         )
+
+        // Botón cerrar
         FloatingActionButton(
             onClick = onCerrar,
-            modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(16.dp),
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface
         ) {
-            Icon(Icons.Default.Close, contentDescription = "Cerrar")
+            Icon(Icons.Default.Close, contentDescription = "Cerrar mapa")
+        }
+
+        // Panel inferior: solo aparece al tocar un marcador
+        if (selectedParte != null) {
+            Card(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 10.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f)
+                ),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                DetalleMarkerPanel(
+                    reporte = selectedParte!!,
+                    onCerrar = { selectedParte = null }
+                )
+            }
+        }
+    }
+}
+
+/** Panel que se muestra al tocar un marcador: fecha, ubicación y especies capturadas. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun DetalleMarkerPanel(reporte: PartePesca, onCerrar: () -> Unit) {
+    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = formatearFecha(reporte.fecha),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                val lugarYModalidad = listOfNotNull(
+                    reporte.ubicacion?.nombre?.takeIf { it.isNotBlank() },
+                    reporte.tipo?.replaceFirstChar { it.uppercase() }
+                ).joinToString(" · ")
+                if (lugarYModalidad.isNotBlank()) {
+                    Text(
+                        text = lugarYModalidad,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                    )
+                }
+            }
+            IconButton(onClick = onCerrar) {
+                Icon(Icons.Default.Close, contentDescription = "Cerrar detalle")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (reporte.peces.isNotEmpty()) {
+            Text(
+                text = "🐟 Especies capturadas",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                reporte.peces.forEach { captura ->
+                    AssistChip(
+                        onClick = {},
+                        label = {
+                            Text(
+                                "${captura.cantidad}x ${captura.especie}",
+                                fontSize = 13.sp
+                            )
+                        },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                        )
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "${reporte.cantidadTotal} peces en total",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+            )
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.SentimentDissatisfied,
+                    contentDescription = null,
+                    tint = Color.Gray,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    "Sin capturas registradas en esta jornada",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.Gray
+                )
+            }
+        }
+    }
+}
+
+/** Panel por defecto: resumen de todas las especies pescadas en el mapa. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ResumenEspeciesPanel(totalJornadas: Int, resumenEspecies: List<Pair<String, Int>>) {
+    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("🗺️", fontSize = 22.sp)
+            Spacer(modifier = Modifier.width(8.dp))
+            Column {
+                Text(
+                    "$totalJornadas jornadas en el mapa",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "Toca un marcador para ver el detalle",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+            }
+        }
+
+        if (resumenEspecies.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                "🐠 Especies pescadas en total:",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                resumenEspecies.forEach { (especie, total) ->
+                    AssistChip(
+                        onClick = {},
+                        label = { Text("${total}x $especie", fontSize = 12.sp) },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
+                        )
+                    )
+                }
+            }
+        } else if (totalJornadas > 0) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                "Ninguna jornada registro capturas aun",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray
+            )
         }
     }
 }

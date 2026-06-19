@@ -129,7 +129,7 @@ object PreguntasEncuesta {
             id = 6,
             texto = "¿Cómo calificaría su habilidad como pescador/a comparándose con otras personas que practican pesca recreativa en los sitios que usted frecuenta?",
             tipo = TipoPregunta.ESCALA,
-            opciones = listOf("1 - Mucho peor", "2", "3", "4", "5", "6", "7 - Mucho mejor"),
+            opciones = listOf("1 - Poco", "2", "3", "4", "5", "6", "7 - Mucho mejor"),
             rangoEscala = 1..7
         ),
 

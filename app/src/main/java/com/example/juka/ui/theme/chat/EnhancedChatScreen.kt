@@ -129,11 +129,11 @@ fun EnhancedChatScreen(
         ChatMode.CREAR_PARTE -> parteMessages
     }
 
-    // Launcher para imágenes
-    val imagePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        uri?.let { viewModel.sendImageMessage(it.toString()) }
+    // Picker unificado: BottomSheet con cámara o galería. Sustituye al
+    // GetContent() puro de antes para que el usuario pueda sacar foto en el
+    // momento desde adentro del chat.
+    val abrirPickerImagen = com.example.juka.component.rememberImagePickerWithCamera { uri ->
+        viewModel.sendImageMessage(uri.toString())
     }
 
     // Auto-scroll cuando cambian los mensajes
@@ -281,7 +281,7 @@ fun EnhancedChatScreen(
                 }
 
                 // Si el chat está habilitado en modo general, mostrar input
-                currentMode == ChatMode.GENERAL -> {
+                currentMode == ChatMode.GENERAL && chatEnabled -> {
                     EnhancedMessageInput(
                         messageText = messageText,
                         onMessageChange = { messageText = it },
@@ -291,7 +291,7 @@ fun EnhancedChatScreen(
                                 messageText = ""
                             }
                         },
-                        onSendImage = { imagePickerLauncher.launch("image/*") },
+                        onSendImage = abrirPickerImagen,
                         onSendAudio = { transcript -> viewModel.sendAudioTranscript(transcript) },
                         onSendLocation = { showMapPicker = true },
                         currentMode = currentMode,
@@ -308,10 +308,11 @@ fun EnhancedChatScreen(
                 }
             }
         }
-        // Trigger para selector de imágenes
+        // Trigger para selector de imágenes (lo dispara el VM cuando el wizard
+        // del parte pide fotos como parte del flujo de campos).
         LaunchedEffect(showImagePickerFromViewModel) {
             if (showImagePickerFromViewModel) {
-                imagePickerLauncher.launch("image/*")
+                abrirPickerImagen()
                 viewModel.dismissImagePicker()
             }
         }

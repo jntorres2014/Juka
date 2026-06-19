@@ -41,6 +41,7 @@ import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.*
 import com.example.juka.domain.usecase.FishIdentifier
+import com.example.juka.domain.usecase.FishIdentifierModel
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -60,6 +61,7 @@ fun IdentificarPezScreen() {
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showImageDialog by remember { mutableStateOf(false) }
     var showQuotaDialog by remember { mutableStateOf(false) }
+    var selectedModel by remember { mutableStateOf(FishIdentifierModel.GEMINI) }
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -99,8 +101,8 @@ fun IdentificarPezScreen() {
 
         scope.launch {
             try {
-                // ✅ AHORA SÍ PUEDE USAR quotaManager
-                if (!quotaManager.canMakeQuery()) {
+                // Quota solo aplica para Gemini
+                if (selectedModel == FishIdentifierModel.GEMINI && !quotaManager.canMakeQuery()) {
                     errorMessage = null
                     showQuotaDialog = true
                     isAnalyzing = false
@@ -109,13 +111,16 @@ fun IdentificarPezScreen() {
 
                 val file = uriToFile(context, uri)
                 if (file != null) {
-                    val respuestaIA = fishIdentifier.identifyFish(file.absolutePath)
+                    val respuestaIA = fishIdentifier.identifyFish(file.absolutePath, selectedModel)
 
                     if (respuestaIA != null) {
-                        val consumed = quotaManager.consumeQuery()
-                        if (consumed) {
-                            resultadoIdentificacion = respuestaIA +
-                                    "\n\n_${quotaManager.getQuotaMessage()}_"
+                        if (selectedModel == FishIdentifierModel.GEMINI) {
+                            val consumed = quotaManager.consumeQuery()
+                            resultadoIdentificacion = if (consumed) {
+                                respuestaIA + "\n\n_${quotaManager.getQuotaMessage()}_"
+                            } else {
+                                respuestaIA
+                            }
                         } else {
                             resultadoIdentificacion = respuestaIA
                         }
@@ -260,6 +265,14 @@ fun IdentificarPezScreen() {
                         )
                     }
                 }
+
+                // Selector de modelo
+                ModelSelector(
+                    selected = selectedModel,
+                    onSelect = { selectedModel = it }
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
 
                 // Selector de imagen cuando no hay imagen
                 AnimatedVisibility(
@@ -490,43 +503,79 @@ fun ImageAnalysisCard(
         )
     ) {
         Column {
-            // Imagen con indicador de que es clickeable
+            // Imagen con indicador de que es clickeable. Mientras se analiza,
+            // mostramos el indicador de progreso COMO OVERLAY encima de la
+            // imagen (no debajo) para que la foto siempre quede visible.
+            // Antes el "Consultando a Huka..." iba en un AnimatedContent
+            // debajo que hacía crecer el card y empujaba la imagen fuera de
+            // la zona visible del scroll → el usuario percibía "se perdió".
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(300.dp)
                     .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
-                    .clickable { onImageClick() }
+                    .clickable(enabled = !isAnalyzing) { onImageClick() }
             ) {
                 Image(
                     painter = rememberAsyncImagePainter(imageUri),
                     contentDescription = "Foto del pez",
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Fit // Cambiado a Fit para ver imagen completa
+                    contentScale = ContentScale.Fit
                 )
 
-                // Badge para indicar que se puede ampliar
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(12.dp),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-                    shadowElevation = 4.dp
-                ) {
-                    Icon(
-                        Icons.Default.ZoomIn,
-                        contentDescription = "Ampliar imagen",
-                        modifier = Modifier.padding(8.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
+                // Overlay semi-transparente + spinner mientras se analiza.
+                // No oculta la imagen, solo la atenúa.
+                if (isAnalyzing) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.35f)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(48.dp),
+                                strokeWidth = 3.dp,
+                                color = androidx.compose.ui.graphics.Color.White
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                "Consultando a Huka...",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = androidx.compose.ui.graphics.Color.White
+                            )
+                        }
+                    }
+                } else {
+                    // Badge "ampliar" solo si NO está analizando
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(12.dp),
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                        shadowElevation = 4.dp
+                    ) {
+                        Icon(
+                            Icons.Default.ZoomIn,
+                            contentDescription = "Ampliar imagen",
+                            modifier = Modifier.padding(8.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             }
 
-            // Contenido del análisis
+            // Contenido del análisis: solo se muestra cuando hay resultado o
+            // error. Durante "analyzing" no renderizamos nada acá (el spinner
+            // está sobre la imagen). En "idle" tampoco — no hay nada que mostrar.
             AnimatedContent(
                 targetState = when {
-                    isAnalyzing -> "analyzing"
                     error != null -> "error"
                     resultado != null -> "result"
                     else -> "idle"
@@ -538,18 +587,12 @@ fun ImageAnalysisCard(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(20.dp)
+                        .padding(if (state == "idle") 0.dp else 20.dp)
                 ) {
                     when (state) {
-                        "analyzing" -> {
-                            AnalyzingContent()
-                        }
-                        "error" -> {
-                            ErrorContent(error ?: "")
-                        }
-                        "result" -> {
-                            ResultContent(resultado ?: "")
-                        }
+                        "error" -> ErrorContent(error ?: "")
+                        "result" -> ResultContent(resultado ?: "")
+                        // "idle" → no renderizamos nada (Box vacío sin padding)
                     }
                 }
             }
@@ -777,6 +820,52 @@ fun FullImageDialog(
                         fontSize = 14.sp
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun ModelSelector(
+    selected: FishIdentifierModel,
+    onSelect: (FishIdentifierModel) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        listOf(
+            FishIdentifierModel.GEMINI        to "🤖 Gemini",
+            FishIdentifierModel.FISHIAL       to "🐟 Fishial",
+            FishIdentifierModel.MODELO_PROPIO to "🇦🇷 Local"
+        ).forEach { (model, label) ->
+            val isSelected = selected == model
+            Surface(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { onSelect(model) },
+                color = if (isSelected)
+                    MaterialTheme.colorScheme.primary
+                else
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0f),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text(
+                    text = label,
+                    modifier = Modifier.padding(vertical = 10.dp),
+                    textAlign = TextAlign.Center,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                    fontSize = 14.sp,
+                    color = if (isSelected)
+                        MaterialTheme.colorScheme.onPrimary
+                    else
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }

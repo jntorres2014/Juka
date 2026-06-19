@@ -63,7 +63,8 @@ class EnhancedChatViewModel(
     val fishCounterManager: FishCounterManager,
     val achievementsViewModel: AchievementsViewModel,
     private val networkMonitor: NetworkMonitor,
-    private val pescadexManager: PescadexManager
+    private val pescadexManager: PescadexManager,
+    private val application: com.example.juka.HukaApplication
 ) : ViewModel() {
 
     val quotaState = quotaManager.quotaState
@@ -361,9 +362,18 @@ class EnhancedChatViewModel(
     }
 
     fun sendImageMessage(imagePath: String) {
+        // Solo se procesan imágenes en el flujo de CREAR_PARTE (la foto se
+        // asocia al parte). El botón de imagen del chat general fue removido
+        // porque no había procesamiento real (no Gemini Vision, no upload).
+        // Para identificar especies está la pantalla "Identificar pez".
         when (_currentMode.value) {
-            ChatMode.GENERAL -> sendGeneralImageMessage(imagePath)
             ChatMode.CREAR_PARTE -> sendParteImageMessage(imagePath)
+            ChatMode.GENERAL -> {
+                Log.w(
+                    TAG,
+                    "sendImageMessage llamado en modo GENERAL — el botón debería estar oculto. Ignorando."
+                )
+            }
         }
     }
 
@@ -429,31 +439,9 @@ class EnhancedChatViewModel(
         }
     }
 
-    private fun sendGeneralImageMessage(uriTemporal: String) {
-        viewModelScope.launch {
-            _isAnalyzing.value = true
-
-            val pathSeguro = imageHelper.saveImageToInternalStorage(android.net.Uri.parse(uriTemporal))
-
-            if (pathSeguro != null) {
-                val userMessage = ChatMessageWithMode(
-                    pathSeguro,
-                    true,
-                    MessageType.IMAGE,
-                    DateUtils.timestampChat(),
-                    ChatMode.GENERAL
-                )
-                addMessageToGeneralChat(userMessage)
-                saveGeneralMessageToFile(userMessage, "IMAGE: $pathSeguro")
-
-                delay(1000)
-                addBotMessage("📸 Foto guardada en memoria interna exitosamente.")
-            } else {
-                addBotMessage("❌ Error al guardar la imagen en memoria.")
-            }
-            _isAnalyzing.value = false
-        }
-    }
+    // NOTA: `sendGeneralImageMessage` fue eliminado. Solo guardaba la imagen
+    // en memoria interna sin procesarla, y el botón que la disparaba se sacó
+    // del chat general (ver `EnhancedMessageInput` en ChatInputs.kt).
 
     private fun sendParteTextMessage(content: String) {
         val userMessage = ChatMessageWithMode(content, true, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE)
@@ -933,6 +921,9 @@ class EnhancedChatViewModel(
         if (idActivo != null) {
             localStorageHelper.saveBorrador(idActivo, parteActual)
         }
+        // Encolar sync para cuando vuelva la red (aunque el job ya exista
+        // con KEEP, si completó se vuelve a registrar correctamente).
+        application.programarSyncBorradores()
         _isSendingParte.value = false
         _firebaseStatus.value = when (motivo) {
             OfflineMotivo.SIN_SENAL -> "Guardado sin conexión"

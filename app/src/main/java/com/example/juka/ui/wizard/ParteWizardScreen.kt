@@ -41,7 +41,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 private data class WizardData(
-    val fecha: String = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date()),
+    val fecha: String = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()),
     val horaInicio: String = "",
     val horaFin: String = "",
     val modalidad: ModalidadPesca? = null,
@@ -105,14 +105,14 @@ fun ParteWizardScreen(
     val totalSteps = STEP_TITLES.size
     val progress = (currentStep + 1).toFloat() / totalSteps
 
-    val imagePickerLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        uri?.let {
-            scope.launch {
-                val path = imageHelper.saveImageToInternalStorage(it)
-                if (path != null) data = data.copy(imagenPath = path)
-            }
+    // Picker unificado: muestra un BottomSheet con cámara o galería. La Uri
+    // que devuelve va al mismo `imageHelper.saveImageToInternalStorage` que
+    // antes — el helper acepta tanto content:// de galería como las file://
+    // de FileProvider (cámara).
+    val abrirPickerImagen = com.example.juka.component.rememberImagePickerWithCamera { uri ->
+        scope.launch {
+            val path = imageHelper.saveImageToInternalStorage(uri)
+            if (path != null) data = data.copy(imagenPath = path)
         }
     }
 
@@ -175,7 +175,7 @@ fun ParteWizardScreen(
                         3 -> Step4_Especies(data) { data = it }
                         4 -> Step5_Canas(data, showStepError) { data = it }
                         5 -> Step6_Observaciones(data, showStepError) { data = it }
-                        6 -> Step7_Foto(data, onPickImage = { imagePickerLauncher.launch("image/*") }) { data = it }
+                        6 -> Step7_Foto(data, onPickImage = abrirPickerImagen) { data = it }
                     }
                 }
                 HorizontalDivider()
@@ -226,22 +226,47 @@ fun ParteWizardScreen(
 }
 
 // Paso 1 — Fecha y hora | OBLIGATORIO: horaInicio y horaFin
+//
+// Validaciones agregadas (feedback de correcciones):
+//  - La fecha no puede ser futura. El DatePicker tiene maxDate seteado en
+//    el "ahora" del sistema, así el calendario directamente no deja tocar
+//    días futuros (UX nativa de Android).
+//  - La hora no puede ser futura si la fecha del parte es HOY. Como el
+//    TimePickerDialog estándar no soporta limitar horas, validamos en el
+//    callback: si la hora elegida cae en el futuro, mostramos toast y no
+//    actualizamos el state.
 @Composable
 private fun Step1_DateTime(data: WizardData, showError: Boolean, onUpdate: (WizardData) -> Unit) {
     val context = LocalContext.current
+
     fun showDatePicker() {
         val cal = Calendar.getInstance()
-        DatePickerDialog(context, { _, y, m, d ->
-            onUpdate(data.copy(fecha = String.format("%02d/%02d/%04d", d, m + 1, y)))
-        }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show()
+        val dialog = DatePickerDialog(context, { _, y, m, d ->
+            onUpdate(data.copy(fecha = String.format("%04d-%02d-%02d", y, m + 1, d)))
+        }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH))
+        // Bloquear selección de fechas futuras en el calendario nativo.
+        dialog.datePicker.maxDate = System.currentTimeMillis()
+        dialog.show()
     }
+
     fun showTimePicker(isStart: Boolean) {
         val cal = Calendar.getInstance()
         TimePickerDialog(context, { _, h, min ->
+            // Si la fecha seleccionada es HOY, verificamos que la hora no
+            // sea futura. Comparamos contra la hora actual del sistema.
+            if (esFechaHoy(data.fecha) && esHoraFuturaDeHoy(h, min)) {
+                android.widget.Toast.makeText(
+                    context,
+                    "No podés elegir una hora futura para una jornada de hoy",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+                return@TimePickerDialog
+            }
             val t = String.format("%02d:%02d", h, min)
             onUpdate(if (isStart) data.copy(horaInicio = t) else data.copy(horaFin = t))
         }, cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE), true).show()
     }
+
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         WizardRow(label = "Fecha", icon = Icons.Default.CalendarToday, value = data.fecha, onClick = ::showDatePicker)
         WizardRow(label = "Hora de inicio", icon = Icons.Default.Schedule, value = data.horaInicio.ifBlank { "Seleccionar hora" }, isError = showError && data.horaInicio.isBlank(), onClick = { showTimePicker(true) })
@@ -250,6 +275,33 @@ private fun Step1_DateTime(data: WizardData, showError: Boolean, onUpdate: (Wiza
         if (showError && data.horaFin.isBlank()) StepErrorText("Seleccioná la hora de fin.")
         HintText("El horario se usa para calcular la duración de la jornada.")
     }
+}
+
+/**
+ * ¿El string `fecha` (formato "yyyy-MM-dd") corresponde a hoy?
+ * Usado para decidir si validamos la hora contra el reloj actual.
+ */
+private fun esFechaHoy(fecha: String): Boolean {
+    if (fecha.isBlank()) return false
+    return try {
+        val partes = fecha.split("-")
+        if (partes.size != 3) return false
+        val y = partes[0].toInt()
+        val m = partes[1].toInt() - 1
+        val d = partes[2].toInt()
+        val hoy = Calendar.getInstance()
+        d == hoy.get(Calendar.DAY_OF_MONTH) &&
+            m == hoy.get(Calendar.MONTH) &&
+            y == hoy.get(Calendar.YEAR)
+    } catch (e: Exception) { false }
+}
+
+/** ¿La hora HH:mm cae más tarde que el reloj actual? */
+private fun esHoraFuturaDeHoy(h: Int, min: Int): Boolean {
+    val ahora = Calendar.getInstance()
+    val horaAhora = ahora.get(Calendar.HOUR_OF_DAY)
+    val minAhora = ahora.get(Calendar.MINUTE)
+    return h > horaAhora || (h == horaAhora && min > minAhora)
 }
 
 // Paso 2 — Modalidad | OBLIGATORIO

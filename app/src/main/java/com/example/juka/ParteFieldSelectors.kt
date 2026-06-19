@@ -150,7 +150,7 @@ fun FechaRapidaSelector(
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
 
-                val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+                val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
                 val calendar = Calendar.getInstance()
 
                 // Hoy

@@ -18,6 +18,8 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.inappmessaging.FirebaseInAppMessaging
+import com.google.firebase.installations.FirebaseInstallations
 import com.google.firebase.messaging.FirebaseMessaging
 
 class MainActivity : ComponentActivity() {
@@ -43,6 +45,18 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         FirebaseApp.initializeApp(this)
+
+        // In-App Messaging: loguear el Installation ID para poder agregar
+        // este dispositivo como dispositivo de prueba en la consola de Firebase.
+        FirebaseInstallations.getInstance().id
+            .addOnSuccessListener { id ->
+                Log.d("FIAM_TEST", "📱 Firebase Installation ID: $id")
+                Log.d("FIAM_TEST", "👆 Copiá este ID en Firebase Console → In-App Messaging → Probar en tu dispositivo")
+            }
+
+        // Deshabilitar throttle para pruebas (habilita mensajes sin esperar 24hs).
+        // ⚠️ Sacar esta línea antes de publicar en producción.
+        FirebaseInAppMessaging.getInstance().isAutomaticDataCollectionEnabled = true
 
         // 1. Crear el canal de notificaciones al arrancar (idempotente).
         //    Así existe siempre, sin depender de que el servicio FCM

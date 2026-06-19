@@ -109,14 +109,52 @@ interface BorradorParteDao {
     suspend fun count(): Int
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PESCADEX — cache local de las especies descubiertas y récords personales.
+// Permite consulta offline y recuperación rápida tras reinstall (vía sync).
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Entity(tableName = "pescadex_records")
+data class PescadexRecordEntity(
+    @PrimaryKey val especieId: String,
+    val nombreComun: String,
+    val nombreCientifico: String = "",
+    val totalCapturas: Int,
+    val pesoRecord: Double?,
+    val primeraFoto: String?,
+    /** ms epoch de la primera captura. */
+    val fechaDescubrimiento: Long?,
+    val mejorDiaCantidad: Int,
+    val mejorDiaFecha: String?,
+    val rareza: String = "comun",
+    /** Locaciones concatenadas por pipe | */
+    val locacionesRaw: String = ""
+)
+
+@Dao
+interface PescadexRecordDao {
+    @Query("SELECT * FROM pescadex_records")
+    suspend fun getAll(): List<PescadexRecordEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(records: List<PescadexRecordEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(record: PescadexRecordEntity)
+
+    @Query("DELETE FROM pescadex_records")
+    suspend fun deleteAll()
+}
+
 // 3. LA BASE DE DATOS (El cerebro)
 @Database(
     entities = [
         ChatMessageEntity::class,
         BorradorParteEntity::class,
-        NotificacionEntity::class
+        NotificacionEntity::class,
+        PescadexRecordEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class HukaRoomDatabase : RoomDatabase() {
@@ -124,6 +162,7 @@ abstract class HukaRoomDatabase : RoomDatabase() {
     abstract fun chatDao(): ChatMessageDao
     abstract fun borradorDao(): BorradorParteDao
     abstract fun notificacionDao(): NotificacionDao
+    abstract fun pescadexDao(): PescadexRecordDao
 
     companion object {
         @Volatile

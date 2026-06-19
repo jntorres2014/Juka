@@ -6,10 +6,13 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
+import kotlinx.coroutines.delay
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.*
@@ -28,10 +31,38 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 
+/** Tope máximo de grabación. Pasado este límite, autodetenemos y entregamos
+ *  el texto acumulado. Evita que el usuario se cuelgue grabando sin darse
+ *  cuenta y nos protege de exceder cuotas del SpeechRecognizer. */
+private const val MAX_RECORDING_SECONDS = 15
+
+/** Delay entre fin de un segmento y arranque del siguiente. Le da al
+ *  SpeechRecognizer un instante para liberar recursos antes de relanzarlo.
+ *  Sin esto, el destroy()→create()→startListening() encadenado dentro del
+ *  callback del recognizer suele fallar con ERROR_RECOGNIZER_BUSY o quedar
+ *  en un estado inválido (el síntoma que se ve es "se corta a los 5 seg"). */
+private const val RESTART_DELAY_MS = 150L
+
+/**
+ * Botón de grabación con SpeechRecognizer.
+ *
+ * @param compact si true, omite el texto descriptivo de abajo del botón y
+ *   usa un FAB del mismo tamaño que el modifier recibido. Pensado para uso
+ *   inline en barras de input (chat) donde no hay espacio vertical para el
+ *   texto y el padre define el tamaño con `Modifier.size(48.dp)`.
+ *
+ *   IMPORTANTE: el bug previo del chat general era que se invocaba con
+ *   `Modifier.size(48.dp)` desde el padre, pero internamente el FAB era de
+ *   64.dp y había Spacer + Text después — todo eso se clipaba a 48.dp y el
+ *   área clicable quedaba rota. En modo compact el FAB se ajusta al tamaño
+ *   del Box contenedor y el countdown de segundos se muestra ADENTRO del
+ *   propio FAB en lugar de texto debajo.
+ */
 @Composable
 fun WorkingAudioButton(
     onAudioTranscribed: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    compact: Boolean = false
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -45,17 +76,26 @@ fun WorkingAudioButton(
     var accumulatedText by remember { mutableStateOf("") }
     // ✅ Flag para saber si el usuario detuvo manualmente
     var userStopped by remember { mutableStateOf(false) }
+    // Contador visible de segundos restantes. Se reinicia al arrancar.
+    var secondsRemaining by remember { mutableStateOf(MAX_RECORDING_SECONDS) }
 
     val scale by animateFloatAsState(
         targetValue = if (isRecording) 1.3f else 1.0f,
         animationSpec = tween(200)
     )
 
-    // ✅ Función de inicio extraída como lambda para poder llamarla recursivamente
-    val startContinuousRecording = remember<() -> Unit> {
-        {
-            // se define abajo en el LaunchedEffect / función local
-        }
+    // Handler para postponer el relance fuera del callback del recognizer.
+    // Mantenerlo a nivel de composable así no se recrea en cada recomposition.
+    val handler = remember { Handler(Looper.getMainLooper()) }
+
+    // Acción única de "detener" — reusada por el botón cuando el usuario lo
+    // toca Y por el timer cuando se cumple MAX_RECORDING_SECONDS.
+    val stopRecording: () -> Unit = {
+        Log.i("🎤", "Deteniendo grabación")
+        userStopped = true
+        isProcessing = true
+        isRecording = false
+        speechRecognizer?.stopListening()
     }
 
     // Función local que relanza el recognizer acumulando texto
@@ -131,9 +171,14 @@ fun WorkingAudioButton(
                         errorMessage = "No se detectó texto claro"
                     }
                 } else {
-                    // ✅ Continuar grabando automáticamente
-                    Log.i("🎤", "Reiniciando segmento...")
-                    launchRecognizer()
+                    // ✅ Continuar grabando automáticamente, pero POSPONIENDO
+                    // el relance fuera del callback del recognizer. Esto evita
+                    // que destruyamos y recreemos el recognizer mientras él
+                    // mismo está procesando su propio callback.
+                    Log.i("🎤", "Reiniciando segmento (con delay)...")
+                    handler.postDelayed({
+                        if (!userStopped) launchRecognizer()
+                    }, RESTART_DELAY_MS)
                 }
             }
 
@@ -144,8 +189,11 @@ fun WorkingAudioButton(
                 Log.w("🎤", "Error código: $error, recuperable: $isRecoverableError")
 
                 if (isRecoverableError && !userStopped) {
-                    // ✅ Sin voz en este segmento → simplemente reiniciar
-                    launchRecognizer()
+                    // ✅ Sin voz en este segmento → reiniciar con el mismo
+                    // delay que en onResults, por la misma razón.
+                    handler.postDelayed({
+                        if (!userStopped) launchRecognizer()
+                    }, RESTART_DELAY_MS)
                 } else if (userStopped) {
                     // Usuario detuvo durante un error: entregar lo acumulado
                     isRecording = false
@@ -192,95 +240,164 @@ fun WorkingAudioButton(
 
     DisposableEffect(Unit) {
         onDispose {
+            handler.removeCallbacksAndMessages(null)
             speechRecognizer?.destroy()
         }
     }
 
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = modifier
-    ) {
-        FloatingActionButton(
-            onClick = {
-                errorMessage = null
-                when {
-                    isRecording || isProcessing -> {
-                        // ✅ Usuario detiene: marcar flag y esperar onResults/onError
-                        Log.i("🎤", "Usuario detuvo grabación")
-                        userStopped = true
-                        isProcessing = true
-                        isRecording = false
-                        speechRecognizer?.stopListening()
-                    }
-                    else -> {
-                        userStopped = false
-                        accumulatedText = ""
-                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
-                            == PackageManager.PERMISSION_GRANTED
-                        ) {
-                            launchRecognizer()
-                        } else {
-                            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                        }
-                    }
-                }
-            },
-            modifier = Modifier.size(64.dp).scale(scale),
-            containerColor = when {
-                isProcessing -> MaterialTheme.colorScheme.tertiary
-                isRecording -> MaterialTheme.colorScheme.error
-                errorMessage != null -> MaterialTheme.colorScheme.error
-                else -> MaterialTheme.colorScheme.secondary
+    // Countdown del tope de 15s. Se reinicia cada vez que isRecording pasa
+    // a true (nueva sesión de grabación). Cuando llega a 0 sin que el
+    // usuario haya detenido manualmente, autodisparamos stopRecording().
+    LaunchedEffect(isRecording) {
+        if (isRecording) {
+            secondsRemaining = MAX_RECORDING_SECONDS
+            while (secondsRemaining > 0 && isRecording && !userStopped) {
+                delay(1000L)
+                if (isRecording && !userStopped) secondsRemaining--
             }
+            if (secondsRemaining <= 0 && !userStopped) {
+                Log.i("🎤", "Timeout de ${MAX_RECORDING_SECONDS}s alcanzado, autodetener")
+                stopRecording()
+            }
+        } else {
+            // Sesión terminada → resetear el contador para la próxima
+            secondsRemaining = MAX_RECORDING_SECONDS
+        }
+    }
+
+    // Acción del FAB — extraída como lambda para reusarla en los dos modos
+    // (compact e inline).
+    val onFabClick: () -> Unit = {
+        errorMessage = null
+        when {
+            isRecording || isProcessing -> {
+                Log.i("🎤", "Usuario detuvo grabación manualmente")
+                stopRecording()
+            }
+            else -> {
+                userStopped = false
+                accumulatedText = ""
+                secondsRemaining = MAX_RECORDING_SECONDS
+                if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+                    == PackageManager.PERMISSION_GRANTED
+                ) {
+                    launchRecognizer()
+                } else {
+                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                }
+            }
+        }
+    }
+    val fabContainerColor = when {
+        isProcessing -> MaterialTheme.colorScheme.tertiary
+        isRecording -> MaterialTheme.colorScheme.error
+        errorMessage != null -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.secondary
+    }
+
+    if (compact) {
+        // Modo compacto: solo el FAB, sin Spacer ni Text descriptivo. El FAB
+        // ocupa todo el `modifier` que reciba (típicamente Modifier.size(48.dp)
+        // desde la barra del chat). El countdown se renderiza ADENTRO del FAB
+        // reemplazando el ícono Stop mientras se está grabando.
+        FloatingActionButton(
+            onClick = onFabClick,
+            modifier = modifier,
+            containerColor = fabContainerColor
         ) {
             when {
                 isProcessing -> CircularProgressIndicator(
-                    modifier = Modifier.size(28.dp),
+                    modifier = Modifier.size(22.dp),
                     color = MaterialTheme.colorScheme.onTertiary,
-                    strokeWidth = 3.dp
+                    strokeWidth = 2.5.dp
                 )
-                isRecording -> Icon(
-                    Icons.Default.Stop,
-                    contentDescription = "Detener grabación",
-                    tint = MaterialTheme.colorScheme.onError,
-                    modifier = Modifier.size(32.dp)
+                isRecording -> Text(
+                    text = "${secondsRemaining}s",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onError
                 )
                 errorMessage != null -> Icon(
                     Icons.Default.ErrorOutline,
                     contentDescription = "Error",
                     tint = MaterialTheme.colorScheme.onError,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(22.dp)
                 )
                 else -> Icon(
                     Icons.Default.Mic,
                     contentDescription = "Grabar audio",
                     tint = MaterialTheme.colorScheme.onSecondary,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(22.dp)
                 )
             }
         }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = when {
-                isRecording -> "🎤 Grabando... Toca para detener"
-                isProcessing -> "⚡ Procesando audio..."
-                errorMessage != null -> "⚠️ $errorMessage"
-                else -> "Toca para grabar"
-            },
-            fontSize = 12.sp,
-            color = when {
-                errorMessage != null -> MaterialTheme.colorScheme.error
-                else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-            },
-            fontWeight = if (errorMessage != null) FontWeight.Bold else FontWeight.Normal
-        )
-
         if (errorMessage != null) {
             LaunchedEffect(errorMessage) {
                 kotlinx.coroutines.delay(4000)
                 errorMessage = null
+            }
+        }
+    } else {
+        // Modo expandido — FAB de 64dp + texto descriptivo debajo. Para
+        // pantallas donde el botón es la acción principal y hay espacio.
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = modifier
+        ) {
+            FloatingActionButton(
+                onClick = onFabClick,
+                modifier = Modifier.size(64.dp).scale(scale),
+                containerColor = fabContainerColor
+            ) {
+                when {
+                    isProcessing -> CircularProgressIndicator(
+                        modifier = Modifier.size(28.dp),
+                        color = MaterialTheme.colorScheme.onTertiary,
+                        strokeWidth = 3.dp
+                    )
+                    isRecording -> Icon(
+                        Icons.Default.Stop,
+                        contentDescription = "Detener grabación",
+                        tint = MaterialTheme.colorScheme.onError,
+                        modifier = Modifier.size(32.dp)
+                    )
+                    errorMessage != null -> Icon(
+                        Icons.Default.ErrorOutline,
+                        contentDescription = "Error",
+                        tint = MaterialTheme.colorScheme.onError,
+                        modifier = Modifier.size(28.dp)
+                    )
+                    else -> Icon(
+                        Icons.Default.Mic,
+                        contentDescription = "Grabar audio",
+                        tint = MaterialTheme.colorScheme.onSecondary,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = when {
+                    isRecording -> "🎤 Grabando... ${secondsRemaining}s · Toca para detener"
+                    isProcessing -> "⚡ Procesando audio..."
+                    errorMessage != null -> "⚠️ $errorMessage"
+                    else -> "Toca para grabar (máx ${MAX_RECORDING_SECONDS}s)"
+                },
+                fontSize = 12.sp,
+                color = when {
+                    errorMessage != null -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                },
+                fontWeight = if (errorMessage != null) FontWeight.Bold else FontWeight.Normal
+            )
+
+            if (errorMessage != null) {
+                LaunchedEffect(errorMessage) {
+                    kotlinx.coroutines.delay(4000)
+                    errorMessage = null
+                }
             }
         }
     }

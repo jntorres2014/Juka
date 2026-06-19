@@ -83,7 +83,8 @@ object AppViewModelProvider {
                 fishCounterManager = fishCounterManager,
                 achievementsViewModel = achievementsViewModel,
                 networkMonitor = app.networkMonitor,
-                pescadexManager = pescadexManager
+                pescadexManager = pescadexManager,
+                application = app
             )
         }
     }

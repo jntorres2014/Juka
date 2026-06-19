@@ -1,6 +1,5 @@
 package com.example.juka.auth
 
-import android.widget.Toast
 import androidx.compose.foundation.clickable
 import com.example.juka.HukaApplication
 import androidx.compose.foundation.layout.*
@@ -26,7 +25,6 @@ import com.example.juka.data.Achievement
 import com.example.juka.data.AchievementsViewModel
 import com.example.juka.data.AuthManager
 import com.example.juka.navigation.HukaAppWithUser
-import com.example.juka.service.HukaNotifications
 import com.example.juka.ui.theme.logros.AchievementItem
 import com.example.juka.ui.theme.logros.AchievementItemCompact
 import com.google.firebase.auth.FirebaseUser
@@ -348,16 +346,67 @@ fun SimpleProfileScreen(
 
                             if (isEditing) {
                                 // 🖊️ MODO EDICIÓN
-                                OutlinedTextField(
-                                    value = birthDate,
-                                    onValueChange = { birthDate = it },
-                                    label = { Text("Fecha de nacimiento") },
-                                    placeholder = { Text("dd/mm/aaaa") },
-                                    leadingIcon = {
-                                        Icon(Icons.Default.CalendarToday, contentDescription = null)
-                                    },
-                                    modifier = Modifier.fillMaxWidth()
-                                )
+                                // Fecha de nacimiento: el OutlinedTextField con
+                                // readOnly=true igual intercepta los toques y
+                                // el clickable del modifier nunca dispara
+                                // (quirk conocido de Material 3). Solución:
+                                // envolverlo en un Box con clickable y poner
+                                // enabled=false en el TextField — eso sí deja
+                                // pasar los clicks al Box. Reescribimos los
+                                // colores "disabled" para que se vea como un
+                                // campo normal y no como uno deshabilitado.
+                                val abrirDatePicker: () -> Unit = {
+                                    val cal = java.util.Calendar.getInstance()
+                                    // Si ya hay fecha, parsearla para que el
+                                    // picker arranque ahí.
+                                    try {
+                                        val parts = birthDate.split("/")
+                                        if (parts.size == 3) {
+                                            cal.set(
+                                                parts[2].toInt(),
+                                                parts[1].toInt() - 1,
+                                                parts[0].toInt()
+                                            )
+                                        }
+                                    } catch (_: Exception) { /* arranca en hoy */ }
+                                    val dialog = android.app.DatePickerDialog(
+                                        context,
+                                        { _, y, m, d ->
+                                            birthDate = String.format(
+                                                "%02d/%02d/%04d", d, m + 1, y
+                                            )
+                                        },
+                                        cal.get(java.util.Calendar.YEAR),
+                                        cal.get(java.util.Calendar.MONTH),
+                                        cal.get(java.util.Calendar.DAY_OF_MONTH)
+                                    )
+                                    dialog.datePicker.maxDate = System.currentTimeMillis()
+                                    dialog.show()
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { abrirDatePicker() }
+                                ) {
+                                    OutlinedTextField(
+                                        value = birthDate,
+                                        onValueChange = {},
+                                        enabled = false,
+                                        label = { Text("Fecha de nacimiento") },
+                                        placeholder = { Text("dd/mm/aaaa") },
+                                        leadingIcon = {
+                                            Icon(Icons.Default.CalendarToday, contentDescription = null)
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                                            disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            disabledBorderColor = MaterialTheme.colorScheme.outline,
+                                            disabledLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            disabledPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                        )
+                                    )
+                                }
 
                                 Spacer(modifier = Modifier.height(12.dp))
 
@@ -376,7 +425,7 @@ fun SimpleProfileScreen(
                                 OutlinedTextField(
                                     value = location,
                                     onValueChange = { location = it },
-                                    label = { Text("Ubicación") },
+                                    label = { Text("Domicilio") },
                                     leadingIcon = {
                                         Icon(Icons.Default.LocationOn, contentDescription = null)
                                     },
@@ -456,7 +505,7 @@ fun SimpleProfileScreen(
 
                                 InfoRow(
                                     icon = Icons.Default.LocationOn,
-                                    label = "Ubicación",
+                                    label = "Domicilio",
                                     value = profileData?.location ?: "No especificada"
                                 )
 
@@ -516,43 +565,11 @@ fun SimpleProfileScreen(
 
                     Spacer(modifier = Modifier.height(24.dp))
 
-                    // 🔔 BOTÓN PROBAR NOTIFICACIÓN
-                    // Dispara una notificación local directa para verificar
-                    // canal + permiso POST_NOTIFICATIONS + ícono. Si el
-                    // usuario no ve nada al tocarlo, hay que revisar:
-                    //   (a) Permiso de notificaciones (Ajustes → Apps → Huka),
-                    //   (b) Canal "huka_channel" habilitado,
-                    //   (c) Modo "No molestar" del dispositivo.
-                    OutlinedButton(
-                        onClick = {
-                            val titulo = "🎣 Notificación de prueba"
-                            val cuerpo = "Si ves esto, las notificaciones de Huka funcionan correctamente."
-                            val ok = HukaNotifications.mostrar(
-                                context = context,
-                                titulo = titulo,
-                                cuerpo = cuerpo
-                            )
-                            if (!ok) {
-                                Toast.makeText(
-                                    context,
-                                    "No se pudo mostrar. Habilitá las notificaciones de Huka en Ajustes.",
-                                    Toast.LENGTH_LONG
-                                ).show()
-                            }
-                            // Persistir también en la campanita para verificar el flujo end-to-end.
-                            val storage = (context.applicationContext as HukaApplication).localStorageHelper
-                            coroutineScope.launch {
-                                storage.guardarNotificacion(titulo, cuerpo, origen = "SISTEMA")
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.Notifications, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Probar notificación")
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
+                    // NOTA: el botón "Probar notificación" que vivía acá se sacó
+                    // ahora que el flujo está validado. La funcionalidad de
+                    // notificaciones (HukaNotifications.mostrar + persistencia
+                    // en localStorageHelper.guardarNotificacion) sigue siendo
+                    // usada por el resto del sistema (FCM, logros, etc.).
 
                     // ✅ BOTÓN DE CERRAR SESIÓN
                     Button(

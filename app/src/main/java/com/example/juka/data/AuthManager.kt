@@ -107,44 +107,51 @@ class AuthManager(private val context: Context) {
 
         if (currentUser != null) {
             Log.d(TAG, "✅ Usuario encontrado: ${currentUser.displayName}")
-            // Mientras Firestore responde mantenemos Loading. Antes
-            // marcábamos Authenticated(true) de entrada y eso mandaba al
-            // usuario directo a la app sin pasar por la encuesta nunca.
             _authState.value = AuthState.Loading
 
             kotlinx.coroutines.GlobalScope.launch {
                 try {
-                    // OJO: la colección correcta es `users`, no `users_encuesta`
-                    // (esta última no existe — era un bug histórico).
-                    val userDoc = db.collection("users").document(currentUser.uid).get().await()
-
-                    // Actualizamos token FCM best-effort (no bloquea el flujo)
-                    com.google.firebase.messaging.FirebaseMessaging.getInstance().token.await()?.let { token ->
-                        db.collection("users").document(currentUser.uid)
-                            .set(mapOf("fcmToken" to token), com.google.firebase.firestore.SetOptions.merge())
+                    // Timeout de 6s: si no hay red, Firestore puede quedar
+                    // esperando indefinidamente y la app se congela en "Verificando sesión".
+                    val userDoc = withTimeoutOrNull(6_000) {
+                        db.collection("users").document(currentUser.uid).get().await()
                     }
 
-                    val encuestaCompleta = if (userDoc.exists()) {
-                        userDoc.getBoolean("encuestaCompleta")
-                            ?: userDoc.getBoolean("surveyCompleted")
-                            ?: false
-                    } else {
-                        // Usuario sin doc en Firestore — primera vez en este
-                        // cliente. Lo creamos con encuestaCompleta=FALSE para
-                        // que pase por la encuesta.
-                        db.collection("users").document(currentUser.uid)
-                            .set(mapOf("encuestaCompleta" to false)).await()
-                        false
+                    val encuestaCompleta = when {
+                        userDoc == null -> {
+                            // Sin red o timeout — el usuario ya estaba en caché de Firebase Auth,
+                            // lo que significa que ya usó la app antes → dejarlo entrar.
+                            Log.w(TAG, "⚠️ Firestore timeout, entrando en modo offline")
+                            true
+                        }
+                        userDoc.exists() -> {
+                            // Actualizamos token FCM best-effort (no bloquea el flujo)
+                            try {
+                                com.google.firebase.messaging.FirebaseMessaging.getInstance().token.await()?.let { token ->
+                                    db.collection("users").document(currentUser.uid)
+                                        .set(mapOf("fcmToken" to token), com.google.firebase.firestore.SetOptions.merge())
+                                }
+                            } catch (_: Exception) {}
+                            userDoc.getBoolean("encuestaCompleta")
+                                ?: userDoc.getBoolean("surveyCompleted")
+                                ?: false
+                        }
+                        else -> {
+                            // Doc no existe — primera vez en este dispositivo.
+                            try {
+                                db.collection("users").document(currentUser.uid)
+                                    .set(mapOf("encuestaCompleta" to false)).await()
+                            } catch (_: Exception) {}
+                            false
+                        }
                     }
                     _authState.value = AuthState.Authenticated(currentUser, encuestaCompleta)
 
                 } catch (e: Exception) {
                     Log.w(TAG, "⚠️ Error consultando Firestore: ${e.message}")
-                    // No sabemos si completó la encuesta. Mostrar la encuesta
-                    // (false) es más seguro que saltearla — si fue una falla
-                    // transitoria, al reintentar va a leer el flag real y
-                    // ajustar el state.
-                    _authState.value = AuthState.Authenticated(currentUser, false)
+                    // Si auth.currentUser no es null, el usuario ya se registró antes
+                    // → dejarlo entrar directamente en vez de mostrar la encuesta sin red.
+                    _authState.value = AuthState.Authenticated(currentUser, true)
                 }
             }
         } else {

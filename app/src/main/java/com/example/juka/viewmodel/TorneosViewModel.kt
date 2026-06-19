@@ -7,6 +7,7 @@ import com.example.juka.data.firebase.TorneosFirebase
 import com.example.juka.domain.model.EstadoParticipante
 import com.example.juka.domain.model.EstadoTorneo
 import com.example.juka.domain.model.ParteEnProgreso
+import com.example.juka.domain.model.ReglasPuntaje
 import com.example.juka.domain.model.Torneo
 import com.example.juka.domain.model.TipoPuntaje
 import com.example.juka.domain.model.TorneoConParticipantes
@@ -45,10 +46,31 @@ class TorneosViewModel : ViewModel() {
         }
     }
 
-    fun crearTorneo(nombre: String, descripcion: String, fechaInicio: Date, fechaFin: Date, tipoPuntaje: TipoPuntaje, reglasPersonalizadas: String = "") {
+    fun crearTorneo(
+        nombre: String,
+        descripcion: String,
+        fechaInicio: Date,
+        fechaFin: Date,
+        tipoPuntaje: TipoPuntaje,
+        reglasPersonalizadas: String = "",
+        reglas: ReglasPuntaje? = null
+    ) {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
-            firebase.crearTorneo(Torneo(nombre = nombre, descripcion = descripcion, fechaInicio = Timestamp(fechaInicio), fechaFin = Timestamp(fechaFin), tipoPuntaje = tipoPuntaje.name, reglasPersonalizadas = reglasPersonalizadas))
+            firebase.crearTorneo(
+                Torneo(
+                    nombre = nombre,
+                    descripcion = descripcion,
+                    fechaInicio = Timestamp(fechaInicio),
+                    fechaFin = Timestamp(fechaFin),
+                    tipoPuntaje = tipoPuntaje.name,
+                    reglasPersonalizadas = reglasPersonalizadas,
+                    // Solo persistimos reglas estructuradas si el torneo es
+                    // PERSONALIZADO. Para los otros tipos, queda null y el
+                    // cálculo cae al camino legacy.
+                    reglas = if (tipoPuntaje == TipoPuntaje.PERSONALIZADO) reglas else null
+                )
+            )
                 .onSuccess { torneoId ->
                     firebase.obtenerMisTorneos().onSuccess { torneos ->
                         val nuevo = torneos.firstOrNull { it.torneo.id == torneoId }
@@ -121,9 +143,17 @@ class TorneosViewModel : ViewModel() {
             }
 
             torneosActivos.forEach { torneoConP ->
-                val puntaje = calcularPuntaje(torneoConP.torneo.tipoPuntajeEnum, parteData)
-                Log.d("TORNEO_DEBUG", "Puntaje calculado para ${torneoConP.torneo.nombre}: $puntaje")
-                Log.d("TORNEO_DEBUG", "TipoPuntaje: ${torneoConP.torneo.tipoPuntajeEnum}")
+                // Para PERSONALIZADO con reglas estructuradas: chequeamos si
+                // este es el primer parte del torneo (para el bonus). Best
+                // effort — en la ventana de race podrían dos participantes
+                // simultáneos cobrar el bonus; aceptable para la primera
+                // versión, se puede endurecer después con transaction.
+                val esPrimerParte = if (torneoConP.torneo.reglas?.bonusPrimerParte != null) {
+                    firebase.esPrimerParteTorneo(torneoConP.torneo.id).getOrDefault(false)
+                } else false
+
+                val puntaje = calcularPuntaje(torneoConP.torneo, parteData, esPrimerParte)
+                Log.d("TORNEO_DEBUG", "Puntaje calculado para ${torneoConP.torneo.nombre}: $puntaje (primer parte: $esPrimerParte)")
 
                 firebase.guardarParteTorneo(torneoConP.torneo.id, parteId, parteData, puntaje)
                     .onSuccess { Log.d("TORNEO_DEBUG", "✅ Parte guardado en torneo") }
@@ -145,13 +175,81 @@ class TorneosViewModel : ViewModel() {
         }
     }
 
-    private fun calcularPuntaje(tipo: TipoPuntaje, parteData: ParteEnProgreso): Int {
-        return when (tipo) {
+    /**
+     * Calcula el puntaje de un parte para un torneo dado.
+     *
+     * - CANTIDAD_PECES: 1 punto por cada ejemplar (cualquier especie).
+     * - ESPECIES_DISTINTAS: 1 punto por cada especie distinta.
+     * - PERSONALIZADO con `reglas` definidas: aplica las 3 reglas aditivamente
+     *   (bonus primer parte + cantidad + por especie/otros).
+     * - PERSONALIZADO sin reglas (torneos viejos creados antes del cambio):
+     *   suma 0, el admin gestiona puntos manualmente (legacy).
+     */
+    private fun calcularPuntaje(
+        torneo: Torneo,
+        parteData: ParteEnProgreso,
+        esPrimerParteTorneo: Boolean
+    ): Int {
+        return when (torneo.tipoPuntajeEnum) {
             TipoPuntaje.CANTIDAD_PECES     -> parteData.especiesCapturadas.sumOf { it.numeroEjemplares }
             TipoPuntaje.ESPECIES_DISTINTAS -> parteData.especiesCapturadas.size
-            TipoPuntaje.PERSONALIZADO      -> 0  // El admin gestiona los puntos manualmente.
+            TipoPuntaje.PERSONALIZADO -> {
+                val reglas = torneo.reglas
+                if (reglas == null || !reglas.tieneAlgunaRegla) {
+                    // Torneo viejo o sin reglas configuradas → comportamiento
+                    // legacy (admin gestiona puntos manualmente, suma 0).
+                    0
+                } else {
+                    aplicarReglasPersonalizadas(reglas, parteData, esPrimerParteTorneo)
+                }
+            }
         }
     }
+
+    /**
+     * Aplica las reglas componibles de un torneo PERSONALIZADO sobre un parte.
+     * Cada regla activa suma puntos al total — son aditivas.
+     */
+    private fun aplicarReglasPersonalizadas(
+        reglas: com.example.juka.domain.model.ReglasPuntaje,
+        parteData: ParteEnProgreso,
+        esPrimerParteTorneo: Boolean
+    ): Int {
+        var total = 0
+
+        // Regla 1: bonus al primer parte del torneo
+        if (esPrimerParteTorneo) {
+            reglas.bonusPrimerParte?.let { total += it }
+        }
+
+        // Regla 2: cantidad genérica (X puntos por cada pez)
+        reglas.puntosPorPez?.let { porPez ->
+            total += parteData.especiesCapturadas.sumOf { it.numeroEjemplares } * porPez
+        }
+
+        // Regla 3: tabla por especie + otros (catch-all)
+        reglas.puntosPorEspecie?.takeIf { it.isNotEmpty() }?.let { tabla ->
+            parteData.especiesCapturadas.forEach { esp ->
+                val id = normalizarParaIdTorneo(esp.nombre)
+                val ptsPorEjemplar = tabla[id] ?: reglas.puntosOtrosPeces
+                total += ptsPorEjemplar * esp.numeroEjemplares
+            }
+        }
+
+        return total
+    }
+
+    /**
+     * Normaliza un nombre de especie a un id estable para usarlo como key
+     * en el map `puntosPorEspecie` del torneo. Misma lógica que PescadexManager
+     * para que ambos sistemas matcheen exactamente las mismas especies.
+     */
+    private fun normalizarParaIdTorneo(nombre: String): String =
+        nombre.lowercase()
+            .replace("á", "a").replace("é", "e").replace("í", "i")
+            .replace("ó", "o").replace("ú", "u").replace("ñ", "n")
+            .replace(Regex("[^a-z0-9]+"), "_")
+            .trim('_')
 
     fun mostrarCodigoTorneo(codigo: String) = _uiState.update { it.copy(torneoCreado = codigo) }
     fun limpiarTorneoCreado()      = _uiState.update { it.copy(torneoCreado = null) }

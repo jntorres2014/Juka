@@ -15,6 +15,40 @@ enum class TipoPuntaje(val displayName: String) {
     PERSONALIZADO("Reglas personalizadas")
 }
 
+/**
+ * Reglas de puntaje componibles para torneos PERSONALIZADO. El admin tilda
+ * las que quiera al crear el torneo y se aplican aditivamente sobre cada
+ * parte que cargue un participante.
+ *
+ * Cada regla es opcional (null = desactivada):
+ *  - `bonusPrimerParte`: puntos extra al PRIMER parte cargado en el torneo
+ *    (lo gana el participante que llega primero — una sola vez por torneo).
+ *  - `puntosPorPez`: suma X puntos por cada ejemplar registrado, sin importar
+ *    la especie. Equivalente a la regla "por cantidad" tradicional, pero con
+ *    multiplicador editable.
+ *  - `puntosPorEspecie`: tabla nombre-normalizado → puntos. Cada especie de
+ *    la tabla suma su valor por cada ejemplar capturado.
+ *  - `puntosOtrosPeces`: catch-all para peces que NO están en `puntosPorEspecie`.
+ *    Solo se aplica si `puntosPorEspecie` está activado (no es null y tiene
+ *    al menos una entrada). Si querés que los no listados no cuenten, dejá 0.
+ *
+ * Persistencia: data class con defaults en todos los params para que el SDK
+ * de Firestore pueda (de)serializar. NO usamos @PropertyName por los líos
+ * de getter vs constructor en val (ver Pescadex).
+ */
+data class ReglasPuntaje(
+    val bonusPrimerParte: Int? = null,
+    val puntosPorPez: Int? = null,
+    val puntosPorEspecie: Map<String, Int>? = null,
+    val puntosOtrosPeces: Int = 0
+) {
+    @get:Exclude
+    val tieneAlgunaRegla: Boolean
+        get() = bonusPrimerParte != null ||
+                puntosPorPez != null ||
+                (puntosPorEspecie != null && puntosPorEspecie.isNotEmpty())
+}
+
 enum class EstadoTorneo {
     PROXIMO,
     ACTIVO,
@@ -37,7 +71,12 @@ data class Torneo(
     val fechaInicio: Timestamp = Timestamp.now(),
     val fechaFin: Timestamp = Timestamp.now(),
     val tipoPuntaje: String = TipoPuntaje.CANTIDAD_PECES.name,
+    // Texto libre legacy — sigue acá por compat con torneos viejos y como
+    // descripción adicional opcional. Para el cálculo real usamos `reglas`.
     val reglasPersonalizadas: String = "",
+    // Reglas estructuradas para tipoPuntaje == PERSONALIZADO. null si el
+    // torneo es de los otros dos tipos (cálculo legacy en TorneosViewModel).
+    val reglas: ReglasPuntaje? = null,
     val codigoInvitacion: String = "",
     val creadoEn: Timestamp = Timestamp.now()
 ) {

@@ -220,6 +220,75 @@ class LocationDetector(private val application: Application) {
         }
     }
 
+    /**
+     * Devuelve las coordenadas actuales del dispositivo (lat, lon) sin
+     * enriquecer con info de zona. Pensado para casos como "centrar el mapa
+     * en mi ubicación" en MapPickerScreen, donde solo se necesitan las
+     * coordenadas.
+     *
+     * Returns null si:
+     *  - No hay permisos de ubicación,
+     *  - GPS y Network apagados,
+     *  - No hay último fix conocido.
+     */
+    suspend fun obtenerLatLonActual(): Pair<Double, Double>? = withContext(Dispatchers.IO) {
+        getCurrentLocation()
+    }
+
+    /**
+     * Reverse geocoding: dado un punto (lat, lon), devuelve un nombre legible.
+     * Estrategia en cascada — gana lo más específico:
+     *
+     *  1. Si el punto está a ≤50 km de una `knownFishingZones`, devolvemos
+     *     el nombre de esa zona ("Río Paraná - Rosario"). Esto le gana al
+     *     geocoder porque es más útil para pescadores que "Centro, Rosario".
+     *  2. Si no, intentamos `Geocoder` de Android (servicio nativo, requiere
+     *     internet) y armamos "Localidad, Provincia". En Argentina suele
+     *     devolver tipo "Rosario, Santa Fe" o "San Carlos de Bariloche, Río Negro".
+     *  3. Si Geocoder falla (sin internet, sin resultado, no instalado en
+     *     el device), fallback a la grilla `getArgentineRegion` ("Mesopotamia
+     *     Norte - Misiones") — gruesa pero al menos da una pista.
+     *  4. Si todo falla, null. El caller decide qué texto mostrar.
+     */
+    suspend fun obtenerNombreLugar(lat: Double, lon: Double): String? =
+        withContext(Dispatchers.IO) {
+            // 1. Zona de pesca conocida cerca → usamos ese nombre
+            findNearbyKnownZone(lat, lon)?.let { return@withContext it.name }
+
+            // 2. Geocoder nativo → "Localidad, Provincia"
+            try {
+                if (android.location.Geocoder.isPresent()) {
+                    val geocoder = android.location.Geocoder(
+                        application,
+                        java.util.Locale("es", "AR")
+                    )
+                    @Suppress("DEPRECATION")
+                    val addresses = geocoder.getFromLocation(lat, lon, 1)
+                    if (!addresses.isNullOrEmpty()) {
+                        val addr = addresses[0]
+                        val locality = addr.locality
+                            ?: addr.subAdminArea
+                            ?: addr.subLocality
+                        val province = addr.adminArea
+                        val nombre = when {
+                            !locality.isNullOrBlank() && !province.isNullOrBlank() ->
+                                "$locality, $province"
+                            !province.isNullOrBlank() -> province
+                            !locality.isNullOrBlank() -> locality
+                            else -> null
+                        }
+                        if (nombre != null) return@withContext nombre
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("LOCATION", "Geocoder falló: ${e.message}")
+            }
+
+            // 3. Fallback: grilla gruesa de regiones argentinas
+            val region = getArgentineRegion(lat, lon)
+            "${region.first} - ${region.second}"
+        }
+
     private fun getCurrentLocation(): Pair<Double, Double>? {
         return try {
             val locationManager = application.getSystemService(Context.LOCATION_SERVICE) as LocationManager

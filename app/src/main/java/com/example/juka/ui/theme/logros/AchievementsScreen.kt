@@ -92,13 +92,21 @@ fun AchievementsScreen(
     val unlocked by viewModel.uiState.collectAsState()
     var selected by remember { mutableStateOf<Achievement?>(null) }
     var filtroCategoria by remember { mutableStateOf<AchievementCategory?>(null) }
+    var filtroEstado by remember { mutableStateOf(FiltroEstadoLogro.TODOS) }
 
-    // Mergeamos catálogo + desbloqueados en items de UI
+    // Mergeamos catálogo + desbloqueados en items de UI. Después aplicamos
+    // el filtro de estado (todos / obtenidos / pendientes) al resultado.
     val unlockedById = unlocked.associateBy { it.id }
-    val items = remember(unlocked, filtroCategoria) {
-        AchievementCatalog.byCategory(filtroCategoria).map { entry ->
-            AchievementUi(entry = entry, unlockedData = unlockedById[entry.id])
-        }
+    val items = remember(unlocked, filtroCategoria, filtroEstado) {
+        AchievementCatalog.byCategory(filtroCategoria)
+            .map { entry -> AchievementUi(entry = entry, unlockedData = unlockedById[entry.id]) }
+            .filter { ui ->
+                when (filtroEstado) {
+                    FiltroEstadoLogro.TODOS -> true
+                    FiltroEstadoLogro.OBTENIDOS -> ui.isUnlocked
+                    FiltroEstadoLogro.PENDIENTES -> !ui.isUnlocked
+                }
+            }
     }
     // Para la barra de progreso usamos siempre el total absoluto, no el filtrado
     val totalUnlocked = unlocked.size
@@ -120,6 +128,14 @@ fun AchievementsScreen(
                 CategoriasChips(
                     selected = filtroCategoria,
                     onSelect = { filtroCategoria = it }
+                )
+            }
+            // Segundo filtro: estado (obtenido / pendiente / todos).
+            // Se combina con el de categoría arriba.
+            item {
+                EstadoLogroChips(
+                    selected = filtroEstado,
+                    onSelect = { filtroEstado = it }
                 )
             }
             // La grilla 2 columnas en CommonComposables. Como la cantidad de
@@ -553,3 +569,59 @@ private fun formatFecha(timestamp: Long): String {
 
 private fun shorten(text: String, max: Int): String =
     if (text.length <= max) text else text.substring(0, max).trimEnd()
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Filtro por estado del logro (obtenidos / pendientes / todos)
+// ─────────────────────────────────────────────────────────────────────────────
+
+private enum class FiltroEstadoLogro(val displayName: String) {
+    TODOS("Todos"),
+    OBTENIDOS("Obtenidos"),
+    PENDIENTES("Pendientes")
+}
+
+@Composable
+private fun EstadoLogroChips(
+    selected: FiltroEstadoLogro,
+    onSelect: (FiltroEstadoLogro) -> Unit
+) {
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        items(FiltroEstadoLogro.values().toList()) { estado ->
+            EstadoChip(
+                label = estado.displayName,
+                isSelected = selected == estado,
+                onClick = { onSelect(estado) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun EstadoChip(
+    label: String,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    // Mismos colores y forma que CategoriaChip pero sin ícono — es solo
+    // texto, para que se distinga visualmente de la fila de categorías.
+    val bg = if (isSelected) GREEN_HUKA else Color.White
+    val fg = if (isSelected) Color.White else Color(0xFF14213D)
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = bg,
+        shadowElevation = if (isSelected) 0.dp else 1.dp,
+        modifier = Modifier
+            .height(36.dp)
+            .clickable { onClick() }
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = fg)
+        }
+    }
+}

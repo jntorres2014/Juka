@@ -112,28 +112,33 @@ fun EnhancedMessageInput(
                     .padding(16.dp),
                 verticalAlignment = Alignment.Bottom
             ) {
-                // Botón imagen
-                IconButton(
-                    onClick = onSendImage,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .background(
-                            when (currentMode) {
-                                ChatMode.GENERAL -> MaterialTheme.colorScheme.primaryContainer
-                                ChatMode.CREAR_PARTE -> MaterialTheme.colorScheme.tertiaryContainer
-                            },
-                            CircleShape
-                        ),
-                    enabled = !isProcessing
-                ) {
-                    Icon(
-                        Icons.Default.Image,
-                        contentDescription = "Enviar imagen",
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                }
+                // Botón imagen: SOLO se muestra en modo CREAR_PARTE, donde la
+                // foto se agrega a parteData.imagenes y queda asociada al parte.
+                // En modo GENERAL antes existía pero solo guardaba la foto en
+                // memoria interna sin procesarla (no Gemini Vision, no upload),
+                // o sea decorativo y generaba expectativas falsas. Para
+                // identificar especies está la pantalla "Identificar pez" del
+                // menú principal.
+                if (currentMode == ChatMode.CREAR_PARTE) {
+                    IconButton(
+                        onClick = onSendImage,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .background(
+                                MaterialTheme.colorScheme.tertiaryContainer,
+                                CircleShape
+                            ),
+                        enabled = !isProcessing
+                    ) {
+                        Icon(
+                            Icons.Default.Image,
+                            contentDescription = "Agregar foto al parte",
+                            tint = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                    }
 
-                Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
 
                 // Campo de texto
                 OutlinedTextField(
@@ -166,7 +171,8 @@ fun EnhancedMessageInput(
                 // Botón audio
                 WorkingAudioButton(
                     onAudioTranscribed = onSendAudio,
-                    modifier = Modifier.size(48.dp)
+                    modifier = Modifier.size(48.dp),
+                    compact = true
                 )
 
                 Spacer(modifier = Modifier.width(4.dp))
@@ -275,7 +281,8 @@ fun SimpleParteInput(
 
                 WorkingAudioButton(
                     onAudioTranscribed = onSendAudio,
-                    modifier = Modifier.size(48.dp)
+                    modifier = Modifier.size(48.dp),
+                    compact = true
                 )
 
                 Spacer(modifier = Modifier.width(4.dp))

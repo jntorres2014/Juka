@@ -9,11 +9,13 @@ import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.tasks.await
 import android.provider.Settings
+import com.example.juka.data.local.room.PescadexRecordEntity
 
 class PescadexManager(private val context: Context) {
 
     private val firestore = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
+    private val storage = (context.applicationContext as HukaApplication).localStorageHelper
 
     /**
      * `FishDatabase` es la fuente de verdad de especies argentinas
@@ -192,6 +194,9 @@ class PescadexManager(private val context: Context) {
                 )
                 .await()
 
+            // Guardar en cache local (Room)
+            storage.saveSinglePescadexRecord(especieActualizada.toEntity())
+
             // Verificar y desbloquear logros
             val logrosDesbloqueados = verificarLogros(pescadexActualizado)
             
@@ -211,51 +216,90 @@ class PescadexManager(private val context: Context) {
     }
     
     /**
-     * Obtiene la Pescadex actual del usuario
+     * Obtiene la Pescadex actual del usuario, priorizando el cache local (Room)
+     * y sincronizando con Firestore en segundo plano para evitar pérdida
+     * de datos tras reinstall.
      */
     suspend fun obtenerPescadexUsuario(): PescadexUsuario {
+        // 1. Intentar cargar desde Room (Cache rápido)
+        val cacheLocal = storage.getPescadexRecords()
+        if (cacheLocal.isNotEmpty()) {
+            android.util.Log.d(TAG, "📦 Usando cache local de Room (${cacheLocal.size} especies)")
+            // Retornamos el cache pero disparamos sync en segundo plano
+            // (esto es una simplificación, lo ideal es que el UI reaccione al Flow)
+            // Por ahora, devolvemos el objeto construido desde Room.
+            return PescadexUsuario(
+                deviceId = pescadexId,
+                especiesDescubiertas = cacheLocal.associate { it.especieId to it.toDomain() },
+                fechaInicio = null, // No persistido en Room
+                ultimaActividad = Timestamp.now(),
+                logrosDesbloqueados = emptyList() // Room solo guarda récords de peces
+            )
+        }
+
+        // 2. Si Room está vacío (ej: tras reinstall), vamos a Firebase
+        return syncPescadexConNube()
+    }
+
+    /**
+     * Sincroniza Firestore -> Room. Descarga el Pescadex de la nube y lo
+     * persiste localmente para que no se pierda al reinstalar.
+     */
+    suspend fun syncPescadexConNube(): PescadexUsuario {
         return try {
             val id = pescadexId
-            val uidAuth = auth.currentUser?.uid
-            android.util.Log.d(
-                TAG,
-                "📥 Leyendo Pescadex: pescadexId='$id' (auth.uid='$uidAuth')"
-            )
+            android.util.Log.d(TAG, "📥 Sincronizando Pescadex desde nube: $id")
             val document = firestore.document("$COLLECTION_PESCADEX/$id").get().await()
 
             if (document.exists()) {
                 val deserializado = document.toObject(PescadexUsuario::class.java)
-                if (deserializado == null) {
-                    android.util.Log.w(
-                        TAG,
-                        "⚠️ Doc existe pero toObject devolvió null. Campos raw: ${document.data?.keys}"
-                    )
-                    crearPescadexNuevo()
-                } else {
-                    android.util.Log.d(
-                        TAG,
-                        "📄 Doc deserializado OK. Tiene ${deserializado.especiesDescubiertas.size} especies " +
-                            "(keys: ${deserializado.especiesDescubiertas.keys})"
-                    )
-                    deserializado
+                if (deserializado != null) {
+                    // Guardar en Room para la próxima vez
+                    val entities = deserializado.especiesDescubiertas.values.map { it.toEntity() }
+                    storage.savePescadexRecords(entities)
+                    android.util.Log.d(TAG, "✅ Cache local actualizado con ${entities.size} especies")
+                    return deserializado
                 }
-            } else {
-                // Primera vez del usuario. Usamos merge por defensa: si por
-                // algún race el doc apareciera entre el exists() y el set,
-                // no querríamos pisarlo con valores vacíos.
-                android.util.Log.d(TAG, "🆕 Doc no existe en path '$COLLECTION_PESCADEX/$id', creando uno nuevo")
-                val nuevaPescadex = crearPescadexNuevo()
-                firestore.document("$COLLECTION_PESCADEX/$id")
-                    .set(nuevaPescadex, SetOptions.merge())
-                    .await()
-                nuevaPescadex
             }
             
-        } catch (e: CancellationException) { throw e } catch (e: Exception) {
-            android.util.Log.e(TAG, "Error obteniendo Pescadex: ${e.message}")
-            crearPescadexNuevo() // Fallback local
+            val nueva = crearPescadexNuevo()
+            // No la guardamos en Firestore aquí para evitar escrituras innecesarias,
+            // ya se guardará al registrar el primer pez.
+            nueva
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Error sync Pescadex: ${e.message}")
+            crearPescadexNuevo()
         }
     }
+
+    // Extensiones de mapeo
+    private fun EspecieDescubierta.toEntity() = PescadexRecordEntity(
+        especieId = especieId,
+        nombreComun = nombreComun,
+        nombreCientifico = nombreCientifico,
+        totalCapturas = totalCapturas,
+        pesoRecord = pesoRecord,
+        primeraFoto = primeraFoto,
+        fechaDescubrimiento = fechaDescubrimiento?.toDate()?.time,
+        mejorDiaCantidad = mejorDiaCantidad,
+        mejorDiaFecha = mejorDiaFecha,
+        rareza = rareza,
+        locacionesRaw = locaciones.joinToString("|")
+    )
+
+    private fun PescadexRecordEntity.toDomain() = EspecieDescubierta(
+        especieId = especieId,
+        nombreComun = nombreComun,
+        nombreCientifico = nombreCientifico,
+        totalCapturas = totalCapturas,
+        pesoRecord = pesoRecord,
+        primeraFoto = primeraFoto,
+        fechaDescubrimiento = fechaDescubrimiento?.let { Timestamp(java.util.Date(it)) },
+        mejorDiaCantidad = mejorDiaCantidad,
+        mejorDiaFecha = mejorDiaFecha,
+        rareza = rareza,
+        locaciones = if (locacionesRaw.isBlank()) emptyList() else locacionesRaw.split("|")
+    )
     
     /**
      * Obtiene estadísticas completas de la Pescadex
@@ -504,6 +548,9 @@ class PescadexManager(private val context: Context) {
                     "ultimaActividad", Timestamp.now()
                 )
                 .await()
+
+            // Guardar en cache local (Room)
+            storage.saveSinglePescadexRecord(actualizada.toEntity())
 
             val mapaActualizado = pescadexActual.especiesDescubiertas.toMutableMap()
             mapaActualizado[especieId] = actualizada

@@ -84,8 +84,28 @@ fun FishCounterScreen(
                     verticalAlignment = Alignment.Top
                 ) {
                     Column {
-                        Text("🎣 Contador de Capturas", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                        Text("Total: $totalPeces ${if (totalPeces == 1) "pez" else "peces"}", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        // Cambio de copy (feedback corrección): la pantalla
+                        // antes decía "Contador de Capturas" lo que era
+                        // ambiguo (¿qué hago con el contador?). Ahora el
+                        // título refleja la acción principal — crear el
+                        // parte — y el subtítulo explica el primer paso:
+                        // contar los peces.
+                        Text(
+                            "🎣 Crear parte",
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            "Contá primero los peces que pescaste",
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            "Total: $totalPeces ${if (totalPeces == 1) "pez" else "peces"}",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
                     }
                 }
             }

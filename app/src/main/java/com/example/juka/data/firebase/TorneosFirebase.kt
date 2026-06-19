@@ -145,6 +145,37 @@ class TorneosFirebase {
         }
     }
 
+    // ── Es el primer parte del torneo? ───────────────────────────────────────
+
+    /**
+     * Devuelve true si la subcolección de partes del torneo todavía está
+     * vacía. Usado por el ViewModel para decidir si aplica el bonus
+     * "Primer parte del torneo" antes de guardar el parte nuevo.
+     *
+     * Nota sobre concurrencia: en el caso patológico de que dos participantes
+     * carguen al mismo tiempo y ambos sean los "primeros", existe una ventana
+     * donde podrían ambos cobrar el bonus. Para esta versión aceptamos el
+     * best-effort — en la práctica los partes raramente llegan al mismo ms.
+     * Si esto se vuelve problema, se resuelve con una transaction que use
+     * un contador atómico en el doc del torneo.
+     */
+    suspend fun esPrimerParteTorneo(torneoId: String): Result<Boolean> {
+        return try {
+            val ok = withTimeoutOrNull(OP_TIMEOUT_MS) {
+                firestore.collection(COL_TORNEOS).document(torneoId)
+                    .collection(COL_PARTES)
+                    .limit(1)
+                    .get().await()
+                    .isEmpty
+            }
+            if (ok == null) Result.failure(Exception("Sin conexión"))
+            else Result.success(ok)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error verificando primer parte: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
     // ── Guardar parte en torneo (auto-scoring) ───────────────────────────────
 
     suspend fun guardarParteTorneo(

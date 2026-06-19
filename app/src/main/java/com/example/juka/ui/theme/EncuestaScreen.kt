@@ -477,13 +477,41 @@ fun PreguntaContentSimple(
                     )
                 }
 
+                // Extraemos los textos de los extremos. Las opciones vienen
+                // como ["1 - Poco", "2", "3", ..., "7 - Mucho mejor"], así
+                // que el primero y el último tienen los labels que queremos
+                // mostrar al lado izquierdo y derecho del slider.
+                val labelMin = pregunta.opciones.firstOrNull().orEmpty()
+                val labelMax = pregunta.opciones.lastOrNull().orEmpty()
+
                 Column {
                     Text(
-                        text = "Valor: ${valor.toInt()}",
+                        text = "Valor seleccionado: ${valor.toInt()}",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
+
+                    // Labels descriptivos de los extremos (feedback corrección:
+                    // el usuario no entendía qué significaba un 1 vs un 7
+                    // mirando solo los números).
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = labelMin,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = labelMax,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
 
                     Slider(
                         value = valor,
