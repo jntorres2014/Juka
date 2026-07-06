@@ -304,6 +304,15 @@ class HoraExtractor {
                     val minutoTexto = matcher.group(2)
                     val periodo = matcher.group(3)
 
+                    // ✅ Un número-palabra SUELTO (ej. "cuatro" en "cuatro
+                    // robalos") NO es una hora: en pesca es casi siempre una
+                    // cantidad. Solo lo tomamos como hora si trae contexto
+                    // temporal: "a las cuatro", "cuatro y media", "cuatro de la
+                    // tarde". Sin contexto, lo ignoramos.
+                    val tieneContextoHorario = matcher.group().contains("a las") ||
+                            minutoTexto != null || periodo != null
+                    if (!tieneContextoHorario) continue
+
                     val hora = NUMEROS_TEXTO[numeroTexto]
                     val minuto = if (minutoTexto != null) MINUTOS_TEXTO[minutoTexto] ?: 0 else 0
 

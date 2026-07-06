@@ -40,6 +40,9 @@ data class PartePesca(
     // (no encajaba en ninguna de las 5 predefinidas).
     val modalidadOtra: String? = null,
     val cantidadTotal: Int = 0,
+    // Total de ejemplares devueltos al agua en todo el parte (suma de devueltos
+    // por especie). Útil para el dashboard sin recorrer cada captura.
+    val cantidadDevuelta: Int = 0,
     val observaciones: String? = null,
     val transcripcionOriginal: String? = null,
     val numeroCanas: Int? = 0,
@@ -68,9 +71,13 @@ data class UbicacionParte @JvmOverloads constructor(
 
 // Sub-clase para cada especie capturada en un parte. (Se sacó pesoAproximado:
 // el peso del pez no se carga en partes — se cargaba como 0.0 dummy.)
+// Devolución: `cantidad` es el total capturado; `retenidos` los que el pescador
+// se llevó; `devueltos` los que volvieron al agua. devueltos = cantidad - retenidos.
 data class Captura(
     val especie: String = "",
-    val cantidad: Int = 0
+    val cantidad: Int = 0,
+    val retenidos: Int = 0,
+    val devueltos: Int = 0
 )
 sealed class FirebaseResult {
     object Success : FirebaseResult()

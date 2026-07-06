@@ -47,7 +47,30 @@ class FishCounterManager(
         val indiceExistente = listaActual.indexOfFirst { it.nombre.equals(nombreEspecie, ignoreCase = true) }
 
         if (indiceExistente != -1) {
-            listaActual[indiceExistente] = listaActual[indiceExistente].copy(numeroEjemplares = nuevaCantidad)
+            val item = listaActual[indiceExistente]
+            listaActual[indiceExistente] = item.copy(
+                numeroEjemplares = nuevaCantidad,
+                // Si bajó la cantidad total, los devueltos no pueden superarla.
+                numeroDevueltos = item.numeroDevueltos.coerceAtMost(nuevaCantidad)
+            )
+            _contadorPeces.value = listaActual
+        }
+    }
+
+    /**
+     * Marca cuántos ejemplares de una especie se devolvieron al agua.
+     * Clampeado entre 0 y numeroEjemplares — no se puede devolver más de lo
+     * que se cargó. Los retenidos se derivan (ejemplares - devueltos), no
+     * hace falta guardarlos por separado.
+     */
+    fun actualizarDevueltos(nombreEspecie: String, devueltos: Int) {
+        val listaActual = _contadorPeces.value.toMutableList()
+        val indiceExistente = listaActual.indexOfFirst { it.nombre.equals(nombreEspecie, ignoreCase = true) }
+
+        if (indiceExistente != -1) {
+            val item = listaActual[indiceExistente]
+            val clamped = devueltos.coerceIn(0, item.numeroEjemplares)
+            listaActual[indiceExistente] = item.copy(numeroDevueltos = clamped)
             _contadorPeces.value = listaActual
         }
     }

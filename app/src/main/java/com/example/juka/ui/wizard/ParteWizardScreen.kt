@@ -26,6 +26,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.rememberAsyncImagePainter
@@ -56,30 +57,49 @@ private data class WizardData(
     val imagenPath: String? = null
 )
 
-// Obligatorios: hora inicio+fin (paso 0), modalidad (1), cañas (4), observaciones (5)
-// Opcionales:   ubicación (2), especies (3), foto (6)
+// Pasos (tras mover cañas a modalidad y poner foto antes que observaciones):
+//  0 Fecha y hora (oblig)  ·  1 Modalidad + cañas (oblig)  ·  2 Ubicación (oblig)
+//  3 Especies (opc)        ·  4 Foto (oblig)               ·  5 Observaciones (OPCIONAL)
 private fun stepIsValid(step: Int, data: WizardData): Boolean = when (step) {
     0 -> data.horaInicio.isNotBlank() && data.horaFin.isNotBlank()
-    1 -> data.modalidad != null ||
-            (data.esOtraModalidad && data.otraModalidadTexto.isNotBlank())
-    4 -> data.numeroCanas != null
-    5 -> data.observaciones.isNotBlank()
+    1 -> {
+        val modalidadOk = data.modalidad != null ||
+                (data.esOtraModalidad && data.otraModalidadTexto.isNotBlank())
+        // Las cañas solo se exigen donde son obligatorias (costa / embarcado).
+        val canasOk = !canasObligatorias(data) || data.numeroCanas != null
+        modalidadOk && canasOk
+    }
+    2 -> data.ubicacion != null          // ✅ Ubicación obligatoria: punto en el mapa
+    4 -> data.imagenPath != null         // ✅ Foto obligatoria (paso 5)
+    // 5 = Observaciones → opcional (else -> true)
     else -> true
 }
+
+/** ¿Esta modalidad usa caña? Costa y embarcado sí; "Otra" también (puede serlo).
+ *  Red y submarina NO usan caña. */
+private fun usaCanas(data: WizardData): Boolean =
+    data.modalidad == ModalidadPesca.CON_LINEA_COSTA ||
+            data.modalidad == ModalidadPesca.CON_LINEA_EMBARCACION ||
+            data.esOtraModalidad
+
+/** ¿Las cañas son obligatorias? Solo en costa y embarcado. En "Otra" son
+ *  opcionales (puede ser un método sin caña). */
+private fun canasObligatorias(data: WizardData): Boolean =
+    data.modalidad == ModalidadPesca.CON_LINEA_COSTA ||
+            data.modalidad == ModalidadPesca.CON_LINEA_EMBARCACION
 
 private val STEP_TITLES = listOf(
     "¿Cuándo fuiste a pescar?",
     "¿Cómo pescaste?",
     "¿Dónde pescaste?",
     "¿Qué capturaste?",
-    "¿Cuántas cañas usaste?",
-    "¿Algo más para agregar?",
-    "¿Querés agregar una foto?"
+    "Agregá una foto de la jornada",
+    "¿Algo más para agregar?"
 )
 
 private val STEP_TAGS = listOf(
     "Fecha y hora", "Modalidad", "Ubicación",
-    "Especies", "Cañas", "Notas", "Foto"
+    "Especies", "Foto", "Notas"
 )
 
 private val GREEN = Color(0xFF1D9E75)
@@ -90,6 +110,15 @@ private val GREEN_DARK = Color(0xFF0F6E56)
 @Composable
 fun ParteWizardScreen(
     viewModel: EnhancedChatViewModel,
+    // Precarga desde "Identificar Captura": si el usuario viene de
+    // identificar un pez, arrancamos el wizard con esa foto y (si se pudo
+    // reconocer) el nombre de especie ya cargados en vez de que empiece de
+    // cero. Ambos opcionales — el resto de los llamadores del wizard no
+    // pasan nada acá.
+    fotoInicialUri: Uri? = null,
+    // Especies precargadas desde "Identificar Captura". Gemini (premium) puede
+    // detectar varias especies; el estándar, una. Cada una con su cantidad.
+    especiesIniciales: List<EspecieCapturada> = emptyList(),
     onFinished: () -> Unit
 ) {
     val context = LocalContext.current
@@ -101,6 +130,22 @@ fun ParteWizardScreen(
     var showMapPicker by remember { mutableStateOf(false) }
     var isSaving by remember { mutableStateOf(false) }
     var showStepError by remember { mutableStateOf(false) }
+
+    // Se ejecuta una sola vez al entrar (no en cada recomposición). Guarda
+    // la foto en el mismo storage interno que usa el picker normal del
+    // wizard, así el resto del flujo (paso Foto, guardado final) no
+    // necesita saber de dónde vino.
+    LaunchedEffect(fotoInicialUri) {
+        if (fotoInicialUri != null) {
+            val path = imageHelper.saveImageToInternalStorage(fotoInicialUri)
+            if (path != null) {
+                data = data.copy(
+                    imagenPath = path,
+                    especies = if (especiesIniciales.isNotEmpty()) especiesIniciales else data.especies
+                )
+            }
+        }
+    }
 
     val totalSteps = STEP_TITLES.size
     val progress = (currentStep + 1).toFloat() / totalSteps
@@ -171,11 +216,10 @@ fun ParteWizardScreen(
                     when (step) {
                         0 -> Step1_DateTime(data, showStepError) { data = it }
                         1 -> Step2_Modalidad(data, showStepError) { data = it }
-                        2 -> Step3_Ubicacion(data, onOpenMap = { showMapPicker = true }) { data = it }
+                        2 -> Step3_Ubicacion(data, showStepError, onOpenMap = { showMapPicker = true }) { data = it }
                         3 -> Step4_Especies(data) { data = it }
-                        4 -> Step5_Canas(data, showStepError) { data = it }
+                        4 -> Step7_Foto(data, showStepError, onPickImage = abrirPickerImagen) { data = it }
                         5 -> Step6_Observaciones(data, showStepError) { data = it }
-                        6 -> Step7_Foto(data, onPickImage = abrirPickerImagen) { data = it }
                     }
                 }
                 HorizontalDivider()
@@ -183,8 +227,29 @@ fun ParteWizardScreen(
                     if (step == totalSteps - 1) {
                         Button(
                             onClick = {
-                                isSaving = true
-                                scope.launch { buildAndSave(data, viewModel); isSaving = false; onFinished() }
+                                // ✅ Validar el último paso (foto obligatoria) ANTES
+                                // de guardar. Antes guardaba directo sin chequear,
+                                // así que se podía crear un parte sin foto.
+                                if (!stepIsValid(currentStep, data)) {
+                                    showStepError = true
+                                } else {
+                                    showStepError = false
+                                    isSaving = true
+                                    scope.launch {
+                                        val resultado = buildAndSave(data, viewModel)
+                                        isSaving = false
+                                        // Feedback claro si se guardó sin señal: el
+                                        // parte quedó a salvo y se sube solo.
+                                        if (resultado == com.example.juka.viewmodel.ResultadoGuardadoWizard.GUARDADO_OFFLINE) {
+                                            android.widget.Toast.makeText(
+                                                context,
+                                                "📶 Guardado sin conexión. Se enviará solo cuando vuelva internet.",
+                                                android.widget.Toast.LENGTH_LONG
+                                            ).show()
+                                        }
+                                        onFinished()
+                                    }
+                                }
                             },
                             modifier = Modifier.fillMaxWidth().height(52.dp),
                             enabled = !isSaving,
@@ -317,7 +382,13 @@ private fun Step2_Modalidad(data: WizardData, showError: Boolean, onUpdate: (Wiz
         Opcion("🤿🚤", "Submarina embarcado", ModalidadPesca.PESCA_SUBMARINA_EMBARCACION),
         Opcion("🎣", "Otra", null, isOtra = true)
     )
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
         opciones.chunked(2).forEach { fila ->
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 fila.forEach { op ->
@@ -325,13 +396,14 @@ private fun Step2_Modalidad(data: WizardData, showError: Boolean, onUpdate: (Wiz
                     ModeCard(op.emoji, op.label, selected, Modifier.weight(1f)) {
                         // Al cambiar de selección limpiamos el texto de "otra"
                         // para que no quede colgando si después elige una estándar.
-                        onUpdate(
-                            data.copy(
-                                modalidad = op.modalidad,
-                                esOtraModalidad = op.isOtra,
-                                otraModalidadTexto = if (op.isOtra) data.otraModalidadTexto else ""
-                            )
+                        val nuevo = data.copy(
+                            modalidad = op.modalidad,
+                            esOtraModalidad = op.isOtra,
+                            otraModalidadTexto = if (op.isOtra) data.otraModalidadTexto else ""
                         )
+                        // Si la nueva modalidad no usa caña (red / submarina),
+                        // limpiamos el número de cañas para que no quede colgado.
+                        onUpdate(if (usaCanas(nuevo)) nuevo else nuevo.copy(numeroCanas = null))
                     }
                 }
             }
@@ -357,6 +429,59 @@ private fun Step2_Modalidad(data: WizardData, showError: Boolean, onUpdate: (Wiz
         }
 
         if (showError && data.modalidad == null && !data.esOtraModalidad) StepErrorText("Seleccioná cómo pescaste.")
+
+        // ✅ Cañas: aparece acá mismo, solo cuando la modalidad usa caña.
+        // Obligatoria en costa/embarcado; opcional en "Otra".
+        if (usaCanas(data)) {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+            CanasSelector(
+                seleccionada = data.numeroCanas,
+                obligatorio = canasObligatorias(data),
+                showError = showError,
+                onSeleccion = { onUpdate(data.copy(numeroCanas = it)) }
+            )
+        }
+    }
+}
+
+// Selector de cantidad de cañas — input numérico. Antes era un paso aparte
+// con grilla; ahora vive dentro del paso de modalidad como campo de número.
+@Composable
+private fun CanasSelector(
+    seleccionada: Int?,
+    obligatorio: Boolean,
+    showError: Boolean,
+    onSeleccion: (Int?) -> Unit
+) {
+    val esError = obligatorio && showError && seleccionada == null
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Phishing, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("¿Cuántas cañas usaste?", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            if (!obligatorio) {
+                Spacer(Modifier.width(6.dp))
+                Text("(opcional)", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        OutlinedTextField(
+            value = seleccionada?.toString() ?: "",
+            onValueChange = { texto ->
+                // Solo dígitos; vacío => null. Limitamos a 3 cifras por las dudas.
+                val limpio = texto.filter { it.isDigit() }.take(3)
+                onSeleccion(limpio.toIntOrNull())
+            },
+            label = { Text("Cantidad de cañas") },
+            placeholder = { Text("Ej: 2") },
+            leadingIcon = { Icon(Icons.Default.Phishing, null) },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            singleLine = true,
+            isError = esError,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp)
+        )
+        if (esError) StepErrorText("Ingresá la cantidad de cañas.")
+        HintText("Si fuiste con amigos, indicá el total de cañas entre todos.")
     }
 }
 
@@ -372,14 +497,19 @@ private fun ModeCard(emoji: String, label: String, isSelected: Boolean, modifier
     }
 }
 
-// Paso 3 — Ubicación | OPCIONAL
+// Paso 3 — Ubicación | OBLIGATORIO (punto en el mapa)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun Step3_Ubicacion(data: WizardData, onOpenMap: () -> Unit, onUpdate: (WizardData) -> Unit) {
+private fun Step3_Ubicacion(data: WizardData, showError: Boolean, onOpenMap: () -> Unit, onUpdate: (WizardData) -> Unit) {
     val hasLocation = data.ubicacion != null
+    val mostrarError = showError && !hasLocation
+    val borderColor = when {
+        hasLocation -> GREEN
+        mostrarError -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.outlineVariant
+    }
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        OptionalBadge("Opcional — podés saltear este paso")
-        OutlinedCard(onClick = onOpenMap, modifier = Modifier.fillMaxWidth().height(140.dp), shape = RoundedCornerShape(16.dp), border = BorderStroke(if (hasLocation) 2.dp else 0.5.dp, if (hasLocation) GREEN else MaterialTheme.colorScheme.outlineVariant), colors = CardDefaults.outlinedCardColors(containerColor = if (hasLocation) GREEN_LIGHT else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))) {
+        OutlinedCard(onClick = onOpenMap, modifier = Modifier.fillMaxWidth().height(140.dp), shape = RoundedCornerShape(16.dp), border = BorderStroke(if (hasLocation || mostrarError) 2.dp else 0.5.dp, borderColor), colors = CardDefaults.outlinedCardColors(containerColor = if (hasLocation) GREEN_LIGHT else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))) {
             Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 Icon(if (hasLocation) Icons.Default.CheckCircle else Icons.Default.Map, null, modifier = Modifier.size(36.dp), tint = if (hasLocation) GREEN else MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(8.dp))
@@ -387,8 +517,9 @@ private fun Step3_Ubicacion(data: WizardData, onOpenMap: () -> Unit, onUpdate: (
                 if (hasLocation && data.ubicacion != null) Text("${String.format("%.4f", data.ubicacion.latitude)}, ${String.format("%.4f", data.ubicacion.longitude)}", fontSize = 11.sp, color = GREEN)
             }
         }
-        OutlinedTextField(value = data.nombreLugar, onValueChange = { onUpdate(data.copy(nombreLugar = it)) }, label = { Text("Nombre del lugar") }, placeholder = { Text("Ej: Playa Unión, Puerto Rawson...") }, leadingIcon = { Icon(Icons.Default.LocationOn, null) }, trailingIcon = { if (data.nombreLugar.isNotBlank()) IconButton(onClick = { onUpdate(data.copy(nombreLugar = "")) }) { Icon(Icons.Default.Clear, null) } }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), singleLine = true)
-        HintText("Podés escribir el nombre aunque no uses el mapa.")
+        if (mostrarError) StepErrorText("Marcá el punto en el mapa para continuar.")
+        OutlinedTextField(value = data.nombreLugar, onValueChange = { onUpdate(data.copy(nombreLugar = it)) }, label = { Text("Nombre del lugar (opcional)") }, placeholder = { Text("Ej: Playa Unión, Puerto Rawson...") }, leadingIcon = { Icon(Icons.Default.LocationOn, null) }, trailingIcon = { if (data.nombreLugar.isNotBlank()) IconButton(onClick = { onUpdate(data.copy(nombreLugar = "")) }) { Icon(Icons.Default.Clear, null) } }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), singleLine = true)
+        HintText("El punto en el mapa es obligatorio. El nombre es opcional.")
     }
 }
 
@@ -411,7 +542,22 @@ private fun Step4_Especies(data: WizardData, onUpdate: (WizardData) -> Unit) {
     fun restar(nombre: String) {
         val lista = data.especies.toMutableList()
         val idx = lista.indexOfFirst { it.nombre.equals(nombre, ignoreCase = true) }
-        if (idx != -1) { val n = lista[idx].numeroEjemplares - 1; if (n <= 0) lista.removeAt(idx) else lista[idx] = lista[idx].copy(numeroEjemplares = n); onUpdate(data.copy(especies = lista)) }
+        if (idx != -1) {
+            val n = lista[idx].numeroEjemplares - 1
+            if (n <= 0) lista.removeAt(idx)
+            // Al bajar el total, los devueltos no pueden superarlo.
+            else lista[idx] = lista[idx].copy(numeroEjemplares = n, numeroDevueltos = lista[idx].numeroDevueltos.coerceAtMost(n))
+            onUpdate(data.copy(especies = lista))
+        }
+    }
+    fun devolver(nombre: String, delta: Int) {
+        val lista = data.especies.toMutableList()
+        val idx = lista.indexOfFirst { it.nombre.equals(nombre, ignoreCase = true) }
+        if (idx != -1) {
+            val e = lista[idx]
+            lista[idx] = e.copy(numeroDevueltos = (e.numeroDevueltos + delta).coerceIn(0, e.numeroEjemplares))
+            onUpdate(data.copy(especies = lista))
+        }
     }
     LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item { OptionalBadge("Opcional — si no pescaste nada podés continuar") }
@@ -432,13 +578,31 @@ private fun Step4_Especies(data: WizardData, onUpdate: (WizardData) -> Unit) {
         }
         if (data.especies.isNotEmpty()) item { Text("Capturas registradas", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         items(data.especies, key = { it.nombre }) { especie ->
-            Row(modifier = Modifier.fillMaxWidth().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp)).padding(12.dp, 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("🐟", fontSize = 18.sp); Spacer(Modifier.width(10.dp))
-                Text(especie.nombre, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    IconButton(onClick = { restar(especie.nombre) }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Remove, null, modifier = Modifier.size(18.dp)) }
-                    Text("${especie.numeroEjemplares}", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.widthIn(min = 24.dp))
-                    IconButton(onClick = { agregar(especie.nombre) }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp)) }
+            val retenidos = especie.numeroEjemplares - especie.numeroDevueltos
+            Column(modifier = Modifier.fillMaxWidth().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp)).padding(12.dp, 10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("🐟", fontSize = 18.sp); Spacer(Modifier.width(10.dp))
+                    Text(especie.nombre, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        IconButton(onClick = { restar(especie.nombre) }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Remove, null, modifier = Modifier.size(18.dp)) }
+                        Text("${especie.numeroEjemplares}", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.widthIn(min = 24.dp))
+                        IconButton(onClick = { agregar(especie.nombre) }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp)) }
+                    }
+                }
+                // Devolución al agua, por especie.
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Waves, null, tint = GREEN, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Devueltos al agua", fontSize = 13.sp)
+                        Text("Te llevás $retenidos", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        IconButton(onClick = { devolver(especie.nombre, -1) }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Remove, null, modifier = Modifier.size(18.dp)) }
+                        Text("${especie.numeroDevueltos}", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = GREEN_DARK, modifier = Modifier.widthIn(min = 24.dp))
+                        IconButton(onClick = { devolver(especie.nombre, 1) }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp)) }
+                    }
                 }
             }
         }
@@ -447,42 +611,27 @@ private fun Step4_Especies(data: WizardData, onUpdate: (WizardData) -> Unit) {
     }
 }
 
-// Paso 5 — Cañas | OBLIGATORIO
-@Composable
-private fun Step5_Canas(data: WizardData, showError: Boolean, onUpdate: (WizardData) -> Unit) {
-    val opciones = (1..9).toList() + 10
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        opciones.chunked(5).forEach { fila ->
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                fila.forEach { n ->
-                    val isSelected = data.numeroCanas == n
-                    Box(modifier = Modifier.weight(1f).aspectRatio(1f).clip(RoundedCornerShape(12.dp)).background(if (isSelected) GREEN else MaterialTheme.colorScheme.surface).border(if (isSelected) 2.dp else 0.5.dp, if (isSelected) GREEN else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp)).clickable { onUpdate(data.copy(numeroCanas = n)) }, contentAlignment = Alignment.Center) {
-                        Text(if (n == 10) "+10" else "$n", fontSize = if (n == 10) 14.sp else 16.sp, fontWeight = FontWeight.SemiBold, color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface)
-                    }
-                }
-            }
-        }
-        if (showError && data.numeroCanas == null) StepErrorText("Seleccioná la cantidad de cañas.")
-        HintText("Si fuiste con amigos, indicá el total de cañas entre todos.")
-    }
-}
-
-// Paso 6 — Observaciones | OBLIGATORIO
+// Paso — Observaciones | OBLIGATORIO
 @Composable
 private fun Step6_Observaciones(data: WizardData, showError: Boolean, onUpdate: (WizardData) -> Unit) {
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        OutlinedTextField(value = data.observaciones, onValueChange = { onUpdate(data.copy(observaciones = it)) }, placeholder = { Text("Ej: mucho viento del sur, usamos lombriz, el agua estaba turbia...") }, modifier = Modifier.fillMaxWidth().height(180.dp), shape = RoundedCornerShape(12.dp), maxLines = 8, isError = showError && data.observaciones.isBlank(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences))
-        if (showError && data.observaciones.isBlank()) StepErrorText("Escribí al menos una observación de la jornada.")
+        OptionalBadge("Opcional — podés guardar el parte sin notas")
+        OutlinedTextField(value = data.observaciones, onValueChange = { onUpdate(data.copy(observaciones = it)) }, placeholder = { Text("Ej: mucho viento del sur, usamos lombriz, el agua estaba turbia...") }, modifier = Modifier.fillMaxWidth().height(180.dp), shape = RoundedCornerShape(12.dp), maxLines = 8, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences))
         HintText("Describí las condiciones del agua, carnadas usadas, clima, o lo que quieras recordar.")
     }
 }
 
-// Paso 7 — Foto | OPCIONAL
+// Paso 7 — Foto | OBLIGATORIO
 @Composable
-private fun Step7_Foto(data: WizardData, onPickImage: () -> Unit, onUpdate: (WizardData) -> Unit) {
+private fun Step7_Foto(data: WizardData, showError: Boolean, onPickImage: () -> Unit, onUpdate: (WizardData) -> Unit) {
+    val mostrarError = showError && data.imagenPath == null
+    val borderColor = when {
+        data.imagenPath != null -> GREEN
+        mostrarError -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.outlineVariant
+    }
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        OptionalBadge("Opcional — podés guardar el parte sin foto")
-        Box(modifier = Modifier.fillMaxWidth().height(240.dp).clip(RoundedCornerShape(16.dp)).border(if (data.imagenPath != null) 2.dp else 1.dp, if (data.imagenPath != null) GREEN else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp)).background(if (data.imagenPath != null) Color.Transparent else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)).clickable(enabled = data.imagenPath == null) { onPickImage() }, contentAlignment = Alignment.Center) {
+        Box(modifier = Modifier.fillMaxWidth().height(240.dp).clip(RoundedCornerShape(16.dp)).border(if (data.imagenPath != null || mostrarError) 2.dp else 1.dp, borderColor, RoundedCornerShape(16.dp)).background(if (data.imagenPath != null) Color.Transparent else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)).clickable(enabled = data.imagenPath == null) { onPickImage() }, contentAlignment = Alignment.Center) {
             if (data.imagenPath != null) {
                 Image(painter = rememberAsyncImagePainter(File(data.imagenPath)), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                 Box(modifier = Modifier.fillMaxSize().padding(8.dp), contentAlignment = Alignment.TopEnd) {
@@ -497,6 +646,7 @@ private fun Step7_Foto(data: WizardData, onPickImage: () -> Unit, onUpdate: (Wiz
                 }
             }
         }
+        if (mostrarError) StepErrorText("La foto es obligatoria para guardar el parte.")
         if (data.imagenPath != null) {
             OutlinedButton(onClick = onPickImage, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
                 Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(8.dp)); Text("Cambiar foto")
@@ -543,7 +693,10 @@ private fun HintText(text: String) {
     Text(text, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 18.sp)
 }
 
-private fun buildAndSave(data: WizardData, viewModel: EnhancedChatViewModel) {
+private suspend fun buildAndSave(
+    data: WizardData,
+    viewModel: EnhancedChatViewModel
+): com.example.juka.viewmodel.ResultadoGuardadoWizard {
     val parte = ParteEnProgreso(
         fecha = data.fecha,
         horaInicio = data.horaInicio.ifBlank { null },
@@ -560,5 +713,5 @@ private fun buildAndSave(data: WizardData, viewModel: EnhancedChatViewModel) {
         imagenes = listOfNotNull(data.imagenPath),
         porcentajeCompletado = 100
     )
-    viewModel.guardarParteDesdeWizard(parte)
+    return viewModel.guardarParteDesdeWizard(parte)
 }

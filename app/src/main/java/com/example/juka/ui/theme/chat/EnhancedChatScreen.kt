@@ -60,8 +60,11 @@ fun EnhancedChatScreen(
     viewModel: EnhancedChatViewModel = viewModel(factory = AppViewModelProvider.Factory),
     onNavigateToWizard: () -> Unit = {},
     onOpenDrawer: () -> Unit = {},
-    onOpenNotificaciones: () -> Unit = {}
-
+    onOpenNotificaciones: () -> Unit = {},
+    // Vuelve a la pantalla de menú (ChatMenuScreen) vía NavController. Antes
+    // esto reabría un mensaje de menú adentro del propio chat; ahora es
+    // navegación real a una pantalla separada.
+    onBackToMenu: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val listState = rememberLazyListState()
@@ -92,16 +95,64 @@ fun EnhancedChatScreen(
     //var showMapPicker by remember { mutableStateOf(false) }
     var messageText by rememberSaveable { mutableStateOf("") }  // ← CAMBIO PARA PERSISTENCIA: rememberSaveable en lugar de remember
     var showMapPicker by rememberSaveable { mutableStateOf(false) }  // ← CAMBIO PARA PERSISTENCIA: rememberSaveable
+
+    // Sheet de confirmación: se abre al tocar "Completar parte" y es el que
+    // dispara el envío real una vez que el usuario revisó/corrigió los datos.
+    var showConfirmSheet by rememberSaveable { mutableStateOf(false) }
+    // Cuando abrimos el mapa DESDE el sheet, queremos reabrirlo al volver.
+    var reabrirSheetTrasMapa by rememberSaveable { mutableStateOf(false) }
+
+    // Si el parte se vacía (envío OK) o volvemos al chat general, cerramos el sheet.
+    LaunchedEffect(parteData, currentMode) {
+        if (parteData == null || currentMode == ChatMode.GENERAL) showConfirmSheet = false
+    }
+
+    // "Crear parte" del menú del bot → navegar al wizard asistido.
+    LaunchedEffect(Unit) {
+        viewModel.irAlWizardEvent.collect { onNavigateToWizard() }
+    }
+
+    // Usuario escribió "menú"/"volver" en el chat → misma navegación real que
+    // el botón del header, en vez de la vieja burbuja de 3 botones.
+    LaunchedEffect(Unit) {
+        viewModel.irAlMenuEvent.collect { onBackToMenu() }
+    }
+
+    if (showConfirmSheet && parteData != null) {
+        com.example.juka.component.ParteConfirmacionSheet(
+            parte = parteData!!,
+            isSending = isSendingParte,
+            firebaseStatus = firebaseStatus,
+            onConfirmar = { editado -> viewModel.confirmarYEnviarParteEditado(editado) },
+            onGuardarBorrador = { editado ->
+                showConfirmSheet = false
+                viewModel.guardarBorradorEditadoYVolver(editado)
+            },
+            onMarcarEnMapa = { editado ->
+                // Persistimos lo editado antes de abrir el mapa (que cierra el
+                // sheet), así no se pierde nada al volver.
+                viewModel.guardarEdicionEnProgreso(editado)
+                reabrirSheetTrasMapa = true
+                showConfirmSheet = false
+                showMapPicker = true
+            },
+            onDismiss = { showConfirmSheet = false }
+        )
+    }
+
     if (showMapPicker || showMapPickerFromViewModel) {
         MapPickerScreen(
             onDismiss = {
                 showMapPicker = false
                 viewModel.dismissMapPicker()
+                // Volver al sheet si veníamos de ahí (aunque no haya elegido punto).
+                if (reabrirSheetTrasMapa) { reabrirSheetTrasMapa = false; showConfirmSheet = true }
             },
             onLocationSelected = { lat, lon, name ->
                 viewModel.saveLocation(lat, lon, name)
                 showMapPicker = false
                 viewModel.dismissMapPicker()
+                if (reabrirSheetTrasMapa) { reabrirSheetTrasMapa = false; showConfirmSheet = true }
             }
         )
     }
@@ -170,7 +221,7 @@ fun EnhancedChatScreen(
                         .show()
                 },
                 showMenuButton = chatEnabled && currentMode == ChatMode.GENERAL,
-                onMenuClick = { viewModel.volverAlMenuPrincipal() },
+                onMenuClick = onBackToMenu,
                 onOpenDrawer = onOpenDrawer,
                 onOpenNotificaciones = onOpenNotificaciones
             )
@@ -210,9 +261,13 @@ fun EnhancedChatScreen(
                                 viewModel.guardarBorradorYVolver()
                             },
                             onCompletarParte = {
-                                viewModel.completarYEnviarParte()
+                                // En vez de enviar directo, abrimos el sheet de
+                                // confirmación: el usuario revisa/corrige y recién
+                                // ahí se dispara el envío real.
+                                showConfirmSheet = true
                             },
                             firebaseStatus = firebaseStatus,
+                            isSending = isSendingParte,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                         )
                     }

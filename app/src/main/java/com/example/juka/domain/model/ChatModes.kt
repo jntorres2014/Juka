@@ -153,11 +153,17 @@ enum class TipoRed(val displayName: String) {
     MEDIOMUNDO("Mediomundo")
 }
 
-// Especie capturada individual
+// Especie capturada individual.
+//
+// Devolución: `numeroDevueltos` = ejemplares devueltos al agua (default 0 = me
+// llevé todo, que es lo intuitivo). Los retenidos se derivan:
+// numeroEjemplares - numeroDevueltos. (numeroRetenidos queda por compatibilidad
+// pero ya no se usa para la devolución.)
 data class EspecieCapturada(
     val nombre: String,
     val numeroEjemplares: Int = 0,
     val numeroRetenidos: Int = 0,
+    val numeroDevueltos: Int = 0,
     val esEspecieDesconocida: Boolean = false
 )
 

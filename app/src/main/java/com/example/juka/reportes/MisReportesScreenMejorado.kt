@@ -61,11 +61,17 @@ fun MisReportesScreenMejorado(
     viewModel: ReportesViewModel = viewModel(factory = AppViewModelProvider.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsState()
+
+    // Recargamos al entrar a la pantalla: el ViewModel solo carga una vez en su
+    // init, así que sin esto un parte recién creado no aparecía hasta reiniciar.
+    LaunchedEffect(Unit) { viewModel.cargarReportes() }
+
     var fotoParaExpandir by remember { mutableStateOf<String?>(null) }
     var filtroSeleccionado by remember { mutableStateOf("todos") }
     var busqueda by remember { mutableStateOf("") }
     var mostrarEstadisticas by remember { mutableStateOf(false) }
     var selectedReporte by remember { mutableStateOf<PartePesca?>(null) }
+    var reporteACompartir by remember { mutableStateOf<PartePesca?>(null) }
     var mostrarMapaGeneral by remember { mutableStateOf(false) }
 
     val reportes = uiState.reportes
@@ -162,6 +168,20 @@ fun MisReportesScreenMejorado(
                 reporte = selectedReporte!!,
                 onDismiss = { selectedReporte = null },
                 onVerFotoFull = { path -> fotoParaExpandir = path }
+            )
+        }
+    }
+
+    if (reporteACompartir != null) {
+        ModalBottomSheet(
+            onDismissRequest = { reporteACompartir = null },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            containerColor = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+        ) {
+            CompartirParteSheet(
+                reporte = reporteACompartir!!,
+                onDismiss = { reporteACompartir = null }
             )
         }
     }
@@ -360,7 +380,7 @@ fun MisReportesScreenMejorado(
                                 key = { it.id ?: it.fecha.toString() }) { reporte ->
                                 ReporteCardMejorado(
                                     reporte = reporte,
-                                    onCompartir = { },
+                                    onCompartir = { reporteACompartir = it },
                                     onVerDetalle = { selectedReporte = reporte }
                                 )
                             }
@@ -543,21 +563,34 @@ fun ReporteCardMejorado(
                     Text(formatearFecha(reporte.fecha), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     Text("${reporte.horaInicio ?: "?"} - ${reporte.horaFin ?: "?"}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
                 }
-                Surface(
-                    color = when {
-                        reporte.cantidadTotal == 0 -> Color(0xFFFF5722).copy(alpha = 0.15f)
-                        reporte.cantidadTotal <= 5 -> Color(0xFF4CAF50).copy(alpha = 0.15f)
-                        else -> Color(0xFF2196F3).copy(alpha = 0.15f)
-                    },
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text(
-                        text = if (reporte.cantidadTotal == 0) "Sin capturas" else "Exitoso",
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp,
-                        color = if (reporte.cantidadTotal == 0) Color(0xFFFF5722) else Color(0xFF2196F3)
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        color = when {
+                            reporte.cantidadTotal == 0 -> Color(0xFFFF5722).copy(alpha = 0.15f)
+                            reporte.cantidadTotal <= 5 -> Color(0xFF4CAF50).copy(alpha = 0.15f)
+                            else -> Color(0xFF2196F3).copy(alpha = 0.15f)
+                        },
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            text = if (reporte.cantidadTotal == 0) "Sin capturas" else "Exitoso",
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = if (reporte.cantidadTotal == 0) Color(0xFFFF5722) else Color(0xFF2196F3)
+                        )
+                    }
+                    IconButton(
+                        onClick = { onCompartir(reporte) },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Share,
+                            contentDescription = "Compartir parte",
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
 
@@ -587,6 +620,27 @@ fun ReporteCardMejorado(
                     fontSize = 14.sp,
                     color = Color.Gray
                 )
+            }
+
+            // Badge de devolución al agua (catch-and-release).
+            if (reporte.cantidadDevuelta > 0) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFF1D9E75).copy(alpha = 0.12f))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Icon(Icons.Default.Waves, null, tint = Color(0xFF0F6E56), modifier = Modifier.size(15.dp))
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        "${reporte.cantidadDevuelta} devueltos al agua",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF0F6E56)
+                    )
+                }
             }
         }
     }
@@ -672,13 +726,42 @@ fun DetalleParteBottomSheet(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     reporte.peces.forEach { pez ->
+                        val sufijoDevuelto = if (pez.devueltos > 0) "  ↩ ${pez.devueltos}" else ""
                         AssistChip(
                             onClick = { },
-                            label = { Text("${pez.cantidad}x ${pez.especie}") },
+                            label = { Text("${pez.cantidad}x ${pez.especie}$sufijoDevuelto") },
                             leadingIcon = { Icon(Icons.Default.Check, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary) },
                             shape = RoundedCornerShape(12.dp),
                             colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f))
                         )
+                    }
+                }
+
+                // Resumen de devolución al agua (catch-and-release).
+                if (reporte.cantidadDevuelta > 0) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFF1D9E75).copy(alpha = 0.12f))
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                    ) {
+                        Icon(Icons.Default.Waves, null, tint = Color(0xFF0F6E56), modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                "Devolviste ${reporte.cantidadDevuelta} de ${reporte.cantidadTotal} al agua",
+                                fontWeight = FontWeight.Medium,
+                                color = Color(0xFF0F6E56)
+                            )
+                            Text(
+                                "Gracias por cuidar el recurso 🌎",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF0F6E56).copy(alpha = 0.8f)
+                            )
+                        }
                     }
                 }
             } else {
@@ -792,6 +875,14 @@ fun MapaGeneralDeReportes(reportes: List<PartePesca>, onCerrar: () -> Unit) {
         reportes.filter { it.ubicacion?.latitud != null }
     }
 
+    // 🐛 DEBUG: qué llega al mapa y qué se filtra por no tener coordenada.
+    LaunchedEffect(reportes) {
+        android.util.Log.d("DEBUG_PARTES", "🗺️ Mapa general: ${reportes.size} partes totales, ${reportesConUbicacion.size} con marcador")
+        reportes.filter { it.ubicacion?.latitud == null }.forEach { r ->
+            android.util.Log.d("DEBUG_PARTES", "  ⚠️ NO va al mapa (sin lat): id=${r.id} fecha=${r.fecha} lugar=${r.ubicacion?.nombre}")
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
             factory = { ctx ->
@@ -903,11 +994,12 @@ fun DetalleMarkerPanel(reporte: PartePesca, onCerrar: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 reporte.peces.forEach { captura ->
+                    val sufijoDevuelto = if (captura.devueltos > 0) "  ↩ ${captura.devueltos}" else ""
                     AssistChip(
                         onClick = {},
                         label = {
                             Text(
-                                "${captura.cantidad}x ${captura.especie}",
+                                "${captura.cantidad}x ${captura.especie}$sufijoDevuelto",
                                 fontSize = 13.sp
                             )
                         },
@@ -923,6 +1015,19 @@ fun DetalleMarkerPanel(reporte: PartePesca, onCerrar: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
             )
+            if (reporte.cantidadDevuelta > 0) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Waves, null, tint = Color(0xFF0F6E56), modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        "${reporte.cantidadDevuelta} devueltos al agua",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF0F6E56)
+                    )
+                }
+            }
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(

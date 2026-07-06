@@ -47,10 +47,23 @@ class ReportesViewModel(
             try {
                 val lista = repository.obtenerMisPartes()
                 val ordenados = lista.sortedByDescending { r -> fechaAEpoch(r.fecha) }
+
+                // 🐛 DEBUG: cuántos partes llegaron y cuáles tienen coordenada.
+                Log.d("DEBUG_PARTES", "📥 obtenerMisPartes() devolvió ${ordenados.size} partes")
+                ordenados.forEach { r ->
+                    Log.d(
+                        "DEBUG_PARTES",
+                        "  • id=${r.id} fecha=${r.fecha} lat=${r.ubicacion?.latitud} lng=${r.ubicacion?.longitud} lugar=${r.ubicacion?.nombre}"
+                    )
+                }
+                val conCoord = ordenados.count { it.ubicacion?.latitud != null }
+                Log.d("DEBUG_PARTES", "🗺️ Con coordenada (van al mapa): $conCoord de ${ordenados.size}")
+
                 _uiState.update {
                     it.copy(isLoading = false, reportes = ordenados)
                 }
             } catch (e: Exception) {
+                Log.e("DEBUG_PARTES", "💥 Error cargando reportes: ${e.message}", e)
                 _uiState.update { it.copy(isLoading = false, error = e.message) }
             }
         }

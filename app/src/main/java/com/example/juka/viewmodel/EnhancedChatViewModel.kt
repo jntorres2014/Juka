@@ -48,6 +48,10 @@ import com.example.juka.util.DateUtils
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 
+/** Resultado de guardar un parte desde el wizard, para que la UI muestre el
+ *  feedback correcto (enviado vs guardado offline). */
+enum class ResultadoGuardadoWizard { ENVIADO, GUARDADO_OFFLINE }
+
 class EnhancedChatViewModel(
     private val quotaManager: ChatQuotaManager,
     private val geminiService: GeminiChatService,
@@ -134,6 +138,18 @@ class EnhancedChatViewModel(
         MutableSharedFlow<List<com.example.juka.RegistroResult.Success>>()
     val nuevasEspeciesEvent = _nuevasEspeciesEvent.asSharedFlow()
 
+    // Se emite cuando el usuario elige "Crear parte" desde el menú del bot.
+    // La UI lo observa para navegar al wizard asistido (no al flujo de chat).
+    private val _irAlWizardEvent = MutableSharedFlow<Unit>()
+    val irAlWizardEvent = _irAlWizardEvent.asSharedFlow()
+
+    // Se emite cuando el usuario pide volver al menú escribiendo "menú"/"volver"
+    // en el chat. Antes esto reinsertaba la vieja burbuja de 3 botones
+    // (showMainMenu) — ahora navega de verdad a ChatMenuScreen, el mismo
+    // camino que el botón de header, así hay una sola forma de ver el menú.
+    private val _irAlMenuEvent = MutableSharedFlow<Unit>()
+    val irAlMenuEvent = _irAlMenuEvent.asSharedFlow()
+
     companion object {
         private const val TAG = "🎣 EnhancedVM"
     }
@@ -141,7 +157,10 @@ class EnhancedChatViewModel(
     init {
         Log.d(TAG, "✅ Inicializando EnhancedChatViewModel Inyectado")
         chatBotActionHandler.apply {
-            onStartParte = { iniciarCrearParte() }
+            // "Crear parte" del menú → wizard asistido (foto obligatoria), no el
+            // flujo de chat. El flujo por chat sigue disponible en el botón
+            // "Crear parte por chat" de la barra de input.
+            onStartParte = { viewModelScope.launch { _irAlWizardEvent.emit(Unit) } }
             onDownloadFile = { data -> handleDownload(data) }
         }
         initializeData()
@@ -153,8 +172,26 @@ class EnhancedChatViewModel(
         // encuesta lo controla AuthManager + AppWithAuth (si no está completa
         // ni siquiera se llega al chat). Lo sacamos.
         _chatEnabled.value = true
-        loadGeneralChatHistory()
-        if (_generalMessages.value.isEmpty()) showMainMenu()
+        // Antes acá se llamaba a showMainMenu(), que reinsertaba el menú de
+        // 3 botones como burbuja del bot cada vez que se entraba al chat —
+        // duplicado con la nueva ChatMenuScreen (que ahora es el paso previo
+        // real) y confuso porque el input de texto ya estaba visible al
+        // mismo tiempo.
+        //
+        // Ahora sí cargamos el historial real desde Room (antes esto era un
+        // no-op: loadGeneralChatHistory() y saveGeneralMessageToFile() sólo
+        // hacían Log.d y nunca tocaban la base, así que cada apertura del
+        // chat arrancaba vacía). Si de verdad no hay historial (primera vez
+        // que el usuario abre el chat), mostramos un saludo simple una sola
+        // vez — al quedar persistido, no se repite en las próximas entradas.
+        viewModelScope.launch {
+            val historial = localStorageHelper.loadChatHistory()
+            if (historial.isNotEmpty()) {
+                _generalMessages.value = historial
+            } else {
+                addBotMessage("¡Hola! Contame qué necesitás saber sobre pesca 🎣")
+            }
+        }
     }
 
     fun dismissMapPicker() { _showMapPicker.value = false }
@@ -321,13 +358,14 @@ class EnhancedChatViewModel(
         viewModelScope.launch {
             _borradoresPendientes.value = localStorageHelper.getAllBorradores()
         }
+        // Esto vuelve a la pestaña de chat general (que ya tiene su propio
+        // historial persistido), no a la pantalla de menú — por eso ya no
+        // llama a showMainMenu().
         _currentMode.value = ChatMode.GENERAL
-        showMainMenu()
     }
 
     fun volverAChatGeneral() {
         _currentMode.value = ChatMode.GENERAL
-        showMainMenu()
     }
 
     fun cancelarParte() {
@@ -379,7 +417,7 @@ class EnhancedChatViewModel(
 
     private fun sendGeneralTextMessage(content: String) {
         if (chatBotManager.isMenuRequest(content)) {
-            showMainMenu()
+            viewModelScope.launch { _irAlMenuEvent.emit(Unit) }
             return
         }
         addUserMessage(content)
@@ -562,18 +600,37 @@ class EnhancedChatViewModel(
         if (campo == CampoParte.UBICACION) _showMapPicker.value = true
         if (campo == CampoParte.FOTOS) _showImagePicker.value = true
     }
-    fun guardarParteDesdeWizard(parteData: ParteEnProgreso) {
-        // Tomamos los datos del wizard y los pasamos por la misma infra del chat:
-        // se persisten como borrador en Room hasta que el upload remoto sale OK.
+    /**
+     * Guarda el parte armado por el wizard. Devuelve el resultado para que la
+     * pantalla muestre el feedback correcto.
+     *
+     *  - CON señal: sube a Firebase (mismo flujo que el chat) → ENVIADO.
+     *  - SIN señal: lo deja como borrador local, programa el sync automático y
+     *    vuelve a un estado limpio (chat general). NO deja al usuario en el modo
+     *    crear-parte con el mensaje del flujo de chat → GUARDADO_OFFLINE.
+     */
+    suspend fun guardarParteDesdeWizard(parteData: ParteEnProgreso): ResultadoGuardadoWizard {
         val nuevoId = localStorageHelper.generarBorradorId()
         _borradorActivoId.value = nuevoId
-        _parteData.value = parteData.copy(porcentajeCompletado = 100)
+        val parte = parteData.copy(porcentajeCompletado = 100)
+        _parteData.value = parte
         _parteMessages.value = emptyList()
-        _currentMode.value = ChatMode.CREAR_PARTE
-        viewModelScope.launch {
-            localStorageHelper.saveBorrador(nuevoId, _parteData.value!!)
-            // Reutilizamos la lógica existente de subida a Firebase + imágenes
+        localStorageHelper.saveBorrador(nuevoId, parte)
+
+        return if (!networkMonitor.isOnlineNow()) {
+            // Sin señal: borrador + sync automático + volver limpio.
+            application.programarSyncBorradores()
+            _borradorActivoId.value = null
+            _parteData.value = null
+            _currentMode.value = ChatMode.GENERAL
+            _borradoresPendientes.value = localStorageHelper.getAllBorradores()
+            ResultadoGuardadoWizard.GUARDADO_OFFLINE
+        } else {
+            _currentMode.value = ChatMode.CREAR_PARTE
+            // Reutilizamos la lógica existente de subida (muestra "🎉 enviado" y
+            // vuelve al chat general al terminar).
             completarYEnviarParte()
+            ResultadoGuardadoWizard.ENVIADO
         }
     }
 
@@ -625,12 +682,18 @@ class EnhancedChatViewModel(
     private fun addUserMessage(content: String, type: MessageType = MessageType.TEXT) {
         val msg = ChatMessageWithMode(content, true, type, DateUtils.timestampChat(), ChatMode.GENERAL)
         addMessageToGeneralChat(msg)
-        saveGeneralMessageToFile(msg)
     }
 
-
+    /**
+     * Único punto de entrada para agregar mensajes al chat general — tanto
+     * del usuario como del bot pasan por acá, así que es también el único
+     * lugar donde hace falta persistir para tener el historial completo.
+     * Fire-and-forget: si la app se cierra antes de que termine el insert,
+     * en el peor caso se pierde el último mensaje, no toda la sesión.
+     */
     private fun addMessageToGeneralChat(message: ChatMessageWithMode) {
         _generalMessages.value = _generalMessages.value + message
+        viewModelScope.launch { localStorageHelper.saveChatMessage(message) }
     }
 
     /**
@@ -663,14 +726,6 @@ class EnhancedChatViewModel(
         // Persistencia async sobre el borrador activo. Si la app se cierra
         // antes de que termine, el siguiente save igual sobrescribe.
         viewModelScope.launch { localStorageHelper.saveBorrador(idActivo, finales) }
-    }
-
-    private fun saveGeneralMessageToFile(message: ChatMessageWithMode, customContent: String? = null) {
-        Log.d(TAG, "Guardando mensaje: ${message.content}")
-    }
-
-    private fun loadGeneralChatHistory() {
-        Log.d(TAG, "Cargando historial...")
     }
 
     private fun generarRespuestaParte(extractionResult: MLKitExtractionResult, datosActuales: ParteEnProgreso?): String {
@@ -747,16 +802,63 @@ class EnhancedChatViewModel(
     private fun nombreLimpioCampo(campo: CampoParte): String =
         campo.displayName.replace(Regex("[^a-zA-ZáéíóúñÁÉÍÓÚÑ ]"), "").trim()
 
+    /**
+     * Aplica las ediciones hechas en el sheet de confirmación: reemplaza el
+     * parte actual por la versión editada, recalcula el progreso y persiste el
+     * borrador. NO envía.
+     */
+    private fun aplicarEdicionParte(parteEditado: ParteEnProgreso) {
+        val progreso = parteLogicUseCase.calcularProgreso(parteEditado)
+        val finales = parteEditado.copy(
+            porcentajeCompletado = progreso.porcentaje,
+            camposFaltantes = progreso.camposFaltantes
+        )
+        _parteData.value = finales
+        _borradorActivoId.value?.let { id ->
+            viewModelScope.launch { localStorageHelper.saveBorrador(id, finales) }
+        }
+    }
+
+    /** Confirma las ediciones del sheet y dispara el envío real. */
+    fun confirmarYEnviarParteEditado(parteEditado: ParteEnProgreso) {
+        aplicarEdicionParte(parteEditado)
+        completarYEnviarParte()
+    }
+
+    /**
+     * Persiste las ediciones en curso del sheet SIN enviar. Se usa antes de
+     * abrir el mapa (que cierra el sheet) para no perder lo ya editado: al
+     * volver, el sheet se reabre con estos datos + la ubicación nueva.
+     */
+    fun guardarEdicionEnProgreso(parteEditado: ParteEnProgreso) {
+        aplicarEdicionParte(parteEditado)
+    }
+
+    /** Guarda las ediciones del sheet como borrador y vuelve al menú. */
+    fun guardarBorradorEditadoYVolver(parteEditado: ParteEnProgreso) {
+        aplicarEdicionParte(parteEditado)
+        guardarBorradorYVolver()
+    }
+
     fun completarYEnviarParte() {
+        // ✅ Guard de re-entrada: si ya hay un envío en curso, ignoramos taps
+        // repetidos. Evita disparar varias subidas en paralelo del mismo parte.
+        if (_isSendingParte.value) {
+            Log.d(TAG, "Envío ya en curso, ignorando tap repetido.")
+            return
+        }
+
         val auth = FirebaseAuth.getInstance()
         val parteActual = _parteData.value ?: return
         val idActivo = _borradorActivoId.value
 
-        if (parteActual.porcentajeCompletado < 70) {
+        // ✅ Validación unificada (misma política que el wizard). Red de
+        // seguridad: el sheet ya bloquea, pero por las dudas re-chequeamos acá.
+        val faltantes = com.example.juka.domain.model.ParteValidacion.camposFaltantes(parteActual)
+        if (faltantes.isNotEmpty()) {
             addBotMessage(
-                "⚠️ **Faltan datos para enviar el parte.**\n\n" +
-                        "Tenés que completar al menos el 70%. " +
-                        "Tocá los íconos de arriba para sumar lo que falta."
+                "⚠️ **Faltan datos obligatorios para enviar el parte:**\n\n" +
+                        faltantes.joinToString("\n") { "• $it" }
             )
             return
         }
@@ -825,8 +927,11 @@ class EnhancedChatViewModel(
                     .extraerTranscripcion(_parteMessages.value)
 
                 // 2. Guardar el parte en Firestore con timeout.
+                //    Pasamos el id del borrador como id idempotente del documento:
+                //    si el worker u otro intento sube el mismo parte, se pisa en
+                //    vez de duplicarse.
                 val resPersist = withNetworkTimeout(networkMonitor) {
-                    firebaseManager.guardarParteCompletado(datosFinales, transcripcion)
+                    firebaseManager.guardarParteCompletado(datosFinales, transcripcion, parteId = idActivo)
                 }
 
                 when (resPersist) {
@@ -1005,6 +1110,7 @@ class EnhancedChatViewModel(
         val geoPoint = GeoPoint(latitude, longitude)
         val locationName = name ?: "Ubicación sin nombre"
 
+        Log.d("DEBUG_PARTES", "📍 saveLocation: GeoPoint($latitude, $longitude) nombre=$locationName")
         updateParteData { it.copy(ubicacion = geoPoint, nombreLugar = locationName) }
         addMessageToParteChat(
             ChatMessageWithMode("📍 **Lugar:** $locationName", false, MessageType.TEXT, DateUtils.timestampChat(), ChatMode.CREAR_PARTE)

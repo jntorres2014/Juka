@@ -34,6 +34,10 @@ import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 
+/** Zoom mínimo para poder confirmar. Debajo de esto el "centro de pantalla" es
+ *  tan impreciso que el punto puede caer a cientos de km (incluso en el mar). */
+private const val MIN_ZOOM_CONFIRM = 11.0
+
 /**
  * Pantalla modal para seleccionar una ubicación en el mapa. Tiene dos
  * acciones flotantes:
@@ -144,6 +148,16 @@ fun MapPickerScreen(
         else permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
     }
 
+    // ✅ Al abrir el picker, si ya hay permiso, centramos automáticamente en la
+    // ubicación actual (zoom 15). Así el usuario arranca en su zona real en vez
+    // de en el centro de Sudamérica a zoom 4.
+    LaunchedEffect(Unit) {
+        val granted = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        if (granted) centrarEnMiUbicacion()
+    }
+
     // Configurar osmdroid una sola vez
     DisposableEffect(Unit) {
         Configuration.getInstance().userAgentValue = context.packageName
@@ -205,6 +219,17 @@ fun MapPickerScreen(
                     FloatingActionButton(
                         onClick = {
                             if (isConfirming) return@FloatingActionButton
+                            // ✅ No dejar confirmar con el mapa muy alejado: el
+                            // "centro" sería impreciso y podría caer en el mar.
+                            val zoomActual = mapView?.zoomLevelDouble ?: 0.0
+                            if (zoomActual < MIN_ZOOM_CONFIRM) {
+                                scope.launch {
+                                    snackbarHostState.showSnackbar(
+                                        "Acercá el mapa para marcar el punto exacto de pesca."
+                                    )
+                                }
+                                return@FloatingActionButton
+                            }
                             scope.launch {
                                 isConfirming = true
                                 // Si el chip todavía está visible significa
@@ -252,7 +277,9 @@ fun MapPickerScreen(
                         MapView(ctx).apply {
                             setTileSource(TileSourceFactory.MAPNIK)
                             setMultiTouchControls(true)
-                            controller.setZoom(4.0)
+                            // Arrancamos a nivel regional (no continente). Si hay
+                            // GPS, el LaunchedEffect de arriba anima al punto real.
+                            controller.setZoom(13.0)
                             controller.setCenter(GeoPoint(-40.784, -65.035))
 
                             // Listener para capturar el centro del mapa

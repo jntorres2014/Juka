@@ -26,13 +26,18 @@ class PartesFirebase(private val manager: FirebaseManager) {
      */
     suspend fun guardarParteCompletado(
         parteData: ParteEnProgreso,
-        transcripcion: String? = null
+        transcripcion: String? = null,
+        // ✅ Id idempotente: si se pasa (el UUID del borrador), se usa como id
+        // del documento. Así, reintentos / worker / doble-tap escriben SIEMPRE
+        // sobre el mismo documento en vez de crear duplicados. Si es null,
+        // mantenemos el comportamiento viejo (id nuevo).
+        parteId: String? = null
     ): FirebaseResult {
         return try {
             val userId = manager.getCurrentUserId()
                 ?: return FirebaseResult.Error("Usuario no autenticado")
 
-            val parteId = generarIdParte()
+            val idFinal = parteId ?: generarIdParte()
 
             val ubicacion = if (
                 parteData.nombreLugar != null ||
@@ -47,17 +52,38 @@ class PartesFirebase(private val manager: FirebaseManager) {
                 )
             } else null
 
+            // 🐛 DEBUG: qué ubicación se va a guardar (GeoPoint de entrada vs lo
+            // que termina en el documento). Si lat/lng salen null, el parte no
+            // va a aparecer como marcador en el mapa.
+            Log.d(
+                "DEBUG_PARTES",
+                "💾 Guardando parte id=$idFinal | GeoPoint entrada=${parteData.ubicacion} | UbicacionParte=lat=${ubicacion?.latitud} lng=${ubicacion?.longitud} nombre=${ubicacion?.nombre}"
+            )
+
             val parte = PartePesca(
-                id = parteId,
+                id = idFinal,
                 userId = userId,
-                fecha = parteData.fecha ?: UtilsFirebase.getCurrentDate(),
+                // ✅ Fecha normalizada a dd/MM/yyyy para que en Firebase todas
+                // queden en el mismo formato, sin importar de dónde vino.
+                fecha = UtilsFirebase.normalizarFecha(parteData.fecha) ?: UtilsFirebase.fechaHoyDMY(),
                 horaInicio = parteData.horaInicio,
                 horaFin = parteData.horaFin,
                 duracionHoras = UtilsFirebase.calcularDuracionFromSession(parteData),
                 peces = parteData.especiesCapturadas.map { pez ->
-                    Captura(especie = pez.nombre, cantidad = pez.numeroEjemplares)
+                    // ✅ Devolución: devueltos = los que volvieron al agua;
+                    // retenidos = los que se llevó (cantidad - devueltos).
+                    val devueltos = pez.numeroDevueltos.coerceIn(0, pez.numeroEjemplares)
+                    Captura(
+                        especie = pez.nombre,
+                        cantidad = pez.numeroEjemplares,
+                        retenidos = pez.numeroEjemplares - devueltos,
+                        devueltos = devueltos
+                    )
                 },
                 cantidadTotal = parteData.especiesCapturadas.sumOf { it.numeroEjemplares },
+                cantidadDevuelta = parteData.especiesCapturadas.sumOf {
+                    it.numeroDevueltos.coerceIn(0, it.numeroEjemplares)
+                },
                 // Si el usuario eligió "Otra" modalidad en el wizard con texto
                 // libre, ese texto va como tipo. Sino, el displayName del enum.
                 tipo = parteData.modalidadOtra
@@ -74,7 +100,7 @@ class PartesFirebase(private val manager: FirebaseManager) {
                 observaciones = parteData.observaciones
             )
 
-            val partePath = "$PARTES_COLLECTION/$userId/$SUBCOLLECTION_PARTES/$parteId"
+            val partePath = "$PARTES_COLLECTION/$userId/$SUBCOLLECTION_PARTES/$idFinal"
             val ok = withTimeoutOrNull(15_000) {
                 manager.firestore.document(partePath)
                     .set(parte, SetOptions.merge())
@@ -82,11 +108,11 @@ class PartesFirebase(private val manager: FirebaseManager) {
                 true
             }
             if (ok != true) {
-                Log.w(TAG, "⏳ Timeout o sin red guardando parte $parteId")
+                Log.w(TAG, "⏳ Timeout o sin red guardando parte $idFinal")
                 return FirebaseResult.Error("Sin conexión o red lenta. El parte no se subió.")
             }
 
-            Log.i(TAG, "✅ Parte completado guardado: $parteId")
+            Log.i(TAG, "✅ Parte completado guardado: $idFinal")
             FirebaseResult.Success
         } catch (e: Exception) {
             Log.e(TAG, "💥 Error guardando parte completado: ${e.message}", e)

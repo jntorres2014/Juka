@@ -34,7 +34,11 @@ import androidx.core.content.ContextCompat
 /** Tope máximo de grabación. Pasado este límite, autodetenemos y entregamos
  *  el texto acumulado. Evita que el usuario se cuelgue grabando sin darse
  *  cuenta y nos protege de exceder cuotas del SpeechRecognizer. */
-private const val MAX_RECORDING_SECONDS = 15
+private const val MAX_RECORDING_SECONDS = 45
+
+/** Tope de segmentos consecutivos sin voz antes de cortar solos. Evita que el
+ *  recognizer se relance infinitamente ante silencio (drena batería). */
+private const val MAX_EMPTY_SEGMENTS = 3
 
 /** Delay entre fin de un segmento y arranque del siguiente. Le da al
  *  SpeechRecognizer un instante para liberar recursos antes de relanzarlo.
@@ -78,6 +82,11 @@ fun WorkingAudioButton(
     var userStopped by remember { mutableStateOf(false) }
     // Contador visible de segundos restantes. Se reinicia al arrancar.
     var secondsRemaining by remember { mutableStateOf(MAX_RECORDING_SECONDS) }
+    // ✅ V1: sesión activa = desde que arranca hasta que se entrega/corta. El
+    // countdown se ata a ESTO, no a cada segmento, así el tope es total real.
+    var isSessionActive by remember { mutableStateOf(false) }
+    // ✅ V2: segmentos consecutivos sin voz detectada.
+    var emptySegments by remember { mutableStateOf(0) }
 
     val scale by animateFloatAsState(
         targetValue = if (isRecording) 1.3f else 1.0f,
@@ -95,6 +104,7 @@ fun WorkingAudioButton(
         userStopped = true
         isProcessing = true
         isRecording = false
+        isSessionActive = false
         speechRecognizer?.stopListening()
     }
 
@@ -122,7 +132,7 @@ fun WorkingAudioButton(
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "es-AR")
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "es-AR")
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
             putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2000L)
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2000L)
@@ -157,12 +167,16 @@ fun WorkingAudioButton(
                     // ✅ Acumular texto con espacio entre segmentos
                     accumulatedText = if (accumulatedText.isBlank()) match
                     else "$accumulatedText $match"
+                    emptySegments = 0
+                } else {
+                    emptySegments++
                 }
 
                 if (userStopped) {
                     // El usuario detuvo: entregar todo el texto acumulado
                     isRecording = false
                     isProcessing = false
+                    isSessionActive = false
                     val finalText = accumulatedText.trim()
                     accumulatedText = ""
                     if (finalText.isNotBlank()) {
@@ -170,6 +184,14 @@ fun WorkingAudioButton(
                     } else {
                         errorMessage = "No se detectó texto claro"
                     }
+                } else if (emptySegments >= MAX_EMPTY_SEGMENTS && accumulatedText.isBlank()) {
+                    // ✅ V2: demasiados segmentos sin voz y nada acumulado → cortar.
+                    Log.i("🎤", "Demasiados segmentos vacíos, corto la sesión")
+                    userStopped = true
+                    isRecording = false
+                    isProcessing = false
+                    isSessionActive = false
+                    errorMessage = "No te escuché. Probá de nuevo."
                 } else {
                     // ✅ Continuar grabando automáticamente, pero POSPONIENDO
                     // el relance fuera del callback del recognizer. Esto evita
@@ -189,15 +211,27 @@ fun WorkingAudioButton(
                 Log.w("🎤", "Error código: $error, recuperable: $isRecoverableError")
 
                 if (isRecoverableError && !userStopped) {
-                    // ✅ Sin voz en este segmento → reiniciar con el mismo
-                    // delay que en onResults, por la misma razón.
-                    handler.postDelayed({
-                        if (!userStopped) launchRecognizer()
-                    }, RESTART_DELAY_MS)
+                    emptySegments++
+                    if (emptySegments >= MAX_EMPTY_SEGMENTS && accumulatedText.isBlank()) {
+                        // ✅ V2: silencio persistente → cortar en vez de loopear.
+                        Log.i("🎤", "Silencio persistente, corto la sesión")
+                        userStopped = true
+                        isRecording = false
+                        isProcessing = false
+                        isSessionActive = false
+                        errorMessage = "No te escuché. Probá de nuevo."
+                    } else {
+                        // ✅ Sin voz en este segmento → reiniciar con el mismo
+                        // delay que en onResults, por la misma razón.
+                        handler.postDelayed({
+                            if (!userStopped) launchRecognizer()
+                        }, RESTART_DELAY_MS)
+                    }
                 } else if (userStopped) {
                     // Usuario detuvo durante un error: entregar lo acumulado
                     isRecording = false
                     isProcessing = false
+                    isSessionActive = false
                     val finalText = accumulatedText.trim()
                     accumulatedText = ""
                     if (finalText.isNotBlank()) onAudioTranscribed(finalText)
@@ -205,6 +239,7 @@ fun WorkingAudioButton(
                 } else {
                     isRecording = false
                     isProcessing = false
+                    isSessionActive = false
                     accumulatedText = ""
                     errorMessage = when (error) {
                         SpeechRecognizer.ERROR_AUDIO -> "Error de audio"
@@ -232,6 +267,8 @@ fun WorkingAudioButton(
         if (isGranted) {
             userStopped = false
             accumulatedText = ""
+            emptySegments = 0
+            isSessionActive = true
             launchRecognizer()
         } else {
             errorMessage = "Necesitás permisos de micrófono"
@@ -245,18 +282,19 @@ fun WorkingAudioButton(
         }
     }
 
-    // Countdown del tope de 15s. Se reinicia cada vez que isRecording pasa
-    // a true (nueva sesión de grabación). Cuando llega a 0 sin que el
-    // usuario haya detenido manualmente, autodisparamos stopRecording().
-    LaunchedEffect(isRecording) {
-        if (isRecording) {
+    // ✅ V1: Countdown ATADO A LA SESIÓN, no a cada segmento. Antes se reiniciaba
+    // cada vez que isRecording pasaba a true (en cada segmento), así que el tope
+    // de 15s no era real y la grabación podía correr indefinidamente. Ahora corre
+    // una sola vez por sesión.
+    LaunchedEffect(isSessionActive) {
+        if (isSessionActive) {
             secondsRemaining = MAX_RECORDING_SECONDS
-            while (secondsRemaining > 0 && isRecording && !userStopped) {
+            while (secondsRemaining > 0 && isSessionActive && !userStopped) {
                 delay(1000L)
-                if (isRecording && !userStopped) secondsRemaining--
+                if (isSessionActive && !userStopped) secondsRemaining--
             }
             if (secondsRemaining <= 0 && !userStopped) {
-                Log.i("🎤", "Timeout de ${MAX_RECORDING_SECONDS}s alcanzado, autodetener")
+                Log.i("🎤", "Timeout total de ${MAX_RECORDING_SECONDS}s, autodetener")
                 stopRecording()
             }
         } else {
@@ -277,10 +315,12 @@ fun WorkingAudioButton(
             else -> {
                 userStopped = false
                 accumulatedText = ""
+                emptySegments = 0
                 secondsRemaining = MAX_RECORDING_SECONDS
                 if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
                     == PackageManager.PERMISSION_GRANTED
                 ) {
+                    isSessionActive = true
                     launchRecognizer()
                 } else {
                     permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)

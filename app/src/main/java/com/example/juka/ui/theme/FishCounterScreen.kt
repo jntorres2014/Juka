@@ -47,6 +47,7 @@ fun FishCounterScreen(
     val scope = rememberCoroutineScope()
 
     val totalPeces = remember(contador) { contador.sumOf { it.numeroEjemplares } }
+    val totalDevueltos = remember(contador) { contador.sumOf { it.numeroDevueltos } }
 
     val especiesPopulares = remember(allSpecies) {
         listOf("Pejerrey", "Dorado", "Surubí", "Tararira", "Bagre amarillo")
@@ -102,7 +103,8 @@ fun FishCounterScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
-                            "Total: $totalPeces ${if (totalPeces == 1) "pez" else "peces"}",
+                            "Total: $totalPeces ${if (totalPeces == 1) "pez" else "peces"}" +
+                                    if (totalDevueltos > 0) " · $totalDevueltos devueltos" else "",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
@@ -249,7 +251,8 @@ fun FishCounterScreen(
                     CapturaItemMejorado(
                         item = item,
                         onDelete = { viewModel.fishCounterManager.eliminarPezDelContador(item.nombre) },
-                        onEdit = { nuevaCantidad -> viewModel.fishCounterManager.actualizarCantidadPez(item.nombre, nuevaCantidad) }
+                        onEdit = { nuevaCantidad -> viewModel.fishCounterManager.actualizarCantidadPez(item.nombre, nuevaCantidad) },
+                        onEditDevueltos = { devueltos -> viewModel.fishCounterManager.actualizarDevueltos(item.nombre, devueltos) }
                     )
                 }
             }
@@ -279,40 +282,88 @@ fun FishCounterScreen(
 fun CapturaItemMejorado(
     item: com.example.juka.domain.model.EspecieCapturada,
     onDelete: () -> Unit,
-    onEdit: (Int) -> Unit
+    onEdit: (Int) -> Unit,
+    onEditDevueltos: (Int) -> Unit = {}
 ) {
     var editando by remember { mutableStateOf(false) }
     var cantidadTemporal by remember(item.numeroEjemplares) { mutableStateOf(item.numeroEjemplares.toString()) }
 
     Card(elevation = CardDefaults.cardElevation(defaultElevation = 2.dp), modifier = Modifier.fillMaxWidth()) {
-        Row(modifier = Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                if (editando) {
-                    OutlinedTextField(value = cantidadTemporal, onValueChange = { cantidadTemporal = it }, modifier = Modifier.width(70.dp), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                } else {
-                    Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(8.dp), modifier = Modifier.clickable { editando = true }) {
-                        Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("${item.numeroEjemplares}x", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                            Icon(Icons.Default.Edit, null, modifier = Modifier.size(14.dp).padding(start = 4.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f))
+        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    if (editando) {
+                        OutlinedTextField(value = cantidadTemporal, onValueChange = { cantidadTemporal = it }, modifier = Modifier.width(70.dp), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                    } else {
+                        Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(8.dp), modifier = Modifier.clickable { editando = true }) {
+                            Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text("${item.numeroEjemplares}x", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                Icon(Icons.Default.Edit, null, modifier = Modifier.size(14.dp).padding(start = 4.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f))
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(item.nombre, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                }
+
+                Row {
+                    if (editando) {
+                        IconButton(onClick = { cantidadTemporal.toIntOrNull()?.let { if (it > 0) onEdit(it) }; editando = false }) {
+                            Icon(Icons.Default.Check, null, tint = Color.Green)
+                        }
+                        IconButton(onClick = { editando = false; cantidadTemporal = item.numeroEjemplares.toString() }) {
+                            Icon(Icons.Default.Close, null, tint = Color.Red)
+                        }
+                    } else {
+                        IconButton(onClick = onDelete) {
+                            Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error.copy(alpha = 0.6f))
                         }
                     }
                 }
-                Spacer(modifier = Modifier.width(12.dp))
-                Text(item.nombre, fontSize = 16.sp, fontWeight = FontWeight.Medium)
             }
 
-            Row {
-                if (editando) {
-                    IconButton(onClick = { cantidadTemporal.toIntOrNull()?.let { if (it > 0) onEdit(it) }; editando = false }) {
-                        Icon(Icons.Default.Check, null, tint = Color.Green)
-                    }
-                    IconButton(onClick = { editando = false; cantidadTemporal = item.numeroEjemplares.toString() }) {
-                        Icon(Icons.Default.Close, null, tint = Color.Red)
-                    }
-                } else {
-                    IconButton(onClick = onDelete) {
-                        Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error.copy(alpha = 0.6f))
-                    }
+            // Devolución: cuántos de esta especie volvieron al agua. Clampeado
+            // a numeroEjemplares en el manager, acá solo mostramos los botones.
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Waves,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = Color(0xFF0F6E56)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Devueltos:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(modifier = Modifier.weight(1f))
+                IconButton(
+                    onClick = { onEditDevueltos(item.numeroDevueltos - 1) },
+                    enabled = item.numeroDevueltos > 0,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        Icons.Default.RemoveCircleOutline,
+                        contentDescription = "Restar devuelto",
+                        modifier = Modifier.size(18.dp),
+                        tint = if (item.numeroDevueltos > 0) Color(0xFF0F6E56) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                    )
+                }
+                Text(
+                    "${item.numeroDevueltos}/${item.numeroEjemplares}",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+                IconButton(
+                    onClick = { onEditDevueltos(item.numeroDevueltos + 1) },
+                    enabled = item.numeroDevueltos < item.numeroEjemplares,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        Icons.Default.AddCircleOutline,
+                        contentDescription = "Sumar devuelto",
+                        modifier = Modifier.size(18.dp),
+                        tint = if (item.numeroDevueltos < item.numeroEjemplares) Color(0xFF0F6E56) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                    )
                 }
             }
         }

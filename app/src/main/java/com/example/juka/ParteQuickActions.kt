@@ -83,6 +83,7 @@ fun ParteQuickActions(
     onGuardarBorrador: () -> Unit,
     onCompletarParte: () -> Unit,
     firebaseStatus: String?,
+    isSending: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     // Estado para colapsar/expandir el panel manualmente
@@ -210,10 +211,13 @@ fun ParteQuickActions(
                                 modifier = Modifier.weight(1f)
                             )
 
-                            // Botones pequeños
+                            // Botones pequeños. Mientras se envía, ambos quedan
+                            // deshabilitados y "Enviar" muestra un spinner, para
+                            // que el usuario no dispare envíos repetidos.
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedButton(
                                     onClick = onGuardarBorrador,
+                                    enabled = !isSending,
                                     contentPadding = PaddingValues(horizontal = 12.dp),
                                     modifier = Modifier.height(32.dp)
                                 ) {
@@ -222,14 +226,24 @@ fun ParteQuickActions(
 
                                 Button(
                                     onClick = onCompletarParte,
-                                    enabled = parteData.porcentajeCompletado >= 70,
+                                    enabled = parteData.porcentajeCompletado >= 70 && !isSending,
                                     contentPadding = PaddingValues(horizontal = 12.dp),
                                     modifier = Modifier.height(32.dp),
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = Color(0xFF4CAF50)
                                     )
                                 ) {
-                                    Text("Enviar", fontSize = 11.sp)
+                                    if (isSending) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(14.dp),
+                                            color = Color.White,
+                                            strokeWidth = 2.dp
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Enviando...", fontSize = 11.sp)
+                                    } else {
+                                        Text("Enviar", fontSize = 11.sp)
+                                    }
                                 }
                             }
                         }

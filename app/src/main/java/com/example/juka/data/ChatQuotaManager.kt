@@ -27,6 +27,10 @@ class ChatQuotaManager(
     companion object {
         const val DAILY_LIMIT = 5
         const val PREMIUM_LIMIT = 999
+        // Identificación de peces con Gemini ("premium" en Identificar Captura).
+        // Separada de DAILY_LIMIT del chat: 1 uso gratis por día, se resetea
+        // junto con el resto de la cuota (mismo lastResetDate).
+        const val PHOTO_DAILY_LIMIT = 1
         private const val COLLECTION_NAME = "user_quotas"
         private const val TAG = "ChatQuotaManager"
     }
@@ -64,6 +68,7 @@ class ChatQuotaManager(
             val data = quotaDoc.data ?: return
             val lastReset = (data["lastResetDate"] as? Timestamp) ?: Timestamp.now()
             val queriesUsed = (data["dailyChatsUsed"] as? Long)?.toInt() ?: 0
+            val photosUsed = (data["dailyPhotosUsed"] as? Long)?.toInt() ?: 0
             val isPremium = (data["isPremium"] as? Boolean) ?: false
 
             // Verificar si es un nuevo día
@@ -75,6 +80,8 @@ class ChatQuotaManager(
                 _quotaState.value = QuotaState(
                     remaining = limit - queriesUsed,
                     total = limit,
+                    photosRemaining = (PHOTO_DAILY_LIMIT - photosUsed).coerceAtLeast(0),
+                    photosTotal = PHOTO_DAILY_LIMIT,
                     lastReset = formatDate(lastReset.toDate()),
                     isPremium = isPremium,
                     quotaCheckFailed = false
@@ -108,6 +115,8 @@ class ChatQuotaManager(
             _quotaState.value = QuotaState(
                 remaining = DAILY_LIMIT,
                 total = DAILY_LIMIT,
+                photosRemaining = PHOTO_DAILY_LIMIT,
+                photosTotal = PHOTO_DAILY_LIMIT,
                 lastReset = formatDate(Date()),
                 isPremium = false
             )
@@ -137,6 +146,8 @@ class ChatQuotaManager(
             _quotaState.value = QuotaState(
                 remaining = limit,
                 total = limit,
+                photosRemaining = PHOTO_DAILY_LIMIT,
+                photosTotal = PHOTO_DAILY_LIMIT,
                 lastReset = formatDate(Date()),
                 isPremium = isPremium
             )
@@ -235,8 +246,17 @@ class ChatQuotaManager(
         return sdf.format(date)
     }
 
-    // Método para cuando agregues foto detection
+    /** Identificación premium (Gemini) en "Identificar Captura": 1 uso gratis por día. */
+    suspend fun canMakePhotoQuery(): Boolean {
+        checkAndResetDaily()
+        return _quotaState.value.photosRemaining > 0
+    }
+
     suspend fun consumePhotoQuery(): Boolean {
+        if (!canMakePhotoQuery()) {
+            return false
+        }
+
         val userId = auth.currentUser?.uid ?: return false
 
         return try {
@@ -250,7 +270,7 @@ class ChatQuotaManager(
 
                 val currentUsed = (snapshot.getLong("dailyPhotosUsed") ?: 0).toInt()
 
-                if (currentUsed >= DAILY_LIMIT) {
+                if (currentUsed >= PHOTO_DAILY_LIMIT) {
                     return@runTransaction false
                 }
 
@@ -259,10 +279,31 @@ class ChatQuotaManager(
                 )
 
                 true
-            }.await()
+            }.await().also { success ->
+                if (success) {
+                    _quotaState.value = _quotaState.value.copy(
+                        photosRemaining = (_quotaState.value.photosRemaining - 1).coerceAtLeast(0)
+                    )
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error consuming photo query", e)
             false
+        }
+    }
+
+    fun getPhotoQuotaMessage(): String {
+        return when {
+            _quotaState.value.quotaCheckFailed ->
+                "📶 No pudimos verificar tu cuota de identificación premium. Probablemente no tenés conexión."
+            _quotaState.value.photosRemaining <= 0 -> """
+                🔒 **Ya usaste tu identificación premium de hoy**
+
+                Se reinicia a medianoche 🕐
+
+                Mientras tanto podés usar la identificación estándar — reconoce igual cualquier especie, solo que sin Gemini.
+            """.trimIndent()
+            else -> "✨ Tenés ${_quotaState.value.photosRemaining} identificación premium disponible hoy"
         }
     }
 }
@@ -271,6 +312,9 @@ class ChatQuotaManager(
 data class QuotaState(
     val remaining: Int = 5,
     val total: Int = 5,
+    /** Identificación premium (Gemini) en "Identificar Captura" — 1 por día. */
+    val photosRemaining: Int = 1,
+    val photosTotal: Int = 1,
     val lastReset: String = "",
     val isPremium: Boolean = false,
     /** true cuando la última verificación falló (sin red, timeout, etc.). */

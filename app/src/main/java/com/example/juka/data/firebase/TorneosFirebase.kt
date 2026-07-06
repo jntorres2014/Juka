@@ -191,7 +191,7 @@ class TorneosFirebase {
                 parteId = parteId,
                 userId = user.uid,
                 userName = user.displayName ?: "Pescador",
-                fecha = parteData.fecha ?: "",
+                fecha = UtilsFirebase.normalizarFecha(parteData.fecha) ?: "",
                 especies = parteData.especiesCapturadas.map {
                     EspecieTorneo(nombre = it.nombre, cantidad = it.numeroEjemplares)
                 },

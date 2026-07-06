@@ -33,6 +33,18 @@ enum class FishIdentifierModel {
     MODELO_PROPIO
 }
 
+/**
+ * De cara al usuario ahora hay solo 2 modos (no 3 modelos sueltos sin
+ * explicación): ESTANDAR es ilimitado y siempre disponible — usa Fishial
+ * en la nube, con el modelo local como respaldo automático si no hay
+ * internet o el servidor de Fishial falla. PREMIUM usa Gemini, con 1 uso
+ * gratis por día (ver ChatQuotaManager.PHOTO_DAILY_LIMIT).
+ */
+enum class ModoIdentificacion {
+    ESTANDAR,
+    PREMIUM
+}
+
 // ─── Modelos de respuesta Fishial ─────────────────────────────────────────────
 
 data class FishialResult(
@@ -115,6 +127,39 @@ class FishIdentifier(private val application: Application) {
         FishIdentifierModel.MODELO_PROPIO -> identifyWithModeloPropio(imagePath)
     }
 
+    // ── Los 2 modos que ve el usuario ────────────────────────────────────────
+
+    /** Botón "premium": Gemini directo. La cuota (1/día) la controla el caller. */
+    suspend fun identifyPremium(imagePath: String): String = identifyWithGemini(imagePath)
+
+    /**
+     * Botón "estándar": ilimitado, pensado para que nunca quede el usuario sin
+     * respuesta.
+     *   - Sin conexión → directo al modelo local (ni se intenta la red).
+     *   - Con conexión pero Fishial falla (servidor caído, timeout, etc.) →
+     *     cae al modelo local igual, en vez de mostrar un error crudo.
+     * En ambos casos de fallback se lo aclara al final de la respuesta, así
+     * no parece un resultado "normal" de Fishial.
+     */
+    suspend fun identifyEstandar(imagePath: String, hayConexion: Boolean): String {
+        if (!hayConexion) {
+            return identifyWithModeloPropio(imagePath) +
+                    "\n\n_📡 Sin conexión — usamos el modelo local de reconocimiento offline._"
+        }
+
+        val resultado = identifyWithFishial(imagePath)
+        val falloConexion = resultado.startsWith("⚠️ Error al conectar") ||
+                resultado.startsWith("⚠️ Error al analizar") ||
+                resultado.startsWith("⚠️ Respuesta vacía")
+
+        return if (falloConexion) {
+            identifyWithModeloPropio(imagePath) +
+                    "\n\n_📡 No pudimos conectar con el servidor de identificación — usamos el modelo local como respaldo._"
+        } else {
+            resultado
+        }
+    }
+
     // ── Gemini ────────────────────────────────────────────────────────────────
 
     private suspend fun identifyWithGemini(imagePath: String): String = withContext(Dispatchers.IO) {
@@ -147,6 +192,13 @@ class FishIdentifier(private val application: Application) {
                    - Advertencia sobre veda si aplica.
 
                 Si la imagen NO es un pez, responde con humor que eso no se pesca.
+
+                IMPORTANTE: al final de todo, en una línea aparte y EXACTA, listá
+                TODOS los peces que se ven en la foto con su cantidad, con este
+                formato (sin texto adicional, separados por coma):
+                PECES_DETECTADOS: 2 Pejerrey, 1 Pacú, 1 Tiburón
+                Si la imagen no es un pez, poné exactamente:
+                PECES_DETECTADOS: ninguno
             """.trimIndent()
 
             val inputContent = content {

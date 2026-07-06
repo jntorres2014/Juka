@@ -51,8 +51,11 @@ class FirebaseManager(val context: Context) {
      * Reemplaza al antiguo convertirSessionAParte: ya no se persisten sesiones,
      * sólo el parte en sí (el chat queda local en Room si hace falta).
      */
-    suspend fun guardarParteCompletado(parteData: ParteEnProgreso, transcripcion: String? = null) =
-        PartesFirebase(this).guardarParteCompletado(parteData, transcripcion)
+    suspend fun guardarParteCompletado(
+        parteData: ParteEnProgreso,
+        transcripcion: String? = null,
+        parteId: String? = null
+    ) = PartesFirebase(this).guardarParteCompletado(parteData, transcripcion, parteId)
 
     suspend fun obtenerEstadisticas() =
         EstadisticasFirebase(this).obtenerEstadisticas()

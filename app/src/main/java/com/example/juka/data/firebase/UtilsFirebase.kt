@@ -61,6 +61,43 @@ object UtilsFirebase {
         return SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
     }
 
+    /** Fecha de hoy en formato dd/MM/yyyy (formato canónico de subida). */
+    fun fechaHoyDMY(): String =
+        SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())
+
+    /**
+     * Normaliza cualquier fecha al formato canónico dd/MM/yyyy antes de subirla,
+     * así en Firebase todas quedan igual (evita el mix de "2026-06-27" y
+     * "14/06/2026"). Acepta:
+     *   - "dd/MM/yyyy" (ya canónica) → se devuelve igual.
+     *   - "yyyy-MM-dd" → se convierte.
+     *   - "hoy" / "ayer" / "anteayer" → se resuelven a la fecha real.
+     * Si no puede parsearla, la devuelve tal cual (no perdemos el dato).
+     */
+    fun normalizarFecha(fecha: String?): String? {
+        if (fecha.isNullOrBlank()) return null
+        val limpia = fecha.trim()
+
+        // Palabras relativas
+        val salida = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+        when (limpia.lowercase()) {
+            "hoy" -> return fechaHoyDMY()
+            "ayer" -> return salida
+                .format(Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }.time)
+            "anteayer" -> return salida
+                .format(Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -2) }.time)
+        }
+
+        for (patron in listOf("dd/MM/yyyy", "yyyy-MM-dd", "dd-MM-yyyy", "yyyy/MM/dd")) {
+            try {
+                val parser = SimpleDateFormat(patron, Locale.getDefault()).apply { isLenient = false }
+                val d = parser.parse(limpia)
+                if (d != null) return salida.format(d)
+            } catch (_: Exception) { /* probar siguiente patrón */ }
+        }
+        return limpia // no reconocida: la dejamos como está
+    }
+
     // === Funciones de procesamiento de datos ===
 
     /**
@@ -262,7 +299,7 @@ object UtilsFirebase {
         return PartePesca(
             userId = userId,
             //deviceId = getDeviceId(context),
-            fecha = data.day ?: getCurrentDate(),
+            fecha = normalizarFecha(data.day) ?: fechaHoyDMY(),
             horaInicio = data.startTime,
             horaFin = data.endTime,
             duracionHoras = duracion,

@@ -26,17 +26,14 @@ fun AppWithAuth() {
     val navController = rememberNavController()
     val authState by authManager.authState.collectAsState()
 
-    // Control de navegación basado en el estado de autenticación.
-    // Si el usuario está autenticado pero NO completó la encuesta, lo
-    // mandamos primero a la pantalla de encuesta. Solo cuando la completa
-    // (o si ya la había completado) pasa a la app principal.
+    // Flujo de auth: Login → Términos (si no aceptó) → Encuesta (si no completó) → App
     LaunchedEffect(authState) {
         when (val state = authState) {
             is AuthState.Authenticated -> {
-                val destino = if (state.encuestaCompleta) {
-                    AuthRoute.MainApp.route
-                } else {
-                    AuthRoute.Encuesta.route
+                val destino = when {
+                    !state.terminosAceptados -> AuthRoute.Terminos.route
+                    !state.encuestaCompleta  -> AuthRoute.Encuesta.route
+                    else                     -> AuthRoute.MainApp.route
                 }
                 navController.navigate(destino) {
                     popUpTo(AuthRoute.Login.route) { inclusive = true }
@@ -63,10 +60,24 @@ fun AppWithAuth() {
                 LoginScreen(authManager, navController)
             }
 
+            composable(AuthRoute.Terminos.route) {
+                AceptarTerminosScreen(
+                    authManager = authManager,
+                    onTerminosAceptados = {
+                        val state = authManager.authState.value
+                        val destino = if (state is AuthState.Authenticated && !state.encuestaCompleta) {
+                            AuthRoute.Encuesta.route
+                        } else {
+                            AuthRoute.MainApp.route
+                        }
+                        navController.navigate(destino) {
+                            popUpTo(AuthRoute.Terminos.route) { inclusive = true }
+                        }
+                    }
+                )
+            }
+
             composable(AuthRoute.Encuesta.route) {
-                // Si necesitás que desde aquí se navegue al finalizar,
-                // asegurate que el botón de 'Finalizar' llame a una función que
-                // actualice el estado en el AuthManager.
                 EncuestaScreen(authManager = authManager, navController = navController)
             }
 

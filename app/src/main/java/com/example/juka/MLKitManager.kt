@@ -37,12 +37,33 @@ class MLKitManager(
             Pattern.compile("""desde\s+las\s+(\d{1,2})\s+hasta\s+las\s+(\d{1,2})""", Pattern.CASE_INSENSITIVE)
         )
 
+        // Capturamos como máximo 3 palabras tras el conector; luego limpiarLugar()
+        // recorta en la primera palabra de "corte" (verbo/preposición). Esto evita
+        // el bug greedy: "en el río con mi hermano" ya no se traga toda la frase.
         private val PATRONES_LUGAR = listOf(
-            Pattern.compile("""en\s+([A-Za-záéíóúñ\s]+)""", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("""playa\s+([A-Za-záéíóúñ\s]+)""", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("""puerto\s+([A-Za-záéíóúñ\s]+)""", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("""bahía\s+([A-Za-záéíóúñ\s]+)""", Pattern.CASE_INSENSITIVE)
+            Pattern.compile("""\ben\s+((?:[A-Za-záéíóúñ]+\s?){1,3})""", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("""\bplaya\s+((?:[A-Za-záéíóúñ]+\s?){1,3})""", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("""\bpuerto\s+((?:[A-Za-záéíóúñ]+\s?){1,3})""", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("""\bbah[ií]a\s+((?:[A-Za-záéíóúñ]+\s?){1,3})""", Pattern.CASE_INSENSITIVE)
         )
+
+        // Palabras que CORTAN el nombre del lugar (verbos, preposiciones, conectores).
+        // OJO: los artículos (la/el/los/las/del) NO van acá, para no romper nombres
+        // legítimos como "La Plata", "Mar del Plata", "Río de la Plata".
+        private val CORTES_LUGAR = setOf(
+            "a", "al", "con", "y", "o", "porque", "mientras", "cuando", "donde",
+            "pescar", "pescando", "pesque", "pesqué", "saque", "saqué",
+            "capture", "capturé", "fui", "fuimos", "ir", "desde", "hasta"
+        )
+
+        // Palabras que niegan una captura cuando aparecen justo antes de la especie.
+        private val PALABRAS_NEGACION = listOf(
+            "no", "ningún", "ningun", "ninguna", "ningunos", "sin", "tampoco"
+        )
+
+        // Alternativa de números (palabra o dígito) reutilizada por varios regex.
+        private const val NUMEROS_REGEX =
+            """\d+|un|una|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|dieci(?:séis|seis|siete|ocho|nueve)|veinte|treinta"""
 
         private val PATRONES_PROVINCIA = mapOf(
             "buenos aires" to Provincia.BUENOS_AIRES,
@@ -201,25 +222,36 @@ class MLKitManager(
     private suspend fun extraerCapturas(texto: String, textoLower: String): List<MLKitEntity> {
         val entidades = mutableListOf<MLKitEntity>()
         if (!fishDatabase.isInitialized()) fishDatabase.initialize()
+        if (fishDatabase.fishSpeciesDB.isEmpty()) return entidades
 
-        val speciesNames = fishDatabase.getAllSpecies()
-            .map { Pattern.quote(it.name.lowercase()) }
-            .joinToString("|")
-        if (speciesNames.isEmpty()) return entidades
+        // ✅ E1 + acentos: trabajamos sobre el texto sin tildes (1:1, conserva
+        // posiciones) y un alfabeto de claves también sin tildes, para que
+        // "róbalos" (STT) matchee la clave "robalo" del JSON.
+        val textoNorm = sinAcentos(textoLower)
+        val normAName = normalToCanonical()           // "robalo" → "Robalo"
+        val claves = normAName.keys.sortedByDescending { it.length }
+        val speciesNames = claves.joinToString("|") { Pattern.quote(it) }
 
         val patron = Pattern.compile(
-            """(\d+|un|una|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s*($speciesNames)""",
+            """($NUMEROS_REGEX)\s*($speciesNames)""",
             Pattern.CASE_INSENSITIVE
         )
 
-        val matcher = patron.matcher(textoLower)
+        val matcher = patron.matcher(textoNorm)
         while (matcher.find()) {
-            val cantidadStr = matcher.group(1)
-            val cantidad = convertirNumeroTextoAEntero(cantidadStr) ?: continue
-            val especieOriginal = texto.substring(matcher.start(2), matcher.end(2))
+            val cantidad = convertirNumeroTextoAEntero(matcher.group(1)) ?: continue
+
+            // ✅ E4: si hay una negación justo antes ("no saqué ningún dorado"),
+            // no es una captura.
+            if (estaNegado(textoNorm, matcher.start(2))) continue
+
+            // ✅ E1: la clave detectada (sinónimo o nombre) → nombre canónico.
+            val claveNorm = textoNorm.substring(matcher.start(2), matcher.end(2))
+            val especieCanonica = normAName[claveNorm]
+                ?: texto.substring(matcher.start(2), matcher.end(2))
 
             entidades.add(MLKitEntity("CANTIDAD_PECES", cantidad.toString(), 0.9f, matcher.start(1), matcher.end(1)))
-            entidades.add(MLKitEntity("ESPECIE", especieOriginal, 0.9f, matcher.start(2), matcher.end(2)))
+            entidades.add(MLKitEntity("ESPECIE", especieCanonica, 0.9f, matcher.start(2), matcher.end(2)))
         }
         return entidades
     }
@@ -229,15 +261,15 @@ class MLKitManager(
         PATRONES_LUGAR.forEach { patron ->
             val matcher = patron.matcher(textoLower)
             while (matcher.find()) {
-                val lugar = matcher.group(1)?.trim()
-                if (!lugar.isNullOrBlank() && lugar.length > 2) {
+                val lugarLimpio = limpiarLugar(matcher.group(1))
+                if (!lugarLimpio.isNullOrBlank() && lugarLimpio.length > 2) {
                     entidades.add(
                         MLKitEntity(
                             tipo = "LUGAR",
-                            valor = lugar.split(" ").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } },
+                            valor = lugarLimpio.split(" ").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } },
                             confianza = 0.8f,
                             posicionInicio = matcher.start(),
-                            posicionFin = matcher.end()
+                            posicionFin = matcher.start() + lugarLimpio.length
                         )
                     )
                 }
@@ -249,9 +281,11 @@ class MLKitManager(
     private fun extraerProvincias(texto: String, textoLower: String): List<MLKitEntity> {
         val entidades = mutableListOf<MLKitEntity>()
         PATRONES_PROVINCIA.forEach { (patron, provincia) ->
-            if (textoLower.contains(patron)) {
-                val inicio = textoLower.indexOf(patron)
-                entidades.add(MLKitEntity("PROVINCIA", provincia.displayName, 0.9f, inicio, inicio + patron.length))
+            // ✅ E3: límites de palabra para que "río negro" no pegue dentro de
+            // otra cosa y "salta" (provincia) no se confunda con el verbo.
+            val m = Regex("(?<![\\p{L}])${Regex.escape(patron)}(?![\\p{L}])").find(textoLower)
+            if (m != null) {
+                entidades.add(MLKitEntity("PROVINCIA", provincia.displayName, 0.9f, m.range.first, m.range.last + 1))
             }
         }
         return entidades
@@ -266,9 +300,12 @@ class MLKitManager(
         // como una segunda modalidad distinta.
         val rangosOcupados = mutableListOf<IntRange>()
         PATRONES_MODALIDAD.forEach { (patron, modalidad) ->
-            val inicio = textoLower.indexOf(patron)
-            if (inicio == -1) return@forEach
-            val fin = inicio + patron.length
+            // ✅ E3: límites de palabra para que "red" no pegue dentro de "pared"
+            // ni "costa" dentro de "Costanera".
+            val m = Regex("(?<![\\p{L}])${Regex.escape(patron)}(?![\\p{L}])").find(textoLower)
+                ?: return@forEach
+            val inicio = m.range.first
+            val fin = m.range.last + 1
             val solapa = rangosOcupados.any { rango -> inicio in rango || (fin - 1) in rango }
             if (solapa) return@forEach
             entidades.add(MLKitEntity("MODALIDAD", modalidad.displayName, 0.85f, inicio, fin))
@@ -281,14 +318,17 @@ class MLKitManager(
         val entidades = mutableListOf<MLKitEntity>()
         if (!fishDatabase.isInitialized()) fishDatabase.initialize()
 
-        fishDatabase.getAllSpecies().forEach { especie ->
-            val nombreLower = especie.name.lowercase()
-            var start = 0
-            while (true) {
-                val inicio = textoLower.indexOf(nombreLower, start)
-                if (inicio == -1) break
-                entidades.add(MLKitEntity("ESPECIE", especie.name, 0.9f, inicio, inicio + nombreLower.length))
-                start = inicio + nombreLower.length
+        // ✅ E1 + acentos: claves normalizadas (sin tildes) recorridas de la más
+        // larga a la más corta, con límites de palabra (E3) para no pegar "boga"
+        // dentro de "abogado", y respetando negaciones (E4).
+        val textoNorm = sinAcentos(textoLower)
+        val normAName = normalToCanonical()
+        normAName.keys.sortedByDescending { it.length }.forEach { claveNorm ->
+            val patron = Regex("(?<![\\p{L}])${Regex.escape(claveNorm)}(?![\\p{L}])")
+            patron.findAll(textoNorm).forEach { m ->
+                if (estaNegado(textoNorm, m.range.first)) return@forEach
+                val canonica = normAName[claveNorm] ?: claveNorm
+                entidades.add(MLKitEntity("ESPECIE", canonica, 0.9f, m.range.first, m.range.last + 1))
             }
         }
         return entidades
@@ -296,7 +336,7 @@ class MLKitManager(
 
     private fun extraerNumeroCanas(texto: String, textoLower: String): List<MLKitEntity> {
         val entidades = mutableListOf<MLKitEntity>()
-        val patronCanas = Pattern.compile("""(\d+|una?|dos|tres|cuatro|cinco)\s+cañas?""", Pattern.CASE_INSENSITIVE)
+        val patronCanas = Pattern.compile("""($NUMEROS_REGEX)\s+cañas?""", Pattern.CASE_INSENSITIVE)
         val matcher = patronCanas.matcher(textoLower)
         while (matcher.find()) {
             val numero = convertirNumeroTextoAEntero(matcher.group(1))
@@ -334,8 +374,56 @@ class MLKitManager(
             "ocho" -> 8
             "nueve" -> 9
             "diez" -> 10
+            "once" -> 11
+            "doce" -> 12
+            "trece" -> 13
+            "catorce" -> 14
+            "quince" -> 15
+            "dieciséis", "dieciseis" -> 16
+            "diecisiete" -> 17
+            "dieciocho" -> 18
+            "diecinueve" -> 19
+            "veinte" -> 20
+            "treinta" -> 30
             else -> texto.toIntOrNull()
         }
+    }
+
+    /** Quita tildes 1:1 (conserva la longitud, así las posiciones siguen
+     *  siendo válidas contra el texto original). No toca la ñ. */
+    private fun sinAcentos(s: String): String = s
+        .replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u')
+        .replace('à', 'a').replace('è', 'e').replace('ì', 'i').replace('ò', 'o').replace('ù', 'u')
+        .replace('ä', 'a').replace('ë', 'e').replace('ï', 'i').replace('ö', 'o').replace('ü', 'u')
+
+    /** Mapa "clave sin tildes en minúscula" → nombre canónico de la especie.
+     *  Incluye nombres principales y sinónimos cargados del JSON. */
+    private fun normalToCanonical(): Map<String, String> {
+        val out = HashMap<String, String>()
+        fishDatabase.fishSpeciesDB.forEach { (clave, info) ->
+            val k = sinAcentos(clave.lowercase()).trim()
+            if (k.length >= 3) out[k] = info.name
+        }
+        return out
+    }
+
+    /** ✅ E4: ¿hay una negación en los ~20 caracteres previos a la especie?
+     *  Detecta casos como "no pesqué ningún dorado" para no cargarlo como captura. */
+    private fun estaNegado(textoLower: String, posInicio: Int): Boolean {
+        val ventana = textoLower.substring(maxOf(0, posInicio - 20), posInicio)
+        return PALABRAS_NEGACION.any { Regex("\\b${Regex.escape(it)}\\b").containsMatchIn(ventana) }
+    }
+
+    /** ✅ E2: recorta el nombre del lugar en la primera palabra de "corte"
+     *  (verbo/preposición) para no arrastrar el resto de la frase. */
+    private fun limpiarLugar(raw: String?): String? {
+        if (raw.isNullOrBlank()) return null
+        val out = mutableListOf<String>()
+        for (token in raw.trim().split(Regex("\\s+"))) {
+            if (token.lowercase() in CORTES_LUGAR) break
+            out.add(token)
+        }
+        return out.joinToString(" ").trim().ifBlank { null }
     }
 
     private fun calcularConfianzaPromedio(entidades: List<MLKitEntity>): Float {
@@ -363,6 +451,12 @@ class MLKitManager(
                 "FECHA"       -> parteData = parteData.copy(fecha = entity.valor)
                 "HORA_INICIO" -> parteData = parteData.copy(horaInicio = entity.valor)
                 "HORA_FIN"    -> parteData = parteData.copy(horaFin = entity.valor)
+                // ✅ E6: antes se descartaban "HORA" (suelta) y "LUGAR" en este
+                // camino de voz general. Ahora se mapean.
+                "HORA"        -> parteData = if (parteData.horaInicio == null)
+                    parteData.copy(horaInicio = entity.valor)
+                else parteData.copy(horaFin = entity.valor)
+                "LUGAR"       -> parteData = parteData.copy(nombreLugar = entity.valor)
                 "PROVINCIA"   -> parteData = parteData.copy(provincia = Provincia.fromString(entity.valor))
                 "MODALIDAD"   -> parteData = parteData.copy(modalidad = ModalidadPesca.fromString(entity.valor))
                 "NUMERO_CANAS"-> parteData = parteData.copy(numeroCanas = entity.valor.toIntOrNull())

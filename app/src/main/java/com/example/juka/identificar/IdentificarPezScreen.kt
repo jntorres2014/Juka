@@ -20,6 +20,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
@@ -41,7 +42,7 @@ import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.*
 import com.example.juka.domain.usecase.FishIdentifier
-import com.example.juka.domain.usecase.FishIdentifierModel
+import com.example.juka.domain.usecase.ModoIdentificacion
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -51,17 +52,24 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.graphicsLayer
 import com.example.juka.HukaApplication
+import androidx.navigation.NavController
+import com.example.juka.ui.theme.navigation.Screen
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun IdentificarPezScreen() {
+fun IdentificarPezScreen(navController: NavController) {
     var imageUri by remember { mutableStateOf<Uri?>(null) }
     var isAnalyzing by remember { mutableStateOf(false) }
     var resultadoIdentificacion by remember { mutableStateOf<String?>(null) }
+    // Peces detectados en la foto (nombre → cantidad). Gemini (premium) puede
+    // devolver varias especies; el estándar, una sola.
+    var pecesDetectados by remember { mutableStateOf<List<Pair<String, Int>>>(emptyList()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showImageDialog by remember { mutableStateOf(false) }
     var showQuotaDialog by remember { mutableStateOf(false) }
-    var selectedModel by remember { mutableStateOf(FishIdentifierModel.GEMINI) }
+    // Estándar por default: es el ilimitado, así nadie gasta sin querer el
+    // único uso premium del día apenas entra a la pantalla.
+    var modoSeleccionado by remember { mutableStateOf(ModoIdentificacion.ESTANDAR) }
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -71,6 +79,17 @@ fun IdentificarPezScreen() {
     val application = context.applicationContext as HukaApplication
     val quotaManager = remember { application.chatQuotaManager }
     val quotaState by quotaManager.quotaState.collectAsState()
+    val networkMonitor = remember { application.networkMonitor }
+    val hayConexion by networkMonitor.isOnline.collectAsState()
+
+    // Premium (Gemini) necesita internet. Si el usuario se queda sin señal con
+    // premium seleccionado, volvemos a estándar para no intentar una llamada
+    // que va a fallar.
+    LaunchedEffect(hayConexion) {
+        if (!hayConexion && modoSeleccionado == ModoIdentificacion.PREMIUM) {
+            modoSeleccionado = ModoIdentificacion.ESTANDAR
+        }
+    }
 
     val fishIdentifier = remember {
         FishIdentifier(context.applicationContext as Application)
@@ -97,36 +116,57 @@ fun IdentificarPezScreen() {
     fun analizarImagen(uri: Uri) {
         isAnalyzing = true
         resultadoIdentificacion = null
+        pecesDetectados = emptyList()
         errorMessage = null
 
         scope.launch {
             try {
-                // Quota solo aplica para Gemini
-                if (selectedModel == FishIdentifierModel.GEMINI && !quotaManager.canMakeQuery()) {
-                    errorMessage = null
-                    showQuotaDialog = true
-                    isAnalyzing = false
+                val file = uriToFile(context, uri)
+                if (file == null) {
+                    errorMessage = "Error: No se pudo procesar el archivo de imagen."
                     return@launch
                 }
 
-                val file = uriToFile(context, uri)
-                if (file != null) {
-                    val respuestaIA = fishIdentifier.identifyFish(file.absolutePath, selectedModel)
-
-                    if (respuestaIA != null) {
-                        if (selectedModel == FishIdentifierModel.GEMINI) {
-                            val consumed = quotaManager.consumeQuery()
-                            resultadoIdentificacion = if (consumed) {
-                                respuestaIA + "\n\n_${quotaManager.getQuotaMessage()}_"
-                            } else {
-                                respuestaIA
-                            }
+                when (modoSeleccionado) {
+                    ModoIdentificacion.PREMIUM -> {
+                        // Chequeo de cuota ANTES de gastar la foto — el aviso
+                        // "ya usaste tu premium de hoy" ya se muestra antes de
+                        // llegar acá (ver gate en ImageSelectorCard), esto es
+                        // el resguardo final por si igual se llega a intentar.
+                        if (!quotaManager.canMakePhotoQuery()) {
+                            showQuotaDialog = true
+                            return@launch
+                        }
+                        val respuestaIA = fishIdentifier.identifyPremium(file.absolutePath)
+                        val consumed = quotaManager.consumePhotoQuery()
+                        // Parseamos la lista de peces detectados y sacamos el tag
+                        // del texto que se muestra al usuario.
+                        val respuestaLimpia = limpiarTagPeces(respuestaIA)
+                        pecesDetectados = extraerPecesDetectados(respuestaIA).ifEmpty {
+                            // Fallback: si Gemini no listó, usamos la especie del
+                            // bloque de identificación con cantidad 1.
+                            if (esResultadoValido(respuestaLimpia))
+                                extraerNombreEspecie(respuestaLimpia)?.let { listOf(it to 1) } ?: emptyList()
+                            else emptyList()
+                        }
+                        resultadoIdentificacion = if (consumed) {
+                            respuestaLimpia + "\n\n_${quotaManager.getPhotoQuotaMessage()}_"
                         } else {
-                            resultadoIdentificacion = respuestaIA
+                            respuestaLimpia
                         }
                     }
-                } else {
-                    errorMessage = "Error: No se pudo procesar el archivo de imagen."
+                    ModoIdentificacion.ESTANDAR -> {
+                        val res = fishIdentifier.identifyEstandar(
+                            file.absolutePath,
+                            hayConexion = networkMonitor.isOnlineNow()
+                        )
+                        resultadoIdentificacion = res
+                        // El estándar identifica una sola especie: si es válida,
+                        // la lista tiene un ítem con cantidad 1.
+                        pecesDetectados = if (esResultadoValido(res)) {
+                            extraerNombreEspecie(res)?.let { listOf(it to 1) } ?: emptyList()
+                        } else emptyList()
+                    }
                 }
             } catch (e: Exception) {
                 errorMessage = "Error al conectar con el guía de pesca: ${e.localizedMessage}"
@@ -136,6 +176,31 @@ fun IdentificarPezScreen() {
         }
     }
 
+
+    // ── "Crear parte con esta captura" ──────────────────────────────────────
+    // Best-effort: Fishial y Modelo Propio son consistentes (siempre
+    // arrancan con "🐟 **Nombre**"), pero Gemini (premium) devuelve texto
+    // libre — ahí buscamos la línea "Nombre común" del bloque de
+    // Identificación. Si no encontramos nada confiable, el campo especie
+    // del wizard queda vacío y el usuario lo completa a mano.
+    // (extraerNombreEspecie, esResultadoValido, extraerPecesDetectados y
+    // limpiarTagPeces se movieron a funciones top-level al final del archivo,
+    // así analizarImagen puede llamarlas sin problema de orden de declaración.)
+
+    // Total de ejemplares detectados (suma de todas las especies).
+    fun totalDetectado(): Int = pecesDetectados.sumOf { it.second }
+
+    fun crearParteConCaptura(uri: Uri) {
+        if (pecesDetectados.isEmpty()) return
+        // Codificamos la lista como "nombre:cantidad|nombre:cantidad".
+        val especiesEncoded = pecesDetectados.joinToString("|") { "${it.first}:${it.second}" }
+        navController.navigate(
+            Screen.Wizard.buildRoute(
+                fotoUri = uri.toString(),
+                especies = especiesEncoded
+            )
+        )
+    }
 
     fun crearUriTemporal(): Uri? {
         return try {
@@ -266,11 +331,38 @@ fun IdentificarPezScreen() {
                     }
                 }
 
-                // Selector de modelo
-                ModelSelector(
-                    selected = selectedModel,
-                    onSelect = { selectedModel = it }
+                // Selector de modo: estándar (ilimitado) vs premium (Gemini, 1/día)
+                ModoSelector(
+                    modo = modoSeleccionado,
+                    // Premium disponible = queda cuota Y hay conexión.
+                    premiumDisponible = quotaState.photosRemaining > 0 && hayConexion,
+                    sinConexion = !hayConexion,
+                    onSelect = { modoSeleccionado = it }
                 )
+
+                // Aviso de fallback offline: si no hay conexión, el modo
+                // estándar va a usar el modelo local automáticamente. Mejor
+                // que el usuario lo sepa antes de sacar la foto y no se
+                // sorprenda con un resultado distinto al esperado. Premium
+                // (Gemini) sí necesita conexión sí o sí, así que ahí no
+                // aplica el fallback.
+                if (!hayConexion) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.CloudOff,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            "Sin conexión: la estándar va a usar el modelo local (reconoce menos especies)",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -280,10 +372,19 @@ fun IdentificarPezScreen() {
                     enter = fadeIn() + scaleIn(),
                     exit = fadeOut() + scaleOut()
                 ) {
-                    ImageSelectorCard(
-                        onCameraClick = { abrirCamara() },
-                        onGalleryClick = { galleryLauncher.launch("image/*") }
-                    )
+                    // Si eligió premium y ya no le queda cuota, avisamos ACÁ
+                    // — antes de que saque o elija una foto — en vez de
+                    // dejarlo enterarse recién después de analizar.
+                    if (modoSeleccionado == ModoIdentificacion.PREMIUM && quotaState.photosRemaining <= 0) {
+                        PremiumAgotadoCard(
+                            onUsarEstandar = { modoSeleccionado = ModoIdentificacion.ESTANDAR }
+                        )
+                    } else {
+                        ImageSelectorCard(
+                            onCameraClick = { abrirCamara() },
+                            onGalleryClick = { galleryLauncher.launch("image/*") }
+                        )
+                    }
                 }
 
                 // Mostrar imagen y resultado cuando hay imagen
@@ -303,6 +404,38 @@ fun IdentificarPezScreen() {
                             )
 
                             Spacer(modifier = Modifier.height(20.dp))
+
+                            // CTA para arrancar un parte de pesca a partir de
+                            // la captura ya identificada — precarga la foto
+                            // y (si se pudo reconocer) la especie en el
+                            // wizard, en vez de que el usuario tenga que
+                            // cargar todo desde cero.
+                            AnimatedVisibility(
+                                // Solo ofrecemos "crear parte" si detectamos al
+                                // menos un pez. Si no es un pez, la lista queda
+                                // vacía → no aparece el botón.
+                                visible = !isAnalyzing && pecesDetectados.isNotEmpty(),
+                                enter = fadeIn() + slideInVertically()
+                            ) {
+                                Column {
+                                    Button(
+                                        onClick = { crearParteConCaptura(uri) },
+                                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                                        shape = RoundedCornerShape(16.dp)
+                                    ) {
+                                        Icon(Icons.Default.EditNote, contentDescription = null)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            if (totalDetectado() > 1)
+                                                "Crear parte con estas ${totalDetectado()} capturas"
+                                            else
+                                                "Crear parte con esta captura",
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                }
+                            }
 
                             // Botones de acción
                             AnimatedVisibility(
@@ -332,6 +465,37 @@ fun IdentificarPezScreen() {
         FullImageDialog(
             imageUri = imageUri!!,
             onDismiss = { showImageDialog = false }
+        )
+    }
+
+    // Diálogo de cuota premium agotada. Antes showQuotaDialog se ponía en
+    // true pero no había ningún diálogo que lo leyera — se "activaba" un
+    // estado que no tenía ninguna UI atada, así que no pasaba nada visible.
+    if (showQuotaDialog) {
+        AlertDialog(
+            onDismissRequest = { showQuotaDialog = false },
+            icon = {
+                Icon(
+                    Icons.Default.Lock,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            },
+            title = { Text("Identificación premium agotada") },
+            text = { Text(quotaManager.getPhotoQuotaMessage()) },
+            confirmButton = {
+                TextButton(onClick = {
+                    modoSeleccionado = ModoIdentificacion.ESTANDAR
+                    showQuotaDialog = false
+                }) {
+                    Text("Usar estándar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showQuotaDialog = false }) {
+                    Text("Cerrar")
+                }
+            }
         )
     }
 
@@ -825,47 +989,210 @@ fun FullImageDialog(
     }
 }
 
+/**
+ * Reemplaza al viejo selector de 3 modelos (Gemini/Fishial/Local) sin
+ * ninguna explicación de qué significaba cada uno. Ahora son 2 tarjetas con
+ * copy claro: qué hace cada modo y por qué elegir uno u otro.
+ */
 @Composable
-fun ModelSelector(
-    selected: FishIdentifierModel,
-    onSelect: (FishIdentifierModel) -> Unit
+fun ModoSelector(
+    modo: ModoIdentificacion,
+    premiumDisponible: Boolean,
+    sinConexion: Boolean = false,
+    onSelect: (ModoIdentificacion) -> Unit
 ) {
-    Row(
+    Column(
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        ModoCard(
+            titulo = "Identificación estándar",
+            subtitulo = "Reconoce cualquier especie. Sin límite de usos.",
+            icon = Icons.Default.Phishing,
+            seleccionado = modo == ModoIdentificacion.ESTANDAR,
+            onClick = { onSelect(ModoIdentificacion.ESTANDAR) }
+        )
+        ModoCard(
+            titulo = "Identificación premium",
+            subtitulo = when {
+                sinConexion -> "Necesita conexión a internet"
+                premiumDisponible -> "Más precisa, con IA Gemini · 1 uso gratis hoy"
+                else -> "Ya usaste tu análisis de hoy · se renueva a medianoche"
+            },
+            icon = Icons.Default.AutoAwesome,
+            destacado = true,
+            atenuado = !premiumDisponible,
+            seleccionado = modo == ModoIdentificacion.PREMIUM,
+            // No seleccionable si no está disponible (sin cuota o sin señal).
+            onClick = { if (premiumDisponible) onSelect(ModoIdentificacion.PREMIUM) }
+        )
+    }
+}
+
+@Composable
+private fun ModoCard(
+    titulo: String,
+    subtitulo: String,
+    icon: ImageVector,
+    seleccionado: Boolean,
+    destacado: Boolean = false,
+    atenuado: Boolean = false,
+    onClick: () -> Unit
+) {
+    val colorAcento = if (destacado) Color(0xFFEF9F27) else MaterialTheme.colorScheme.primary
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = if (seleccionado) colorAcento.copy(alpha = if (atenuado) 0.12f else 0.18f)
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        border = if (seleccionado) BorderStroke(1.5.dp, colorAcento.copy(alpha = if (atenuado) 0.4f else 1f)) else null,
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-            .padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
+            .alpha(if (atenuado) 0.6f else 1f)
     ) {
-        listOf(
-            FishIdentifierModel.GEMINI        to "🤖 Gemini",
-            FishIdentifierModel.FISHIAL       to "🐟 Fishial",
-            FishIdentifierModel.MODELO_PROPIO to "🇦🇷 Local"
-        ).forEach { (model, label) ->
-            val isSelected = selected == model
-            Surface(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(10.dp))
-                    .clickable { onSelect(model) },
-                color = if (isSelected)
-                    MaterialTheme.colorScheme.primary
-                else
-                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0f),
-                shape = RoundedCornerShape(10.dp)
-            ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = colorAcento,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(titulo, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 Text(
-                    text = label,
-                    modifier = Modifier.padding(vertical = 10.dp),
-                    textAlign = TextAlign.Center,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                    fontSize = 14.sp,
-                    color = if (isSelected)
-                        MaterialTheme.colorScheme.onPrimary
-                    else
-                        MaterialTheme.colorScheme.onSurfaceVariant
+                    subtitulo,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            // Indicador compacto en vez de RadioButton: el RadioButton de
+            // M3 fuerza un área táctil mínima de ~48dp que hacía la fila
+            // mucho más alta de lo que el contenido necesitaba.
+            Box(
+                modifier = Modifier
+                    .size(16.dp)
+                    .then(
+                        if (seleccionado)
+                            Modifier.background(colorAcento, CircleShape)
+                        else
+                            Modifier.border(1.5.dp, MaterialTheme.colorScheme.outline, CircleShape)
+                    )
+            )
+        }
+    }
+}
+
+// ── Helpers de parseo del resultado del identificador (top-level: puros y
+// reutilizables, sin depender del estado del composable) ────────────────────
+
+/** Extrae el nombre común de la especie del texto del identificador. */
+private fun extraerNombreEspecie(resultado: String): String? {
+    val comunRegex = Regex("(?i)nombre com[uú]n[:\\s]*\\**\\s*([^\\n*]+)")
+    comunRegex.find(resultado)?.let { match ->
+        val nombre = match.groupValues[1].trim().trimEnd('.', ':').trim()
+        if (nombre.isNotBlank() && nombre.length < 60) return nombre
+    }
+    val pezRegex = Regex("🐟\\s*\\*\\*([^*]+)\\*\\*")
+    pezRegex.findAll(resultado).forEach { m ->
+        val candidato = m.groupValues[1].trim()
+        if (!candidato.equals("Especie identificada", ignoreCase = true)) return candidato
+    }
+    val idx = resultado.indexOf("Especie identificada")
+    if (idx >= 0) {
+        Regex("\\*\\*([^*]+)\\*\\*").find(resultado.substring(idx + "Especie identificada".length))?.let {
+            return it.groupValues[1].trim()
+        }
+    }
+    return null
+}
+
+/** ¿El resultado es un pez válido? (no error, no "no es un pez", no incierto) */
+private fun esResultadoValido(resultado: String): Boolean {
+    return !resultado.startsWith("❌") &&
+            !resultado.contains("🤔") &&
+            !resultado.contains("no se pesca", ignoreCase = true) &&
+            !resultado.contains("no parece un pez", ignoreCase = true) &&
+            !resultado.contains("no estoy seguro", ignoreCase = true)
+}
+
+/**
+ * Parsea "PECES_DETECTADOS: 2 Pejerrey, 1 Pacú, Tiburón" → lista (nombre →
+ * cantidad), AGRUPANDO y SUMANDO duplicados. Así "3 Pejerrey" y "Pejerrey,
+ * Pejerrey, Pejerrey" dan lo mismo (Pejerrey x3). Vacío si no hay peces.
+ */
+private fun extraerPecesDetectados(resultado: String): List<Pair<String, Int>> {
+    val linea = Regex("""PECES_DETECTADOS:\s*(.+)""", RegexOption.IGNORE_CASE)
+        .find(resultado)?.groupValues?.get(1)?.trim() ?: return emptyList()
+    if (linea.equals("ninguno", ignoreCase = true) || linea.isBlank()) return emptyList()
+
+    val acumulado = LinkedHashMap<String, Int>()
+    for (item in linea.split(",")) {
+        val texto = item.trim()
+        if (texto.isBlank()) continue
+        val m = Regex("""^(\d+)?\s*(.+)$""").find(texto) ?: continue
+        val cantidad = m.groupValues[1].toIntOrNull()?.coerceAtLeast(1) ?: 1
+        val nombre = m.groupValues[2].trim().trimEnd('.').replaceFirstChar { it.uppercase() }
+        if (nombre.isBlank()) continue
+        val clave = nombre.lowercase()
+        val nombreLindo = acumulado.keys.firstOrNull { it.lowercase() == clave } ?: nombre
+        acumulado[nombreLindo] = (acumulado[nombreLindo] ?: 0) + cantidad
+    }
+    return acumulado.map { it.key to it.value }
+}
+
+/** Saca la línea del tag PECES_DETECTADOS para no mostrarla al usuario. */
+private fun limpiarTagPeces(resultado: String): String {
+    return resultado
+        .replace(Regex("""(?im)^\s*PECES_DETECTADOS:.*$"""), "")
+        .trim()
+}
+
+/**
+ * Reemplaza a ImageSelectorCard cuando el usuario tiene "premium"
+ * seleccionado pero ya no le queda cuota hoy — se muestra ANTES de sacar o
+ * elegir una foto, así no pierde el paso completo para enterarse recién al
+ * final (el problema que tenía el diálogo de cuota original).
+ */
+@Composable
+fun PremiumAgotadoCard(onUsarEstandar: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+        ),
+        shape = RoundedCornerShape(20.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                Icons.Default.Lock,
+                contentDescription = null,
+                modifier = Modifier.size(48.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                "Ya usaste tu identificación premium de hoy",
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                "Se renueva a medianoche. Mientras tanto, la estándar reconoce igual cualquier especie.",
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(onClick = onUsarEstandar, shape = RoundedCornerShape(12.dp)) {
+                Text("Usar identificación estándar")
             }
         }
     }
