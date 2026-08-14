@@ -55,7 +55,11 @@ fun EncuestaScreen(
             .background(Color(0xFF1E3A8A))
     ) {
         Column(
-            modifier = Modifier.fillMaxSize()
+            // imePadding: cuando aparece el teclado, la columna se ajusta y los
+            // botones de navegación quedan por encima (antes los tapaba).
+            modifier = Modifier
+                .fillMaxSize()
+                .imePadding()
         ) {
             // Header con progreso
             Card(
@@ -355,7 +359,7 @@ fun PreguntaContentSimple(
                             }
                         }
                     },
-                    label = { Text("Ingrese año") },
+                    label = { Text("Ingrese edad") },
                     placeholder = { Text(pregunta.placeholder) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth()
@@ -473,7 +477,9 @@ fun PreguntaContentSimple(
                 var valor by remember(pregunta.id) {
                     mutableStateOf(
                         respuestaActual?.valorEscala?.toFloat()
-                            ?: ((pregunta.rangoEscala.first + pregunta.rangoEscala.last) / 2f)
+                        // Arranca en el mínimo de la escala (antes venía
+                        // pre-marcado en el medio, ej. 4 en una escala 1-7).
+                            ?: pregunta.rangoEscala.first.toFloat()
                     )
                 }
 

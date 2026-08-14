@@ -187,10 +187,18 @@ class PescadexManager(private val context: Context) {
             // explícitos y camelCase en la (de)serialización automática, y
             // por eso se escribía a `especies_descubiertas` pero se leía
             // buscando `especiesDescubiertas` → siempre vacío.
+            // set(merge) en vez de update(): update() falla con NOT_FOUND si el
+            // documento del usuario todavía no existe (Pescadex nueva → nunca se
+            // creaba, y el primer pez se caía). set con merge crea el documento
+            // si falta y fusiona la especie sin pisar las demás.
             firestore.document("$COLLECTION_PESCADEX/$pescadexId")
-                .update(
-                    "especiesDescubiertas.$especieId", especieActualizada,
-                    "ultimaActividad", Timestamp.now()
+                .set(
+                    mapOf(
+                        "deviceId" to pescadexId,
+                        "especiesDescubiertas" to mapOf(especieId to especieActualizada),
+                        "ultimaActividad" to Timestamp.now()
+                    ),
+                    SetOptions.merge()
                 )
                 .await()
 

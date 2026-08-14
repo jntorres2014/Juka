@@ -87,10 +87,10 @@ object PreguntasEncuesta {
     val PREGUNTAS = listOf(
         Pregunta(
             id = 1,
-            texto = "¿En que año nació?",
+            texto = "¿Cuál es su edad?",
             tipo = TipoPregunta.NUMERO,
-            placeholder = "Selecciona tu año de nacimiento",
-            rangoNumero = 1888..2025
+            placeholder = "Ingrese su edad",
+            rangoNumero = 0..120
         ),
 
         Pregunta(
@@ -109,7 +109,7 @@ object PreguntasEncuesta {
             id = 3,
             texto = "¿Desde qué edad pesca?",
             tipo = TipoPregunta.NUMERO,
-            placeholder = " ",
+            placeholder = " Ingrese edad ",
             rangoNumero = 0..150
         ),
 

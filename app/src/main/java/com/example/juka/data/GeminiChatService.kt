@@ -42,6 +42,7 @@ class GeminiChatService {
 
         } catch (e: Exception) {
             Log.e(TAG, "Error en Gemini: ${e.message}")
+            Log.e("DEBUG_CHAT", "processUserMessage catch [${e.javaClass.simpleName}]: ${e.message}", e)
             ChatResult.Error(
                 getErrorMessage(e),
                 shouldConsumeQuota = false
@@ -54,7 +55,20 @@ class GeminiChatService {
     }
 
     private fun getErrorMessage(error: Exception): String {
+        val msg = error.message ?: ""
         return when {
+            msg.contains("503") || msg.contains("UNAVAILABLE", ignoreCase = true) ||
+                    msg.contains("high demand", ignoreCase = true) ||
+                    msg.contains("overloaded", ignoreCase = true) -> {
+                """
+                    ⏳ **El asistente está saturado ahora mismo**
+
+                    Hay mucha demanda en este momento (suele durar poco).
+                    Probá de nuevo en unos segundos.
+
+                    Esta consulta no se descontó.
+                """.trimIndent()
+            }
             error.message?.contains("network", ignoreCase = true) == true -> {
                 """
                     📵 **Sin conexión**

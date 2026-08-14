@@ -1,0 +1,73 @@
+%%{init: {'theme':'base', 'themeVariables': {
+  'primaryColor':'#FFF8E1',
+  'primaryTextColor':'#3E2723',
+  'primaryBorderColor':'#5D4037',
+  'lineColor':'#37474F',
+  'fontSize':'14px',
+  'fontFamily':'Inter, Helvetica, Arial, sans-serif'
+}}}%%
+flowchart LR
+    classDef actor   fill:#FFFFFF,stroke:#37474F,color:#37474F,stroke-width:2px
+    classDef usecase fill:#E1F5FE,stroke:#0277BD,color:#01579B,stroke-width:1.5px
+    classDef ext     fill:#F3E5F5,stroke:#6A1B9A,color:#4A148C
+    classDef include stroke-dasharray: 5 5
+
+    Pescador((👤<br/>Pescador)):::actor
+
+    subgraph Sistema["🎣 Juka — Aplicación de partes de pesca"]
+        direction TB
+        UC1([Iniciar sesión<br/>con Google])
+        UC2([Crear parte<br/>vía chat conversacional])
+        UC3([Crear parte<br/>vía wizard guiado])
+        UC4([Identificar especie<br/>desde foto])
+        UC5([Ver mis reportes<br/>históricos])
+        UC6([Contar capturas<br/>en tiempo real])
+        UC7([Desbloquear logros])
+        UC8([Recibir notificaciones<br/>push])
+        UC9([Completar encuesta<br/>de perfil])
+
+        UCa([Subir fotos del parte])
+        UCb([Marcar ubicación<br/>en el mapa])
+        UCc([Registrar especies<br/>capturadas])
+        UCd([Guardar borrador<br/>local sin señal])
+
+        UC2 -. «include» .-> UCa
+        UC2 -. «include» .-> UCb
+        UC2 -. «include» .-> UCc
+        UC3 -. «include» .-> UCa
+        UC3 -. «include» .-> UCb
+        UC3 -. «include» .-> UCc
+        UC2 -. «extend» .-> UCd
+        UC3 -. «extend» .-> UCd
+        UC2 -. «extend» .-> UC4
+        UC6 -. «extend» .-> UC2
+    end
+
+    Pescador --> UC1
+    Pescador --> UC2
+    Pescador --> UC3
+    Pescador --> UC4
+    Pescador --> UC5
+    Pescador --> UC6
+    Pescador --> UC7
+    Pescador --> UC8
+    Pescador --> UC9
+
+    subgraph Externos["Sistemas externos"]
+        direction TB
+        Firebase[(Firebase<br/>Auth · Firestore · Storage · FCM)]:::ext
+        Gemini[Gemini API]:::ext
+        MLKit[ML Kit on-device]:::ext
+    end
+
+    UC1 --> Firebase
+    UC2 --> MLKit
+    UC2 --> Firebase
+    UC3 --> Firebase
+    UC4 --> Gemini
+    UC5 --> Firebase
+    UC7 --> Firebase
+    UC8 --> Firebase
+    UC9 --> Firebase
+
+    class UC1,UC2,UC3,UC4,UC5,UC6,UC7,UC8,UC9,UCa,UCb,UCc,UCd usecase

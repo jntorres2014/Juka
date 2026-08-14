@@ -19,12 +19,15 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.ktx.Firebase
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeoutOrNull
+import com.example.juka.HukaApplication
 
 sealed class AuthState {
     object Loading : AuthState()
@@ -334,6 +337,26 @@ class AuthManager(private val context: Context) {
 
     fun signOut() {
         try {
+            // Limpiar los datos LOCALES del usuario que se va, para que el
+            // próximo usuario en este dispositivo no vea chat, borradores ni
+            // Pescadex ajenos (las tablas de Room son globales, no por usuario).
+            (context.applicationContext as? HukaApplication)?.let { app ->
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        val local = app.localStorageHelper
+                        local.clearHistory()            // chat
+                        local.deleteAllBorradores()     // borradores de partes
+                        local.deleteAllNotificaciones() // notificaciones
+                        local.clearPescadexRecords()    // cache de Pescadex
+                        local.clearContadorPeces()      // contador en vivo
+                        local.clearAllPreferences()     // preferencias locales
+                        Log.d(TAG, "🧹 Datos locales limpiados al cerrar sesión")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error limpiando datos locales: ${e.message}")
+                    }
+                }
+            }
+
             auth.signOut()
             googleSignInClient?.signOut()
             _authState.value = AuthState.Unauthenticated

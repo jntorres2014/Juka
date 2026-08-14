@@ -427,7 +427,9 @@ class EnhancedChatViewModel(
     private fun processWithGemini(content: String) {
         _isTyping.value = true
         viewModelScope.launch {
-            if (!quotaManager.canMakeQuery()) {
+            val puede = quotaManager.canMakeQuery()
+            Log.d("DEBUG_CHAT", "processWithGemini | canMakeQuery=$puede | msg='${content.take(60)}'")
+            if (!puede) {
                 addBotMessage(quotaManager.getQuotaMessage())
                 _isTyping.value = false
                 return@launch
@@ -435,6 +437,7 @@ class EnhancedChatViewModel(
 
             when (val result = geminiService.processUserMessage(content)) {
                 is ChatResult.Success -> {
+                    Log.d("DEBUG_CHAT", "resultado=Success | empiezaConError=${result.message.startsWith("Error al obtener consejo")}")
                     val consumed = quotaManager.consumeQuery()
                     if (consumed) {
                         addBotMessage("${result.message}\n\n_${quotaManager.getQuotaMessage()}_")
@@ -443,6 +446,7 @@ class EnhancedChatViewModel(
                     }
                 }
                 is ChatResult.Error -> {
+                    Log.d("DEBUG_CHAT", "resultado=Error | shouldConsumeQuota=${result.shouldConsumeQuota}")
                     if (result.shouldConsumeQuota) {
                         quotaManager.consumeQuery()
                     }

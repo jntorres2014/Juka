@@ -1,5 +1,6 @@
 package com.example.juka.data.remote
 
+import android.util.Log
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.ai.client.generativeai.type.content
 import kotlinx.coroutines.Dispatchers
@@ -7,9 +8,10 @@ import kotlinx.coroutines.withContext
 
 class GeminiPescaService {
 
-    private val generativeModel = GenerativeModel(
-        modelName = "gemini-2.5-flash-lite",
+    private val modelName = "gemini-3.5-flash"
 
+    private val generativeModel = GenerativeModel(
+        modelName = modelName,
         apiKey = com.example.juka.BuildConfig.GEMINI_API_KEY  // Usa esto en lugar del hardcoded
     )
 
@@ -65,38 +67,44 @@ class GeminiPescaService {
         pregunta: String,
         contexto: ConversationContext? = null
     ): String = withContext(Dispatchers.IO) {
-        try {
-            val promptCompleto = buildString {
-                append(systemPrompt)
-                append("\n\n")
+        val key = com.example.juka.BuildConfig.GEMINI_API_KEY
+        Log.d("DEBUG_CHAT", "obtenerConsejoPesca | modelo=$modelName | apiKey.len=${key.length} | apiKey.blank=${key.isBlank()}")
 
-                // Agregar contexto si está disponible
-                contexto?.let {
-                    append("Contexto del pescador:\n")
-                    it.ubicacion?.let { loc ->
-                        append("- Ubicación: $loc\n")
-                    }
-                    it.especieObjetivo?.let { especie ->
-                        append("- Especie objetivo: $especie\n")
-                    }
-                    it.experiencia?.let { exp ->
-                        append("- Nivel de experiencia: $exp\n")
-                    }
-                    append("\n")
-                }
-
-                append("Pregunta del pescador: $pregunta")
+        val promptCompleto = buildString {
+            append(systemPrompt)
+            append("\n\n")
+            contexto?.let {
+                append("Contexto del pescador:\n")
+                it.ubicacion?.let { loc -> append("- Ubicación: $loc\n") }
+                it.especieObjetivo?.let { especie -> append("- Especie objetivo: $especie\n") }
+                it.experiencia?.let { exp -> append("- Nivel de experiencia: $exp\n") }
+                append("\n")
             }
-
-            val response = generativeModel.generateContent(
-                content { text(promptCompleto) }
-            )
-
-            response.text ?: "Lo siento, no pude generar un consejo en este momento."
-
-        } catch (e: Exception) {
-            "Error al obtener consejo: ${e.message}"
+            append("Pregunta del pescador: $pregunta")
         }
+
+        // Gemini a veces devuelve 503 "high demand" (transitorio). Reintentamos
+        // un par de veces con pausa antes de rendirnos. Si al final falla,
+        // PROPAGAMOS la excepción (no la devolvemos como si fuera un consejo),
+        // para que la capa de arriba la trate como error y NO descuente cuota.
+        var ultimaEx: Exception? = null
+        repeat(3) { intento ->
+            try {
+                val response = generativeModel.generateContent(content { text(promptCompleto) })
+                Log.d("DEBUG_CHAT", "✅ Gemini respondió (${response.text?.length ?: 0} chars) en intento ${intento + 1}")
+                return@withContext response.text ?: "Lo siento, no pude generar un consejo en este momento."
+            } catch (e: Exception) {
+                ultimaEx = e
+                val msg = e.message ?: ""
+                val transitorio = msg.contains("503") || msg.contains("UNAVAILABLE", true) ||
+                        msg.contains("high demand", true) || msg.contains("overloaded", true)
+                Log.w("DEBUG_CHAT", "Intento ${intento + 1}/3 falló [${e.javaClass.simpleName}] transitorio=$transitorio: ${msg.take(140)}")
+                if (!transitorio) throw e            // error no transitorio → cortar ya
+                if (intento < 2) kotlinx.coroutines.delay(1500)
+            }
+        }
+        Log.e("DEBUG_CHAT", "💥 Gemini agotó reintentos", ultimaEx)
+        throw ultimaEx ?: RuntimeException("Error desconocido consultando Gemini")
     }
 }
 

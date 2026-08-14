@@ -10,12 +10,12 @@ plugins {
 
 android {
     namespace = "com.example.juka"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.example.juka"
+        applicationId = "com.jonytorres.huka"
         minSdk = 24
-        targetSdk = 34
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0"
 

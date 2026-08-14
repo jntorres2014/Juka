@@ -108,8 +108,12 @@ fun AchievementsScreen(
                 }
             }
     }
-    // Para la barra de progreso usamos siempre el total absoluto, no el filtrado
-    val totalUnlocked = unlocked.size
+    // Para la barra de progreso usamos siempre el total absoluto, no el filtrado.
+    // Contamos SOLO los logros que existen en el catálogo, así el número coincide
+    // con las tarjetas visibles. Antes usábamos unlocked.size, que también contaba
+    // documentos "huérfanos" en Firestore (ids viejos que ya no están en el
+    // catálogo) → contaba de más sin mostrarlos (ej.: figuraba 3 y se veían 2).
+    val totalUnlocked = unlocked.count { AchievementCatalog.byId.containsKey(it.id) }
     val totalCatalog = AchievementCatalog.total
 
     Box(

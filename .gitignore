@@ -13,3 +13,22 @@
 .externalNativeBuild
 .cxx
 local.properties
+# Builds generados
+app/release/
+*.apk
+*.aab
+
+# Flutter descargado
+flutter_windows_*.zip
+
+# Claves de firma
+*.jks
+*.keystore
+key.propertiesflutter_windows_*.zip
+app/release/
+*.apk
+*.aab
+*.jks
+*.keystore
+key.properties
+flutter_windows_*.zip
