@@ -46,6 +46,9 @@ class FirebaseManager(val context: Context) {
     suspend fun obtenerMisPartes(limite: Int = 50) =
         PartesFirebase(this).obtenerMisPartes(limite)
 
+    suspend fun eliminarParte(parteId: String) =
+        PartesFirebase(this).eliminarParte(parteId)
+
     /**
      * Persiste un parte finalizado a partir de los datos del chat o el wizard.
      * Reemplaza al antiguo convertirSessionAParte: ya no se persisten sesiones,

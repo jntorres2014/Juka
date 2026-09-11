@@ -207,4 +207,31 @@ class PartesFirebase(private val manager: FirebaseManager) {
             emptyList()
         }
     }
+    /**
+     * Elimina un parte del usuario actual. El límite de "solo dentro de la
+     * primera hora" se valida en el ViewModel (ReportesViewModel.puedeEliminarse)
+     * antes de llamar acá — esta función solo ejecuta el borrado en Firestore.
+     */
+    suspend fun eliminarParte(parteId: String): FirebaseResult {
+        return try {
+            val userId = manager.getCurrentUserId()
+                ?: return FirebaseResult.Error("Usuario no autenticado")
+
+            val partePath = "$PARTES_COLLECTION/$userId/$SUBCOLLECTION_PARTES/$parteId"
+            val ok = withTimeoutOrNull(10_000) {
+                manager.firestore.document(partePath).delete().await()
+                true
+            }
+            if (ok != true) {
+                Log.w(TAG, "⏳ Timeout o sin red eliminando parte $parteId")
+                return FirebaseResult.Error("Sin conexión o red lenta. No se pudo eliminar.")
+            }
+
+            Log.i(TAG, "🗑️ Parte eliminado: $parteId")
+            FirebaseResult.Success
+        } catch (e: Exception) {
+            Log.e(TAG, "💥 Error eliminando parte: ${e.message}", e)
+            FirebaseResult.Error("Error eliminando parte: ${e.localizedMessage}", e)
+        }
+    }
 }

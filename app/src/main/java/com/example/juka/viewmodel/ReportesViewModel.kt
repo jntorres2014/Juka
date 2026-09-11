@@ -3,6 +3,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.juka.data.firebase.PartePesca
+import com.example.juka.data.firebase.FirebaseResult
 import com.example.juka.data.repository.FishingRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -65,6 +66,38 @@ class ReportesViewModel(
             } catch (e: Exception) {
                 Log.e("DEBUG_PARTES", "💥 Error cargando reportes: ${e.message}", e)
                 _uiState.update { it.copy(isLoading = false, error = e.message) }
+            }
+        }
+    }
+    /** Ventana de tiempo durante la que se puede borrar un parte recién creado. */
+    private val LIMITE_ELIMINACION_MS = 60L * 60L * 1000L // 1 hora
+
+    /** true si el reporte todavía está dentro de la hora de haberse creado. */
+    fun puedeEliminarse(reporte: PartePesca): Boolean {
+        val creadoEn = reporte.timestamp?.toDate()?.time ?: return false
+        return System.currentTimeMillis() - creadoEn <= LIMITE_ELIMINACION_MS
+    }
+
+    fun eliminarParte(id: String) {
+        viewModelScope.launch {
+            // Actualización optimista: sacamos el reporte de la lista ya
+            // mismo para que la UI responda al toque. Si falla el borrado
+            // en Firestore, lo restauramos y mostramos un error.
+            val actuales = _uiState.value.reportes
+            val aEliminar = actuales.firstOrNull { it.id == id }
+            _uiState.update { it.copy(reportes = actuales.filterNot { r -> r.id == id }, error = null) }
+
+            val resultado = repository.eliminarParte(id)
+            if (resultado is FirebaseResult.Error) {
+                Log.e("DEBUG_PARTES", "💥 No se pudo eliminar $id: ${resultado.message}")
+                if (aEliminar != null) {
+                    _uiState.update {
+                        it.copy(
+                            reportes = (it.reportes + aEliminar).sortedByDescending { r -> fechaAEpoch(r.fecha) },
+                            error = "No se pudo eliminar el reporte. Probá de nuevo."
+                        )
+                    }
+                }
             }
         }
     }

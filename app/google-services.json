@@ -22,6 +22,14 @@
           }
         },
         {
+          "client_id": "976766461144-vafl1f0plf7tq99d0nfeula4qcircvu3.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.juka",
+            "certificate_hash": "c94ef3e2a3e29c4bbcc7c86d506271b5895de103"
+          }
+        },
+        {
           "client_id": "976766461144-s5kbfljvrii2nik3rvkdcjerat64cpr0.apps.googleusercontent.com",
           "client_type": 3
         }
@@ -37,6 +45,125 @@
             {
               "client_id": "976766461144-s5kbfljvrii2nik3rvkdcjerat64cpr0.apps.googleusercontent.com",
               "client_type": 3
+            },
+            {
+              "client_id": "976766461144-fpacsm925nlvc26ht9bdh6dfll0casck.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.jukaFlutter"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:976766461144:android:2279b350a9a404bba1e3ad",
+        "android_client_info": {
+          "package_name": "com.example.juka_flutter"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "976766461144-rtt0p2v6i0i1v2lfj34hjlehm17nooq1.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.juka_flutter",
+            "certificate_hash": "c94ef3e2a3e29c4bbcc7c86d506271b5895de103"
+          }
+        },
+        {
+          "client_id": "976766461144-s5kbfljvrii2nik3rvkdcjerat64cpr0.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB3r0-gFEZE29ipb2nUZmI4FSW23sxtABQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "976766461144-s5kbfljvrii2nik3rvkdcjerat64cpr0.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "976766461144-fpacsm925nlvc26ht9bdh6dfll0casck.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.jukaFlutter"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:976766461144:android:382aaa97fff6ed5fa1e3ad",
+        "android_client_info": {
+          "package_name": "com.jonytorres.huka"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "976766461144-3t7s47r1giismeivj638fhrsvasdf3th.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.jonytorres.huka",
+            "certificate_hash": "b855d81e25f857b47c96f38df549617ccc92ffe1"
+          }
+        },
+        {
+          "client_id": "976766461144-a05aq7t9kl5k9o9cp3b60vqshrlv11t2.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.jonytorres.huka",
+            "certificate_hash": "c94ef3e2a3e29c4bbcc7c86d506271b5895de103"
+          }
+        },
+        {
+          "client_id": "976766461144-btpss66tsa3feb9ubgmjvbjbksf0ufsh.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.jonytorres.huka",
+            "certificate_hash": "4a5db525de71bae0e3e04bf028c3544b6bcff12b"
+          }
+        },
+        {
+          "client_id": "976766461144-f0efhkiijqi28tvu868qm9knv0k177se.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.jonytorres.huka",
+            "certificate_hash": "7245e8f918123063e1f6af69d635ad7134563474"
+          }
+        },
+        {
+          "client_id": "976766461144-s5kbfljvrii2nik3rvkdcjerat64cpr0.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB3r0-gFEZE29ipb2nUZmI4FSW23sxtABQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "976766461144-s5kbfljvrii2nik3rvkdcjerat64cpr0.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "976766461144-fpacsm925nlvc26ht9bdh6dfll0casck.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.jukaFlutter"
+              }
             }
           ]
         }

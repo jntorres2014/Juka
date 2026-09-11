@@ -73,6 +73,7 @@ fun MisReportesScreenMejorado(
     var selectedReporte by remember { mutableStateOf<PartePesca?>(null) }
     var reporteACompartir by remember { mutableStateOf<PartePesca?>(null) }
     var mostrarMapaGeneral by remember { mutableStateOf(false) }
+    var reporteAEliminar by remember { mutableStateOf<PartePesca?>(null) }
 
     val reportes = uiState.reportes
     val isLoading = uiState.isLoading
@@ -212,6 +213,35 @@ fun MisReportesScreenMejorado(
                 }
             }
         }
+    }
+
+    if (reporteAEliminar != null) {
+        val reporte = reporteAEliminar!!
+        AlertDialog(
+            onDismissRequest = { reporteAEliminar = null },
+            icon = {
+                Icon(
+                    Icons.Default.DeleteForever,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            },
+            title = { Text("¿Eliminar este reporte?") },
+            text = {
+                Text("Se va a borrar el parte del ${formatearFecha(reporte.fecha)}. Esta acción no se puede deshacer.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    reporte.id?.let { viewModel.eliminarParte(it) }
+                    reporteAEliminar = null
+                }) {
+                    Text("Eliminar", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { reporteAEliminar = null }) { Text("Cancelar") }
+            }
+        )
     }
 
     // CONTENIDO PRINCIPAL
@@ -381,7 +411,9 @@ fun MisReportesScreenMejorado(
                                 ReporteCardMejorado(
                                     reporte = reporte,
                                     onCompartir = { reporteACompartir = it },
-                                    onVerDetalle = { selectedReporte = reporte }
+                                    onVerDetalle = { selectedReporte = reporte },
+                                    puedeEliminar = viewModel.puedeEliminarse(reporte),
+                                    onEliminar = { reporteAEliminar = reporte }
                                 )
                             }
                         }
@@ -546,7 +578,9 @@ fun EstadisticasDetalladas(
 fun ReporteCardMejorado(
     reporte: PartePesca,
     onCompartir: (PartePesca) -> Unit,
-    onVerDetalle: (PartePesca) -> Unit
+    onVerDetalle: (PartePesca) -> Unit,
+    puedeEliminar: Boolean = false,
+    onEliminar: () -> Unit = {}
 ) {
     Card(
         onClick = { onVerDetalle(reporte) },
@@ -590,6 +624,20 @@ fun ReporteCardMejorado(
                             modifier = Modifier.size(18.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                    // Solo se puede eliminar dentro de la primera hora de creado.
+                    if (puedeEliminar) {
+                        IconButton(
+                            onClick = onEliminar,
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.DeleteOutline,
+                                contentDescription = "Eliminar parte",
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
                 }
             }

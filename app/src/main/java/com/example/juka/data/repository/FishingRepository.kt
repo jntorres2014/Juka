@@ -18,7 +18,10 @@ class FishingRepository(
         }
     }
 
+    suspend fun eliminarParte(id: String) = withContext(Dispatchers.IO) {
+        firebaseManager.eliminarParte(id)
+    }
+
     // Aquí podrás agregar más funciones a futuro:
-    // suspend fun borrarParte(id: String) ...
     // suspend fun editarParte(parte: PartePesca) ...
 }

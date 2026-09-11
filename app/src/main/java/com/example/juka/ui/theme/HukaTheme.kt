@@ -146,8 +146,10 @@ fun HukaTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = colorScheme.primary.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = darkTheme
+            // Edge-to-edge (obligatorio desde API 35/targetSdk 36): no seteamos
+            // statusBarColor, es deprecated y no tiene efecto. Solo ajustamos
+            // el color de los íconos de la status bar según el tema.
+            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
         }
     }
 
