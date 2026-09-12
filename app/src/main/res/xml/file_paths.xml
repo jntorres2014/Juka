@@ -1,6 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Se elimina la exposición de filesDir completo. La raíz de cache se mantiene
-         temporalmente porque IdentificarPezScreen todavía crea la captura en cacheDir. -->
-    <cache-path name="temporary_cache" path="." />
+    <cache-path name="shared_images" path="images/" />
 </paths>
