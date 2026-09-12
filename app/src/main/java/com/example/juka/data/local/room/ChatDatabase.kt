@@ -32,8 +32,13 @@ abstract class ChatMessageDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun insertMessage(message: ChatMessageEntity)
 
-    @Query("DELETE FROM chat_messages")
-    abstract suspend fun clearHistory()
+    @Query("DELETE FROM chat_messages WHERE ownerUid = :ownerUid")
+    abstract suspend fun clearHistoryForOwner(ownerUid: String)
+
+    suspend fun clearHistory() {
+        val uid = currentOwnerUid()
+        if (uid.isNotBlank()) clearHistoryForOwner(uid)
+    }
 }
 
 @Entity(tableName = "notificaciones")
@@ -84,8 +89,13 @@ abstract class NotificacionDao {
         if (uid.isNotBlank()) deleteByIdForOwner(id, uid)
     }
 
-    @Query("DELETE FROM notificaciones")
-    abstract suspend fun deleteAll()
+    @Query("DELETE FROM notificaciones WHERE ownerUid = :ownerUid")
+    abstract suspend fun deleteAllForOwner(ownerUid: String)
+
+    suspend fun deleteAll() {
+        val uid = currentOwnerUid()
+        if (uid.isNotBlank()) deleteAllForOwner(uid)
+    }
 }
 
 @Entity(tableName = "borradores_parte")
@@ -128,8 +138,13 @@ abstract class BorradorParteDao {
         if (uid.isNotBlank()) deleteByIdForOwner(id, uid)
     }
 
-    @Query("DELETE FROM borradores_parte")
-    abstract suspend fun deleteAll()
+    @Query("DELETE FROM borradores_parte WHERE ownerUid = :ownerUid")
+    abstract suspend fun deleteAllForOwner(ownerUid: String)
+
+    suspend fun deleteAll() {
+        val uid = currentOwnerUid()
+        if (uid.isNotBlank()) deleteAllForOwner(uid)
+    }
 
     @Query("SELECT COUNT(*) FROM borradores_parte WHERE ownerUid = :ownerUid")
     abstract suspend fun countForOwner(ownerUid: String): Int
@@ -140,9 +155,12 @@ abstract class BorradorParteDao {
     }
 }
 
-@Entity(tableName = "pescadex_records")
+@Entity(
+    tableName = "pescadex_records",
+    primaryKeys = ["especieId", "ownerUid"]
+)
 data class PescadexRecordEntity(
-    @PrimaryKey val especieId: String,
+    val especieId: String,
     val nombreComun: String,
     val nombreCientifico: String = "",
     val totalCapturas: Int,
@@ -172,8 +190,13 @@ abstract class PescadexRecordDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsert(record: PescadexRecordEntity)
 
-    @Query("DELETE FROM pescadex_records")
-    abstract suspend fun deleteAll()
+    @Query("DELETE FROM pescadex_records WHERE ownerUid = :ownerUid")
+    abstract suspend fun deleteAllForOwner(ownerUid: String)
+
+    suspend fun deleteAll() {
+        val uid = currentOwnerUid()
+        if (uid.isNotBlank()) deleteAllForOwner(uid)
+    }
 }
 
 @Database(
@@ -198,22 +221,43 @@ abstract class HukaRoomDatabase : RoomDatabase() {
         private var INSTANCE: HukaRoomDatabase? = null
 
         /**
-         * v4 -> v5: agrega ownerUid a todos los datos locales asociados a una
-         * sesión. Los registros viejos no tienen un propietario verificable;
-         * se eliminan una única vez para evitar que puedan aparecer bajo una
-         * cuenta diferente en un dispositivo compartido.
+         * v4 -> v5: agrega ownerUid a los datos locales de sesión.
+         * Los registros anteriores no tienen un propietario demostrable, por
+         * lo que se descartan para impedir exposición cruzada entre cuentas.
+         * Pescadex se recrea además con clave compuesta especieId + ownerUid.
          */
         private val MIGRATION_4_5 = object : Migration(4, 5) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE chat_messages ADD COLUMN ownerUid TEXT NOT NULL DEFAULT ''")
                 db.execSQL("ALTER TABLE borradores_parte ADD COLUMN ownerUid TEXT NOT NULL DEFAULT ''")
                 db.execSQL("ALTER TABLE notificaciones ADD COLUMN ownerUid TEXT NOT NULL DEFAULT ''")
-                db.execSQL("ALTER TABLE pescadex_records ADD COLUMN ownerUid TEXT NOT NULL DEFAULT ''")
 
                 db.execSQL("DELETE FROM chat_messages WHERE ownerUid = ''")
                 db.execSQL("DELETE FROM borradores_parte WHERE ownerUid = ''")
                 db.execSQL("DELETE FROM notificaciones WHERE ownerUid = ''")
-                db.execSQL("DELETE FROM pescadex_records WHERE ownerUid = ''")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS pescadex_records_new (
+                        especieId TEXT NOT NULL,
+                        nombreComun TEXT NOT NULL,
+                        nombreCientifico TEXT NOT NULL,
+                        totalCapturas INTEGER NOT NULL,
+                        pesoRecord REAL,
+                        primeraFoto TEXT,
+                        fechaDescubrimiento INTEGER,
+                        mejorDiaCantidad INTEGER NOT NULL,
+                        mejorDiaFecha TEXT,
+                        rareza TEXT NOT NULL,
+                        locacionesRaw TEXT NOT NULL,
+                        ownerUid TEXT NOT NULL,
+                        PRIMARY KEY(especieId, ownerUid)
+                    )
+                    """.trimIndent()
+                )
+                // No copiamos la tabla vieja: esos registros carecen de UID.
+                db.execSQL("DROP TABLE pescadex_records")
+                db.execSQL("ALTER TABLE pescadex_records_new RENAME TO pescadex_records")
             }
         }
 
@@ -225,8 +269,6 @@ abstract class HukaRoomDatabase : RoomDatabase() {
                     "juka_chat_database"
                 )
                     .addMigrations(MIGRATION_4_5)
-                    // Versiones muy antiguas no tenían migraciones versionadas.
-                    // El camino normal v4->v5 ya es no destructivo.
                     .fallbackToDestructiveMigrationFrom(1, 2, 3)
                     .build()
                 INSTANCE = instance
