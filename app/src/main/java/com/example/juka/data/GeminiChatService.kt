@@ -16,7 +16,7 @@ class GeminiChatService {
         messageType: MessageType = MessageType.TEXT
     ): ChatResult = withContext(Dispatchers.IO) {
         try {
-            Log.d(TAG, "Procesando mensaje: $message")
+            Log.d(TAG, "Procesando mensaje (${message.length} caracteres)")
 
             // Timeout duro: Gemini es lento de por sí, pero si pasa 30s
             // asumimos que es la red. Mejor avisar que dejar al usuario
@@ -41,8 +41,7 @@ class GeminiChatService {
             ChatResult.Success(response)
 
         } catch (e: Exception) {
-            Log.e(TAG, "Error en Gemini: ${e.message}")
-            Log.e("DEBUG_CHAT", "processUserMessage catch [${e.javaClass.simpleName}]: ${e.message}", e)
+            Log.e(TAG, "Error en Gemini: ${e.javaClass.simpleName}")
             ChatResult.Error(
                 getErrorMessage(e),
                 shouldConsumeQuota = false
