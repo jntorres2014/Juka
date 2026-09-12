@@ -47,15 +47,13 @@ import java.io.File
 import java.io.FileOutputStream
 
 /**
- * Qué campos del parte se incluyen al compartir. Por defecto todo prendido
- * menos observaciones (suele ser texto largo/personal) — el usuario decide
- * qué mostrar, en particular puede sacar la ubicación si no quiere revelar
- * dónde pescó.
+ * Qué campos del parte se incluyen al compartir. La ubicación exacta queda
+ * desactivada por defecto para que revelar el spot sea una decisión explícita.
  */
 data class OpcionesCompartir(
     val fecha: Boolean = true,
     val especies: Boolean = true,
-    val ubicacion: Boolean = true,
+    val ubicacion: Boolean = false,
     val fotos: Boolean = true,
     val observaciones: Boolean = false
 )
@@ -81,9 +79,6 @@ fun CompartirParteSheet(
     }
     var compartiendo by remember { mutableStateOf(false) }
 
-    // Foto original cargada UNA sola vez (evita re-descargarla cada vez que
-    // se togglea algún checkbox — el toggle de "Fotos" solo decide si se usa
-    // o no en el render, no si se vuelve a pedir).
     var bitmapFotoCargado by remember { mutableStateOf<Bitmap?>(null) }
     var fotoLista by remember { mutableStateOf(reporte.fotos.isEmpty()) }
     LaunchedEffect(reporte.fotos) {
@@ -95,9 +90,6 @@ fun CompartirParteSheet(
 
     val lineasPreview = remember(reporte, opciones) { construirLineasPreview(reporte, opciones) }
 
-    // La imagen que se ve acá es EXACTAMENTE la que se va a compartir — no
-    // un resumen de texto aparte. Se regenera cada vez que cambian las
-    // opciones elegidas.
     var previewBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var generandoPreview by remember { mutableStateOf(true) }
     LaunchedEffect(opciones, bitmapFotoCargado, fotoLista) {
@@ -112,11 +104,6 @@ fun CompartirParteSheet(
         generandoPreview = false
     }
 
-    // Scroll vertical: sin esto, la vista previa (alta, formato 1080x1350)
-    // más los 5 checkboxes se pasan del alto visible del bottom sheet en la
-    // mayoría de las pantallas y el botón "Compartir" queda inalcanzable,
-    // cortado debajo del borde inferior — quedaba armado el contenido pero
-    // sin forma de tocarlo.
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -175,10 +162,6 @@ fun CompartirParteSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(1080f / 1350f)
-                    // Tope de alto: en formato 1080x1350 a lo ancho de la
-                    // pantalla se iba a más de 400dp y dejaba el botón lejos
-                    // incluso con scroll. ContentScale.Fit adentro evita que
-                    // la imagen se deforme si el box queda más achatado.
                     .heightIn(max = 320.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -250,7 +233,6 @@ private fun OpcionCheckbox(
     }
 }
 
-/** Arma las líneas de texto (usadas tanto en la vista previa como en el caption real). */
 private fun construirLineasPreview(reporte: PartePesca, opciones: OpcionesCompartir): List<String> {
     val lineas = mutableListOf<String>()
 
@@ -277,23 +259,6 @@ private fun construirLineasPreview(reporte: PartePesca, opciones: OpcionesCompar
     return lineas
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GENERACIÓN Y ENVÍO
-//
-// Mismo patrón que `compartirRecordPescadex` en PescadexScreen.kt: siempre
-// intentamos compartir una IMAGEN (con la foto de la captura si el usuario
-// la incluyó, o una tarjeta de stats generada si no hay foto o la sacó) y
-// solo caemos a texto plano si algo falla técnicamente. WhatsApp directo
-// primero, chooser nativo como respaldo.
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * @param bitmapPrerenderizado la imagen ya generada para la vista previa del
- * sheet — se reusa tal cual en vez de volver a renderizar (misma imagen que
- * el usuario vio antes de tocar "Compartir"). Si por algo llega null
- * (por ejemplo, el usuario tocó el botón justo mientras se regeneraba), se
- * renderiza acá como respaldo.
- */
 private suspend fun compartirParte(
     context: Context,
     reporte: PartePesca,
@@ -388,18 +353,6 @@ private suspend fun cargarBitmap(context: Context, path: String): Bitmap? {
     }
 }
 
-/**
- * Tarjeta de 1080x1350 (mismo formato que la estampita de Pescadex, para
- * consistencia visual entre las dos funciones de compartir de la app).
- *
- * Layout:
- *  1. Fondo degradado verde/teal de marca + marco decorativo.
- *  2. "HUKA" + fecha/horario (si está incluida) arriba.
- *  3. Foto de la captura en tarjeta redondeada (si está incluida y disponible).
- *  4. Card blanca inferior con: cantidad de peces + especies, devueltos,
- *     ubicación y observaciones — cada uno solo si el usuario lo incluyó.
- *  5. Marca al pie.
- */
 private fun renderEstampitaParte(
     reporte: PartePesca,
     opciones: OpcionesCompartir,
@@ -432,7 +385,6 @@ private fun renderEstampitaParte(
     canvas.drawRoundRect(padding + 14f, padding + 14f, width - padding - 14f, height - padding - 14f, 18f, 18f, paint)
     paint.style = Paint.Style.FILL
 
-    // ─── Header: marca + fecha ───
     paint.textAlign = Paint.Align.CENTER
     paint.isFakeBoldText = true
     paint.textSize = 30f
@@ -460,7 +412,6 @@ private fun renderEstampitaParte(
         )
     }
 
-    // ─── Foto (si corresponde) ───
     var cursorY = padding + 240f
     val fotoAlto = 560f
     if (bitmapFoto != null) {
@@ -507,7 +458,6 @@ private fun renderEstampitaParte(
         cursorY += 20f
     }
 
-    // ─── Card blanca de stats ───
     val cardTop = cursorY
     val cardBottom = height - padding - 90f
     val cardLeft = padding + 30f
@@ -570,7 +520,6 @@ private fun renderEstampitaParte(
         )
     }
 
-    // ─── Footer ───
     paint.isFakeBoldText = false
     paint.textAlign = Paint.Align.CENTER
     paint.textSize = 24f
@@ -580,7 +529,6 @@ private fun renderEstampitaParte(
     return bitmap
 }
 
-/** Dibuja texto centrado con wrap automático (StaticLayout) y devuelve el Y donde terminó. */
 private fun dibujarTextoCentrado(
     canvas: Canvas,
     texto: String,
