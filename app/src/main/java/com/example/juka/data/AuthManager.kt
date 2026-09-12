@@ -3,8 +3,10 @@ package com.example.juka.data
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import androidx.work.WorkManager
 import com.example.juka.R
 import com.example.juka.data.encuesta.RespuestaPregunta
+import com.example.juka.worker.SyncBorradoresWorker
 
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
@@ -26,22 +28,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import com.example.juka.HukaApplication
+import java.io.File
 
 sealed class AuthState {
     object Loading : AuthState()
     object Unauthenticated : AuthState()
-    /**
-     * `encuestaCompleta` indica si el usuario ya completó la encuesta inicial.
-     * - false → la UI debe mandarlo a `EncuestaScreen` antes de entrar a la app.
-     * - true  → ya la completó, va directo al home.
-     *
-     * Nombre canónico unificado (antes coexistían `surveyCompleted` en inglés
-     * y `encuestaCompletada` con doble 'd'). Se mantiene `surveyCompleted`
-     * en Firestore como fallback de LECTURA para docs viejos, pero las
-     * escrituras nuevas usan siempre `encuestaCompleta`.
-     */
     data class Authenticated(
         val user: FirebaseUser,
         val terminosAceptados: Boolean,
@@ -65,7 +59,6 @@ class AuthManager(private val context: Context) {
 
     init {
         initializeGoogleSignIn()
-        // ✅ DESCOMENTAR esto para que verifique el usuario actual
         checkAuthState()
     }
 
@@ -83,7 +76,7 @@ class AuthManager(private val context: Context) {
                 .build()
 
             googleSignInClient = GoogleSignIn.getClient(context, gso)
-            Log.d(TAG, "✅ GoogleSignIn configurado con client ID: ${clientId.take(20)}...")
+            Log.d(TAG, "✅ GoogleSignIn configurado")
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error configurando GoogleSignIn: ${e.message}")
         }
@@ -91,15 +84,11 @@ class AuthManager(private val context: Context) {
 
     private fun getClientId(): String? {
         return try {
-
             val clientId = context.getString(R.string.default_web_client_id)
-
             if (clientId.isEmpty() || clientId == "your_web_client_id") {
                 Log.e(TAG, "❌ Client ID no configurado en strings.xml")
                 return null
             }
-
-            Log.d(TAG, "✅ Client ID obtenido: ${clientId.take(20)}...")
             clientId
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error obteniendo client ID: ${e.message}")
@@ -107,19 +96,14 @@ class AuthManager(private val context: Context) {
         }
     }
 
-    // ✅ HACER esta función NO suspendida para llamarla desde init
     private fun checkAuthState() {
         val currentUser = auth.currentUser
-        Log.d(TAG, "🔍 Verificando estado de auth. Usuario actual: ${currentUser?.displayName}")
 
         if (currentUser != null) {
-            Log.d(TAG, "✅ Usuario encontrado: ${currentUser.displayName}")
             _authState.value = AuthState.Loading
 
             kotlinx.coroutines.GlobalScope.launch {
                 try {
-                    // Timeout de 6s: si no hay red, Firestore puede quedar
-                    // esperando indefinidamente y la app se congela en "Verificando sesión".
                     val userDoc = withTimeoutOrNull(6_000) {
                         db.collection("users").document(currentUser.uid).get().await()
                     }
@@ -157,34 +141,24 @@ class AuthManager(private val context: Context) {
 
                 } catch (e: Exception) {
                     Log.w(TAG, "⚠️ Error consultando Firestore: ${e.message}")
-                    // Si auth.currentUser no es null, el usuario ya se registró antes
-                    // → dejarlo entrar directamente en vez de mostrar la encuesta sin red.
                     _authState.value = AuthState.Authenticated(currentUser, terminosAceptados = true, encuestaCompleta = true)
                 }
             }
         } else {
-            Log.d(TAG, "❌ No hay usuario logueado")
             _authState.value = AuthState.Unauthenticated
         }
     }
 
     fun getSignInIntent(): Intent? {
-        Log.d("AUTH_DEBUG", "=== INICIANDO getSignInIntent ===")
-
         return try {
             val client = googleSignInClient
             if (client == null) {
-                Log.e("AUTH_DEBUG", "❌ GoogleSignInClient no inicializado")
                 initializeGoogleSignIn()
                 return googleSignInClient?.signInIntent
             }
-
-            val intent = client.signInIntent
-            Log.d("AUTH_DEBUG", "✅ Intent obtenido: ${intent != null}")
-            intent
-
+            client.signInIntent
         } catch (e: Exception) {
-            Log.e("AUTH_DEBUG", "❌ Error en getSignInIntent", e)
+            Log.e(TAG, "❌ Error en getSignInIntent", e)
             null
         }
     }
@@ -225,11 +199,7 @@ class AuthManager(private val context: Context) {
 
     private suspend fun firebaseAuthWithGoogle(account: GoogleSignInAccount): AuthState {
         return try {
-            Log.d(TAG, "🔥 Autenticando con Firebase...")
-
             val credential = GoogleAuthProvider.getCredential(account.idToken, null)
-            // Timeout: si la red está muy mala, queremos fallar limpio en
-            // 15s en lugar de dejar el spinner colgado indefinidamente.
             val authResult = withTimeoutOrNull(15_000) {
                 auth.signInWithCredential(credential).await()
             } ?: run {
@@ -241,10 +211,6 @@ class AuthManager(private val context: Context) {
 
             val user = authResult.user
             if (user != null) {
-                Log.i(TAG, "🎉 Login exitoso: ${user.displayName}")
-
-                // Pasos secundarios (Firestore + FCM) son "best effort" —
-                // si fallan, el usuario igual queda autenticado.
                 try {
                     val userDoc = withTimeoutOrNull(8_000) {
                         db.collection("users").document(user.uid).get().await()
@@ -275,10 +241,6 @@ class AuthManager(private val context: Context) {
                     _authState.value = authState
                     authState
                 } catch (e: Exception) {
-                    // Si Firestore falla NO asumimos que la encuesta está
-                    // completa (eso le ocultaría la encuesta a un usuario que
-                    // no debía saltearla). Mejor mostrarla — si era una falla
-                    // transitoria, al reintentar va a leer el flag real.
                     Log.w(TAG, "⚠️ Error Firestore, pero login exitoso: ${e.message}")
                     val authState = AuthState.Authenticated(user, terminosAceptados = false, encuestaCompleta = false)
                     _authState.value = authState
@@ -297,6 +259,7 @@ class AuthManager(private val context: Context) {
             errorState
         }
     }
+
     suspend fun aceptarTerminos() {
         val user = auth.currentUser ?: return
         try {
@@ -306,19 +269,14 @@ class AuthManager(private val context: Context) {
             if (current is AuthState.Authenticated) {
                 _authState.value = current.copy(terminosAceptados = true)
             }
-            Log.d(TAG, "✅ Términos aceptados guardados en Firestore")
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error guardando términos: ${e.message}")
         }
     }
 
-
     suspend fun markSurveyCompleted() {
         val user = auth.currentUser ?: return
         try {
-            // Usamos set(..., merge) en vez de update() para que no truene
-            // con NOT_FOUND si el doc padre todavía no existe (race entre
-            // creación inicial post-login y el primer guardado de encuesta).
             db.collection("users").document(user.uid)
                 .set(
                     mapOf(
@@ -328,41 +286,52 @@ class AuthManager(private val context: Context) {
                     SetOptions.merge()
                 ).await()
             _authState.value = AuthState.Authenticated(user, terminosAceptados = true, encuestaCompleta = true)
-            Log.d(TAG, "✅ Usuario marcado como encuesta completada: ${user.displayName}")
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error marcando survey: ${e.message}")
         }
     }
 
-
+    /**
+     * El cierre de sesión se serializa: primero se cancela el worker y se
+     * limpian los datos del UID saliente; solo después se cierra Firebase.
+     * Esto evita que un segundo usuario llegue a ver datos locales del primero.
+     */
     fun signOut() {
-        try {
-            // Limpiar los datos LOCALES del usuario que se va, para que el
-            // próximo usuario en este dispositivo no vea chat, borradores ni
-            // Pescadex ajenos (las tablas de Room son globales, no por usuario).
-            (context.applicationContext as? HukaApplication)?.let { app ->
-                CoroutineScope(Dispatchers.IO).launch {
-                    try {
-                        val local = app.localStorageHelper
-                        local.clearHistory()            // chat
-                        local.deleteAllBorradores()     // borradores de partes
-                        local.deleteAllNotificaciones() // notificaciones
-                        local.clearPescadexRecords()    // cache de Pescadex
-                        local.clearContadorPeces()      // contador en vivo
-                        local.clearAllPreferences()     // preferencias locales
-                        Log.d(TAG, "🧹 Datos locales limpiados al cerrar sesión")
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error limpiando datos locales: ${e.message}")
+        val departingUid = auth.currentUser?.uid
+        _authState.value = AuthState.Loading
+
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                val app = context.applicationContext as? HukaApplication
+                if (app != null && !departingUid.isNullOrBlank()) {
+                    WorkManager.getInstance(context)
+                        .cancelUniqueWork(SyncBorradoresWorker.WORK_NAME)
+
+                    withContext(Dispatchers.IO) {
+                        app.roomDatabase.chatDao().clearHistoryForOwner(departingUid)
+                        app.roomDatabase.borradorDao().deleteAllForOwner(departingUid)
+                        app.roomDatabase.notificacionDao().deleteAllForOwner(departingUid)
+                        app.roomDatabase.pescadexDao().deleteAllForOwner(departingUid)
+
+                        app.localStorageHelper.clearContadorPeces()
+                        app.localStorageHelper.clearAllPreferences()
+
+                        File(context.filesDir, "captured_images").deleteRecursively()
+                        File(context.cacheDir, "images").deleteRecursively()
                     }
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error limpiando datos locales: ${e.message}")
+            } finally {
+                try {
+                    auth.signOut()
+                    googleSignInClient?.signOut()?.await()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Cierre de Google Sign-In incompleto: ${e.message}")
+                }
+                _authState.value = AuthState.Unauthenticated
+                Log.d(TAG, "🚪 Sesión cerrada y datos locales aislados")
             }
-
-            auth.signOut()
-            googleSignInClient?.signOut()
-            _authState.value = AuthState.Unauthenticated
-            Log.d(TAG, "🚪 Sesión cerrada")
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Error cerrando sesión: ${e.message}")
         }
     }
 
@@ -370,9 +339,6 @@ class AuthManager(private val context: Context) {
         val user = auth.currentUser ?: return false
 
         try {
-            Log.d(TAG, "📋 Guardando encuesta para usuario: ${user.uid}")
-
-            // Convertir respuestas a formato Firebase
             val respuestasFirebase = respuestas.map { (preguntaId, respuesta) ->
                 mapOf(
                     "preguntaId" to preguntaId,
@@ -387,7 +353,6 @@ class AuthManager(private val context: Context) {
                 )
             }
 
-            // Datos completos de la encuesta
             val encuestaData = mapOf(
                 "userId" to user.uid,
                 "completada" to true,
@@ -398,14 +363,6 @@ class AuthManager(private val context: Context) {
                 "versionApp" to "1.0.0"
             )
 
-            // Guardar encuesta + marcar usuario, con timeout para que el
-            // botón "Enviar encuesta" no quede esperando para siempre si no
-            // hay señal. Si falla, devolvemos false y el caller decide UX
-            // (toast/retry/etc.).
-            //
-            // OJO: la segunda escritura usa set(..., merge) en vez de update()
-            // para no tirar NOT_FOUND si por algún race el doc padre del user
-            // todavía no existe.
             val ok = withTimeoutOrNull(15_000) {
                 db.collection("users")
                     .document(user.uid)
@@ -432,10 +389,7 @@ class AuthManager(private val context: Context) {
                 return false
             }
 
-            // Actualizar estado de autenticación
             _authState.value = AuthState.Authenticated(user, terminosAceptados = true, encuestaCompleta = true)
-
-            Log.d(TAG, "✅ Encuesta guardada exitosamente para ${user.displayName}")
             return true
 
         } catch (e: Exception) {
@@ -443,7 +397,7 @@ class AuthManager(private val context: Context) {
             return false
         }
     }
-    // Verifica si el usuario ya completó la encuesta (al iniciar sesión)
+
     suspend fun verificarEncuestaCompletada(): Boolean {
         val user = auth.currentUser ?: return false
 
@@ -455,12 +409,7 @@ class AuthManager(private val context: Context) {
 
             val encuestaCompleta = documento.getBoolean("encuestaCompleta") ?: false
             val terminosYaAceptados = documento.getBoolean("terminosAceptados") ?: false
-
-            Log.d(TAG, "📋 Encuesta completada: $encuestaCompleta para ${user.displayName}")
-
-            // Actualizar estado
             _authState.value = AuthState.Authenticated(user, terminosYaAceptados, encuestaCompleta)
-
             encuestaCompleta
 
         } catch (e: Exception) {
