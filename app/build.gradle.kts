@@ -58,9 +58,9 @@ android {
 
 dependencies {
 
-    // Firebase existente. La modernización completa de módulos KTX se hace
-    // por separado para no mezclarla con la migración de Gemini.
-    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    // BoM 33.15.0 mantiene compatibilidad con el stack Kotlin 1.9/KTX actual
+    // de Huka e incluye Firebase AI Logic 16.1.0 + App Check 18.0.0.
+    implementation(platform("com.google.firebase:firebase-bom:33.15.0"))
 
     implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.google.firebase:firebase-analytics-ktx")
@@ -68,14 +68,13 @@ dependencies {
     implementation("com.google.firebase:firebase-storage-ktx")
     implementation("com.google.firebase:firebase-messaging-ktx")
 
-    // Firebase AI Logic: reemplaza al SDK Google AI cliente y evita incluir
-    // una GEMINI_API_KEY propia dentro del APK.
-    implementation("com.google.firebase:firebase-ai:17.17.0")
+    // Firebase AI Logic: evita incluir una GEMINI_API_KEY propia en el APK.
+    implementation("com.google.firebase:firebase-ai")
 
-    // App Check. Debug permite probar desde Android Studio; Play Integrity es
-    // el proveedor de producción. La enforcement se activa luego en consola.
-    implementation("com.google.firebase:firebase-appcheck-debug:19.4.1")
-    implementation("com.google.firebase:firebase-appcheck-playintegrity:19.4.1")
+    // App Check. Debug para Android Studio; Play Integrity para release.
+    // Enforcement se habilita recién después de validar la migración.
+    implementation("com.google.firebase:firebase-appcheck-debug")
+    implementation("com.google.firebase:firebase-appcheck-playintegrity")
 
     // Google Sign In
     implementation("com.google.android.gms:play-services-auth:20.7.0")
