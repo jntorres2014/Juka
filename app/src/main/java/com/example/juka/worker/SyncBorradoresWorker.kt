@@ -60,11 +60,11 @@ class SyncBorradoresWorker(
 
                 try {
                     val parte = gson.fromJson(entity.parteJson, ParteEnProgreso::class.java)
-                        ?: run {
-                            Log.w(TAG, "Borrador inválido; se conserva para revisión.")
-                            algunoFallo = true
-                            continue
-                        }
+                    if (parte == null) {
+                        Log.w(TAG, "Borrador inválido; se conserva para revisión.")
+                        algunoFallo = true
+                        continue
+                    }
 
                     val resultado = firebase.guardarParteCompletado(parte, parteId = entity.id)
 
