@@ -27,6 +27,10 @@ class PartesFirebase(private val manager: FirebaseManager) {
     suspend fun guardarParteCompletado(
         parteData: ParteEnProgreso,
         transcripcion: String? = null,
+        // ✅ Id idempotente: si se pasa (el UUID del borrador), se usa como id
+        // del documento. Así, reintentos / worker / doble-tap escriben SIEMPRE
+        // sobre el mismo documento en vez de crear duplicados. Si es null,
+        // mantenemos el comportamiento viejo (id nuevo).
         parteId: String? = null
     ): FirebaseResult {
         return try {
@@ -51,11 +55,15 @@ class PartesFirebase(private val manager: FirebaseManager) {
             val parte = PartePesca(
                 id = idFinal,
                 userId = userId,
+                // ✅ Fecha normalizada a dd/MM/yyyy para que en Firebase todas
+                // queden en el mismo formato, sin importar de dónde vino.
                 fecha = UtilsFirebase.normalizarFecha(parteData.fecha) ?: UtilsFirebase.fechaHoyDMY(),
                 horaInicio = parteData.horaInicio,
                 horaFin = parteData.horaFin,
                 duracionHoras = UtilsFirebase.calcularDuracionFromSession(parteData),
                 peces = parteData.especiesCapturadas.map { pez ->
+                    // ✅ Devolución: devueltos = los que volvieron al agua;
+                    // retenidos = los que se llevó (cantidad - devueltos).
                     val devueltos = pez.numeroDevueltos.coerceIn(0, pez.numeroEjemplares)
                     Captura(
                         especie = pez.nombre,
@@ -68,6 +76,8 @@ class PartesFirebase(private val manager: FirebaseManager) {
                 cantidadDevuelta = parteData.especiesCapturadas.sumOf {
                     it.numeroDevueltos.coerceIn(0, it.numeroEjemplares)
                 },
+                // Si el usuario eligió "Otra" modalidad en el wizard con texto
+                // libre, ese texto va como tipo. Sino, el displayName del enum.
                 tipo = parteData.modalidadOtra
                     ?: parteData.modalidad?.displayName?.lowercase(),
                 modalidadOtra = parteData.modalidadOtra,
@@ -90,15 +100,15 @@ class PartesFirebase(private val manager: FirebaseManager) {
                 true
             }
             if (ok != true) {
-                Log.w(TAG, "⏳ Timeout o sin red guardando parte")
+                Log.w(TAG, "⏳ Timeout o sin red guardando parte $idFinal")
                 return FirebaseResult.Error("Sin conexión o red lenta. El parte no se subió.")
             }
 
-            Log.i(TAG, "✅ Parte completado guardado")
+            Log.i(TAG, "✅ Parte completado guardado: $idFinal")
             FirebaseResult.Success
         } catch (e: Exception) {
-            Log.e(TAG, "💥 Error guardando parte completado: ${e.javaClass.simpleName}")
-            FirebaseResult.Error("Error guardando parte", e)
+            Log.e(TAG, "💥 Error guardando parte completado: ${e.message}", e)
+            FirebaseResult.Error("Error guardando parte: ${e.localizedMessage}", e)
         }
     }
 
@@ -113,6 +123,7 @@ class PartesFirebase(private val manager: FirebaseManager) {
             Log.d(TAG, "💾 Guardando parte automático")
             Log.d(TAG, "📝 Transcripción recibida (${transcripcion.length} caracteres)")
 
+            // Validar que tiene datos mínimos necesarios
             if (!esParteValido(fishingData)) {
                 Log.w(TAG, "⚠️ Parte incompleto, no guardando automáticamente")
                 return FirebaseResult.Error("Parte incompleto - faltan datos esenciales")
@@ -123,24 +134,28 @@ class PartesFirebase(private val manager: FirebaseManager) {
 
             Log.d(TAG, "🐟 Especies detectadas: ${parte.peces.size}")
 
+            // Guardar en Firestore con estructura basada en usuario
             val documentPath = "$PARTES_COLLECTION/$userId/$SUBCOLLECTION_PARTES/$parteId"
 
             manager.firestore.document(documentPath)
                 .set(parte, SetOptions.merge())
                 .await()
 
-            Log.i(TAG, "✅ Parte guardado exitosamente")
+            Log.i(TAG, "✅ Parte guardado exitosamente: $parteId")
+            Log.d(TAG, "📍 Ruta de Firestore generada correctamente")
             Log.d(TAG, "🐟 Datos: ${parte.cantidadTotal} peces, tipo: ${parte.tipo}")
 
             FirebaseResult.Success
 
         } catch (e: Exception) {
-            Log.e(TAG, "💥 Error guardando parte: ${e.javaClass.simpleName}")
-            FirebaseResult.Error("Error guardando en Firebase", e)
+            Log.e(TAG, "💥 Error guardando parte: ${e.message}", e)
+            FirebaseResult.Error("Error guardando en Firebase: ${e.localizedMessage}", e)
         }
     }
 
-    /** Obtiene todos los partes del usuario actual. */
+    /**
+     * Obtiene todos los partes del usuario actual
+     */
     suspend fun obtenerMisPartes(limite: Int = 50): List<PartePesca> {
         return try {
             val userId = manager.getCurrentUserId()
@@ -156,6 +171,9 @@ class PartesFirebase(private val manager: FirebaseManager) {
                 .orderBy("timestamp", Query.Direction.DESCENDING)
                 .limit(limite.toLong())
 
+            // Timeout: si no hay red, devolvemos lista vacía para que la
+            // pantalla de "Mis Reportes" salga del spinner y muestre el
+            // empty state en lugar de quedar girando.
             val snapshot = withTimeoutOrNull(12_000) { query.get().await() }
                 ?: run {
                     Log.w(TAG, "⏳ Timeout/sin red obteniendo partes")
@@ -165,7 +183,7 @@ class PartesFirebase(private val manager: FirebaseManager) {
                 try {
                     document.toObject(PartePesca::class.java)?.copy(id = document.id)
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error parseando un parte: ${e.javaClass.simpleName}")
+                    Log.e(TAG, "Error parseando parte ${document.id}: ${e.message}")
                     null
                 }
             }
@@ -174,11 +192,10 @@ class PartesFirebase(private val manager: FirebaseManager) {
             partes
 
         } catch (e: Exception) {
-            Log.e(TAG, "💥 Error obteniendo partes: ${e.javaClass.simpleName}")
+            Log.e(TAG, "💥 Error obteniendo partes: ${e.message}", e)
             emptyList()
         }
     }
-
     /**
      * Elimina un parte del usuario actual. El límite de "solo dentro de la
      * primera hora" se valida en el ViewModel (ReportesViewModel.puedeEliminarse)
@@ -195,15 +212,15 @@ class PartesFirebase(private val manager: FirebaseManager) {
                 true
             }
             if (ok != true) {
-                Log.w(TAG, "⏳ Timeout o sin red eliminando parte")
+                Log.w(TAG, "⏳ Timeout o sin red eliminando parte $parteId")
                 return FirebaseResult.Error("Sin conexión o red lenta. No se pudo eliminar.")
             }
 
-            Log.i(TAG, "🗑️ Parte eliminado")
+            Log.i(TAG, "🗑️ Parte eliminado: $parteId")
             FirebaseResult.Success
         } catch (e: Exception) {
-            Log.e(TAG, "💥 Error eliminando parte: ${e.javaClass.simpleName}")
-            FirebaseResult.Error("Error eliminando parte", e)
+            Log.e(TAG, "💥 Error eliminando parte: ${e.message}", e)
+            FirebaseResult.Error("Error eliminando parte: ${e.localizedMessage}", e)
         }
     }
 }
