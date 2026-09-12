@@ -16,7 +16,7 @@ data class ChatMessageEntity(
     val isFromUser: Boolean,
     val type: String,
     val timestamp: String,
-    val ownerUid: String = currentOwnerUid()
+    @ColumnInfo(defaultValue = "''") val ownerUid: String = currentOwnerUid()
 )
 
 @Dao
@@ -49,7 +49,7 @@ data class NotificacionEntity(
     val timestamp: Long,
     val leida: Boolean = false,
     val origen: String = "SISTEMA",
-    val ownerUid: String = currentOwnerUid()
+    @ColumnInfo(defaultValue = "''") val ownerUid: String = currentOwnerUid()
 )
 
 @Dao
@@ -106,7 +106,7 @@ data class BorradorParteEntity(
     val porcentajeCompletado: Int,
     val resumenLugar: String? = null,
     val resumenFecha: String? = null,
-    val ownerUid: String = currentOwnerUid()
+    @ColumnInfo(defaultValue = "''") val ownerUid: String = currentOwnerUid()
 )
 
 @Dao
@@ -171,7 +171,7 @@ data class PescadexRecordEntity(
     val mejorDiaFecha: String?,
     val rareza: String = "comun",
     val locacionesRaw: String = "",
-    val ownerUid: String = currentOwnerUid()
+    @ColumnInfo(defaultValue = "''") val ownerUid: String = currentOwnerUid()
 )
 
 @Dao
@@ -220,12 +220,6 @@ abstract class HukaRoomDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: HukaRoomDatabase? = null
 
-        /**
-         * v4 -> v5: agrega ownerUid a los datos locales de sesión.
-         * Los registros anteriores no tienen un propietario demostrable, por
-         * lo que se descartan para impedir exposición cruzada entre cuentas.
-         * Pescadex se recrea además con clave compuesta especieId + ownerUid.
-         */
         private val MIGRATION_4_5 = object : Migration(4, 5) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE chat_messages ADD COLUMN ownerUid TEXT NOT NULL DEFAULT ''")
@@ -250,12 +244,11 @@ abstract class HukaRoomDatabase : RoomDatabase() {
                         mejorDiaFecha TEXT,
                         rareza TEXT NOT NULL,
                         locacionesRaw TEXT NOT NULL,
-                        ownerUid TEXT NOT NULL,
+                        ownerUid TEXT NOT NULL DEFAULT '',
                         PRIMARY KEY(especieId, ownerUid)
                     )
                     """.trimIndent()
                 )
-                // No copiamos la tabla vieja: esos registros carecen de UID.
                 db.execSQL("DROP TABLE pescadex_records")
                 db.execSQL("ALTER TABLE pescadex_records_new RENAME TO pescadex_records")
             }
