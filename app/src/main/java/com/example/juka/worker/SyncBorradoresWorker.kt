@@ -8,19 +8,14 @@ import androidx.work.WorkerParameters
 import com.example.juka.HukaApplication
 import com.example.juka.data.AchievementsViewModel
 import com.example.juka.data.firebase.FirebaseResult
+import com.example.juka.domain.model.ParteEnProgreso
 import com.google.firebase.auth.FirebaseAuth
+import com.google.gson.Gson
 
 /**
- * Worker que sube a Firestore todos los borradores completos (porcentaje == 100)
- * que quedaron pendientes por falta de conexión.
- *
- * Se programa con constraint [NetworkType.CONNECTED], así WorkManager lo ejecuta
- * automáticamente en cuanto el dispositivo recupera internet — sin que el usuario
- * tenga que hacer nada.
- *
- * Política de reintento: si algún borrador falla, devuelve [Result.retry()] y
- * WorkManager reintenta con backoff exponencial. Si todos salen bien → [Result.success()]
- * y el job se elimina.
+ * Sincroniza únicamente los borradores completos pertenecientes al usuario
+ * autenticado cuando comenzó este trabajo. Nunca reutiliza borradores de otro
+ * UID aunque la sesión cambie mientras WorkManager está ejecutándose.
  */
 class SyncBorradoresWorker(
     appContext: Context,
@@ -28,93 +23,79 @@ class SyncBorradoresWorker(
 ) : CoroutineWorker(appContext, params) {
 
     companion object {
-        /** Nombre único del job — permite usar ExistingWorkPolicy.KEEP. */
         const val WORK_NAME = "huka_sync_borradores"
         private const val TAG = "🔄 SyncBorradoresWorker"
     }
 
     override suspend fun doWork(): Result {
         val app = applicationContext as HukaApplication
-        val localHelper = app.localStorageHelper
         val firebase = app.firebaseManager
+        val auth = FirebaseAuth.getInstance()
+        val ownerUid = auth.currentUser?.uid
+
+        if (ownerUid.isNullOrBlank()) {
+            Log.d(TAG, "Sin usuario autenticado; no hay nada que sincronizar.")
+            return Result.success()
+        }
 
         return try {
-            // Solo subir borradores marcados como 100 % completos.
-            // Los de porcentaje < 100 están en progreso de edición — no tocarlos.
-            val pendientes = localHelper.getAllBorradores()
+            val dao = app.roomDatabase.borradorDao()
+            val pendientes = dao.getAllForOwner(ownerUid)
                 .filter { it.porcentajeCompletado == 100 }
 
             if (pendientes.isEmpty()) {
-                Log.d(TAG, "✅ Sin borradores pendientes.")
+                Log.d(TAG, "✅ Sin borradores pendientes para el usuario actual.")
                 return Result.success()
             }
 
-            Log.i(TAG, "📤 Sincronizando ${pendientes.size} borrador(es)...")
-
+            val gson = Gson()
             var algunoFallo = false
 
-            for (meta in pendientes) {
+            for (entity in pendientes) {
+                // Si la sesión cambió, terminamos sin tocar datos de la nueva cuenta.
+                if (auth.currentUser?.uid != ownerUid) {
+                    Log.w(TAG, "La sesión cambió durante la sincronización; se detiene el worker.")
+                    return Result.success()
+                }
+
                 try {
-                    val parte = localHelper.getBorrador(meta.id)
-                    if (parte == null) {
-                        // El borrador fue eliminado mientras el worker corría — ignorar.
-                        Log.w(TAG, "⚠️ Borrador ${meta.id} ya no existe, saltando.")
-                        continue
-                    }
+                    val parte = gson.fromJson(entity.parteJson, ParteEnProgreso::class.java)
+                        ?: run {
+                            Log.w(TAG, "Borrador inválido; se conserva para revisión.")
+                            algunoFallo = true
+                            continue
+                        }
 
-                    Log.d(TAG, "  ↑ Subiendo borrador ${meta.id} (${meta.resumenFecha ?: "sin fecha"}, ${meta.resumenLugar ?: "sin lugar"})")
-
-                    // ✅ Id idempotente = id del borrador. Si este parte ya fue
-                    // subido (por un envío manual o un intento previo), se pisa
-                    // el mismo documento en vez de crear un duplicado.
-                    val resultado = firebase.guardarParteCompletado(parte, parteId = meta.id)
+                    val resultado = firebase.guardarParteCompletado(parte, parteId = entity.id)
 
                     when (resultado) {
                         is FirebaseResult.Success -> {
-                            localHelper.deleteBorrador(meta.id)
-                            Log.i(TAG, "  ✅ Borrador ${meta.id} sincronizado y eliminado.")
+                            // Volvemos a verificar la sesión antes de modificar Room.
+                            if (auth.currentUser?.uid != ownerUid) {
+                                return Result.success()
+                            }
 
-                            // Logros: el flujo online evalúa los logros al
-                            // guardar, pero los partes sincronizados offline no
-                            // pasaban por ahí. Corremos el mismo evaluador acá
-                            // para que también otorguen logros. Best-effort:
-                            // si falla, no rompe la sincronización.
+                            dao.deleteByIdForOwner(entity.id, ownerUid)
+
                             try {
-                                val uid = FirebaseAuth.getInstance().currentUser?.uid ?: ""
-                                if (uid.isNotEmpty()) {
-                                    AchievementsChecker(AchievementsViewModel())
-                                        .checkParteAchievements(parte, uid)
-                                    Log.d(TAG, "  🏆 Logros evaluados para ${meta.id}")
-                                }
+                                AchievementsChecker(AchievementsViewModel())
+                                    .checkParteAchievements(parte, ownerUid)
                             } catch (e: Exception) {
-                                Log.w(TAG, "  ⚠️ No se pudieron evaluar logros de ${meta.id}: ${e.message}")
+                                Log.w(TAG, "No se pudieron evaluar logros: ${e.javaClass.simpleName}")
                             }
                         }
-                        is FirebaseResult.Error -> {
-                            Log.w(TAG, "  ⚠️ Error subiendo borrador ${meta.id}: ${resultado.message}")
-                            algunoFallo = true
-                        }
-                        else -> {
-                            algunoFallo = true
-                        }
+                        is FirebaseResult.Error -> algunoFallo = true
+                        else -> algunoFallo = true
                     }
-
                 } catch (e: Exception) {
-                    Log.e(TAG, "  💥 Excepción procesando borrador ${meta.id}: ${e.message}")
+                    Log.e(TAG, "Error procesando borrador: ${e.javaClass.simpleName}")
                     algunoFallo = true
                 }
             }
 
-            if (algunoFallo) {
-                Log.w(TAG, "⚠️ Algunos borradores no se pudieron subir. WorkManager reintentará.")
-                Result.retry()
-            } else {
-                Log.i(TAG, "🎉 Todos los borradores sincronizados.")
-                Result.success()
-            }
-
+            if (algunoFallo) Result.retry() else Result.success()
         } catch (e: Exception) {
-            Log.e(TAG, "💥 Error inesperado en SyncBorradoresWorker: ${e.message}")
+            Log.e(TAG, "Error inesperado de sincronización: ${e.javaClass.simpleName}")
             Result.retry()
         }
     }
