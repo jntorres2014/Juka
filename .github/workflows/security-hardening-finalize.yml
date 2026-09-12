@@ -21,8 +21,9 @@ jobs:
           fetch-depth: 0
 
       - name: Apply final Block A changes
-        shell: python
+        shell: bash
         run: |
+          python - <<'PY'
           from pathlib import Path
 
           def replace_once(path, old, new, label):
@@ -71,15 +72,20 @@ jobs:
           )
 
           Path('app/src/main/res/xml/file_paths.xml').write_text(
-              '''<?xml version="1.0" encoding="utf-8"?>\n<paths xmlns:android="http://schemas.android.com/apk/res/android">\n    <cache-path name="shared_images" path="images/" />\n</paths>\n''',
+              '<?xml version="1.0" encoding="utf-8"?>\n'
+              '<paths xmlns:android="http://schemas.android.com/apk/res/android">\n'
+              '    <cache-path name="shared_images" path="images/" />\n'
+              '</paths>\n',
               encoding='utf-8'
           )
           print('OK: FileProvider limited to cache/images')
 
-          # Remove this temporary workflow from the branch in the same commit.
+          # El workflow es temporal: se elimina en el mismo commit final.
           Path('.github/workflows/security-hardening-finalize.yml').unlink()
+          PY
 
       - name: Commit final hardening changes
+        shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
