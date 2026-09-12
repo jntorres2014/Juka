@@ -1,5 +1,3 @@
-import java.util.Properties
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -23,13 +21,6 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
-
-        val localProperties = Properties()
-        val localPropertiesFile = rootProject.file("local.properties")
-        if (localPropertiesFile.exists()) {
-            localProperties.load(localPropertiesFile.reader())
-        }
-        buildConfigField("String", "GEMINI_API_KEY", "\"${localProperties["geminiApiKey"] ?: ""}\"")
     }
 
     buildTypes {
@@ -67,17 +58,26 @@ android {
 
 dependencies {
 
-    // ✅ Firebase BoM - UNA sola versión controla todo
+    // Firebase existente. La modernización completa de módulos KTX se hace
+    // por separado para no mezclarla con la migración de Gemini.
     implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
 
-    // ✅ Firebase - SIN versiones (el BoM las maneja)
     implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.google.firebase:firebase-analytics-ktx")
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-storage-ktx")
     implementation("com.google.firebase:firebase-messaging-ktx")
 
-    // Google Sign In - esta SÍ lleva versión (no es Firebase)
+    // Firebase AI Logic: reemplaza al SDK Google AI cliente y evita incluir
+    // una GEMINI_API_KEY propia dentro del APK.
+    implementation("com.google.firebase:firebase-ai:17.17.0")
+
+    // App Check. Debug permite probar desde Android Studio; Play Integrity es
+    // el proveedor de producción. La enforcement se activa luego en consola.
+    implementation("com.google.firebase:firebase-appcheck-debug:19.4.1")
+    implementation("com.google.firebase:firebase-appcheck-playintegrity:19.4.1")
+
+    // Google Sign In
     implementation("com.google.android.gms:play-services-auth:20.7.0")
 
     // Firebase In-App Messaging
@@ -124,9 +124,8 @@ dependencies {
     implementation("com.google.mlkit:text-recognition:16.0.0")
     implementation("com.google.mlkit:smart-reply:17.0.2")
 
-    // Serialización y Gemini
+    // Serialización
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
-    implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
 
     // Room
     implementation("androidx.room:room-runtime:2.6.1")
