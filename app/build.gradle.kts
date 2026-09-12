@@ -1,9 +1,10 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
+    id("com.google.devtools.ksp")
     id("com.google.gms.google-services")
-    id("org.jetbrains.kotlin.plugin.serialization") version "1.9.0"
-    id("com.google.devtools.ksp") version "1.9.0-1.0.13"
 }
 
 android {
@@ -46,9 +47,6 @@ android {
         compose = true
         buildConfig = true
     }
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.14"
-    }
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -58,8 +56,9 @@ android {
 
 dependencies {
 
-    // BoM 33.15.0 mantiene compatibilidad con el stack Kotlin 1.9/KTX actual
-    // de Huka e incluye Firebase AI Logic 16.1.0 + App Check 18.0.0.
+    // BoM 33.15.0 incluye Firebase AI Logic 16.1.0 + App Check 18.0.0.
+    // Kotlin/Compose/KSP ya están alineados con la metadata Kotlin 2.1 usada
+    // por estas versiones de Firebase.
     implementation(platform("com.google.firebase:firebase-bom:33.15.0"))
 
     implementation("com.google.firebase:firebase-firestore-ktx")
@@ -124,7 +123,7 @@ dependencies {
     implementation("com.google.mlkit:smart-reply:17.0.2")
 
     // Serialización
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
     // Room
     implementation("androidx.room:room-runtime:2.6.1")
