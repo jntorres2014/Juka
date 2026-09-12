@@ -1,0 +1,89 @@
+name: Finalize security hardening
+
+on:
+  push:
+    branches:
+      - security-hardening
+    paths:
+      - '.github/workflows/security-hardening-finalize.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: security-hardening
+          fetch-depth: 0
+
+      - name: Apply final Block A changes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path, old, new, label):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected 1 match, found {count}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+              print(f'OK: {label}')
+
+          replace_once(
+              'app/src/main/java/com/example/juka/reportes/CompartirParteSheet.kt',
+              '    val ubicacion: Boolean = true,',
+              '    val ubicacion: Boolean = false,',
+              'location sharing defaults to off'
+          )
+
+          replace_once(
+              'app/src/main/java/com/example/juka/identificar/IdentificarPezScreen.kt',
+              '            val storageDir = context.cacheDir',
+              '            val storageDir = File(context.cacheDir, "images").apply { mkdirs() }',
+              'camera temp file moved to cache/images'
+          )
+
+          old_quota = '''                        val respuestaIA = fishIdentifier.identifyPremium(file.absolutePath)
+                        val consumed = quotaManager.consumePhotoQuery()
+                        // Parseamos la lista de peces detectados y sacamos el tag
+'''
+          new_quota = '''                        val respuestaIA = fishIdentifier.identifyPremium(file.absolutePath)
+                        val esErrorPremium = respuestaIA.startsWith("⏳") ||
+                                respuestaIA.startsWith("⚠️") ||
+                                respuestaIA.startsWith("🔑") ||
+                                respuestaIA.startsWith("❌") ||
+                                respuestaIA.contains("La IA no devolvió texto", ignoreCase = true)
+                        // Los errores de Gemini (503, red, API key, etc.) no consumen
+                        // la identificación premium diaria.
+                        val consumed = if (esErrorPremium) false else quotaManager.consumePhotoQuery()
+                        // Parseamos la lista de peces detectados y sacamos el tag
+'''
+          replace_once(
+              'app/src/main/java/com/example/juka/identificar/IdentificarPezScreen.kt',
+              old_quota,
+              new_quota,
+              'Gemini errors do not consume premium quota'
+          )
+
+          Path('app/src/main/res/xml/file_paths.xml').write_text(
+              '''<?xml version="1.0" encoding="utf-8"?>\n<paths xmlns:android="http://schemas.android.com/apk/res/android">\n    <cache-path name="shared_images" path="images/" />\n</paths>\n''',
+              encoding='utf-8'
+          )
+          print('OK: FileProvider limited to cache/images')
+
+          # Remove this temporary workflow from the branch in the same commit.
+          Path('.github/workflows/security-hardening-finalize.yml').unlink()
+
+      - name: Commit final hardening changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "security: finalize Android hardening block A"
+          git push origin security-hardening
