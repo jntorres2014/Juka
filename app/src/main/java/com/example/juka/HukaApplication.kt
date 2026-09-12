@@ -70,7 +70,7 @@ class HukaApplication : Application() {
         // User-Agent propio para los mapas (osmdroid). OSM devuelve 403
         // ("Access blocked") con el User-Agent por defecto ("osmdroid") o con
         // paquetes "com.example.*". Con uno único que identifique la app, no bloquea.
-        org.osmdroid.config.Configuration.getInstance().userAgentValue = "Huka-Pesca/1.0"
+        org.osmdroid.config.Configuration.getInstance().userAgentValue = "Huka/1.0.2 (com.jonytorres.huka)"
         programarSyncBorradores()
     }
 
