@@ -78,8 +78,6 @@ class HukaApplication : Application() {
         }
 
         // Segundo Firebase: exclusivamente para Firebase AI Logic.
-        // Si falta configuración, Huka sigue funcionando y el Chat conserva su
-        // fallback al SDK directo anterior.
         initializeSecondaryAiFirebase()
 
         org.osmdroid.config.Configuration.getInstance().userAgentValue =
@@ -115,7 +113,7 @@ class HukaApplication : Application() {
             BuildConfig.HUKA_AI_APP_ID.isBlank() ||
             BuildConfig.HUKA_AI_API_KEY.isBlank()
         ) {
-            Log.w(TAG, "Firebase secundario de IA no configurado; se usará fallback")
+            Log.w(TAG, "Firebase secundario de IA no configurado")
             return
         }
 
