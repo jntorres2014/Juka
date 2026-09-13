@@ -72,19 +72,12 @@ class HukaApplication : Application() {
         super.onCreate()
 
         // Firebase principal: Auth / Firestore / Storage / FCM.
-        FirebaseApp.initializeApp(this)
-        val appCheck = FirebaseAppCheck.getInstance()
-        if (BuildConfig.DEBUG) {
-            appCheck.installAppCheckProviderFactory(
-                DebugAppCheckProviderFactory.getInstance()
-            )
-        } else {
-            appCheck.installAppCheckProviderFactory(
-                PlayIntegrityAppCheckProviderFactory.getInstance()
-            )
+        val defaultApp = FirebaseApp.initializeApp(this)
+        if (defaultApp != null) {
+            configureAppCheck(defaultApp, "principal")
         }
 
-        // Segundo Firebase: exclusivamente para la prueba de Firebase AI Logic.
+        // Segundo Firebase: exclusivamente para Firebase AI Logic.
         // Si falta configuración, Huka sigue funcionando y el Chat conserva su
         // fallback al SDK directo anterior.
         initializeSecondaryAiFirebase()
@@ -93,6 +86,27 @@ class HukaApplication : Application() {
             "Huka/1.0.2 (com.jonytorres.huka)"
 
         programarSyncBorradores()
+    }
+
+    private fun configureAppCheck(firebaseApp: FirebaseApp, label: String) {
+        try {
+            val appCheck = FirebaseAppCheck.getInstance(firebaseApp)
+            if (BuildConfig.DEBUG) {
+                appCheck.installAppCheckProviderFactory(
+                    DebugAppCheckProviderFactory.getInstance()
+                )
+            } else {
+                appCheck.installAppCheckProviderFactory(
+                    PlayIntegrityAppCheckProviderFactory.getInstance()
+                )
+            }
+            Log.d(TAG, "App Check configurado para Firebase $label")
+        } catch (e: Exception) {
+            Log.w(
+                TAG,
+                "No se pudo configurar App Check para Firebase $label [${e.javaClass.simpleName}]"
+            )
+        }
     }
 
     private fun initializeSecondaryAiFirebase() {
@@ -109,7 +123,7 @@ class HukaApplication : Application() {
             val existente = FirebaseApp.getApps(this)
                 .firstOrNull { it.name == AI_FIREBASE_APP_NAME }
 
-            if (existente == null) {
+            val aiApp = existente ?: run {
                 val options = FirebaseOptions.Builder()
                     .setProjectId(BuildConfig.HUKA_AI_PROJECT_ID)
                     .setApplicationId(BuildConfig.HUKA_AI_APP_ID)
@@ -123,7 +137,12 @@ class HukaApplication : Application() {
                 )
             }
 
-            Log.d(TAG, "Firebase secundario de IA inicializado")
+            if (aiApp != null) {
+                configureAppCheck(aiApp, "secundario de IA")
+                Log.d(TAG, "Firebase secundario de IA inicializado")
+            } else {
+                Log.w(TAG, "Firebase secundario de IA devolvió instancia nula")
+            }
         } catch (e: Exception) {
             Log.w(TAG, "No se pudo inicializar Firebase secundario de IA [${e.javaClass.simpleName}]")
         }
