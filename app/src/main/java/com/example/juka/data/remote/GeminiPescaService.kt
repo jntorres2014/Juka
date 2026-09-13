@@ -1,20 +1,22 @@
 package com.example.juka.data.remote
 
 import android.util.Log
-import com.google.firebase.Firebase
-import com.google.firebase.ai.ai
-import com.google.firebase.ai.type.GenerativeBackend
+import com.example.juka.BuildConfig
+import com.google.ai.client.generativeai.GenerativeModel
+import com.google.ai.client.generativeai.type.content
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 class GeminiPescaService {
 
-    private val modelName = "gemini-3.5-flash"
+    // Modelo anterior de Huka que ya estaba funcionando con el SDK directo.
+    private val modelName = "gemini-2.5-flash-lite"
 
-    private val generativeModel = Firebase
-        .ai(backend = GenerativeBackend.googleAI())
-        .generativeModel(modelName)
+    private val generativeModel = GenerativeModel(
+        modelName = modelName,
+        apiKey = BuildConfig.GEMINI_API_KEY
+    )
 
     private val systemPrompt = """
         Sos un guía experto en pesca deportiva argentina. Respondés a
@@ -58,7 +60,7 @@ class GeminiPescaService {
         pregunta: String,
         contexto: ConversationContext? = null
     ): String = withContext(Dispatchers.IO) {
-        Log.d("DEBUG_CHAT", "obtenerConsejoPesca | modelo=$modelName")
+        Log.d("DEBUG_CHAT", "obtenerConsejoPesca | modelo=$modelName | sdk=directo")
 
         val promptCompleto = buildString {
             append(systemPrompt)
@@ -76,10 +78,12 @@ class GeminiPescaService {
         var ultimaEx: Exception? = null
         repeat(3) { intento ->
             try {
-                val response = generativeModel.generateContent(promptCompleto)
+                val response = generativeModel.generateContent(
+                    content { text(promptCompleto) }
+                )
                 Log.d(
                     "DEBUG_CHAT",
-                    "✅ Firebase AI respondió (${response.text?.length ?: 0} chars) en intento ${intento + 1}"
+                    "✅ Gemini respondió (${response.text?.length ?: 0} chars) en intento ${intento + 1}"
                 )
                 return@withContext response.text
                     ?: "Lo siento, no pude generar un consejo en este momento."
@@ -87,17 +91,15 @@ class GeminiPescaService {
                 ultimaEx = e
                 val msg = e.message ?: ""
                 val transitorio = msg.contains("503") ||
-                        msg.contains("UNAVAILABLE", true) ||
-                        msg.contains("high demand", true) ||
-                        msg.contains("overloaded", true)
+                    msg.contains("UNAVAILABLE", true) ||
+                    msg.contains("high demand", true) ||
+                    msg.contains("overloaded", true)
 
-                // Diagnóstico acotado: solo clase y mensaje del SDK/backend.
-                // No se registran prompts, tokens de App Check ni credenciales.
                 val detalle = msg.replace("\n", " ").take(400)
                 Log.w(
                     "DEBUG_CHAT",
                     "Intento ${intento + 1}/3 falló [${e.javaClass.simpleName}] " +
-                            "transitorio=$transitorio | detalle='$detalle'"
+                        "transitorio=$transitorio | detalle='$detalle'"
                 )
 
                 if (!transitorio) throw e
@@ -105,8 +107,8 @@ class GeminiPescaService {
             }
         }
 
-        Log.e("DEBUG_CHAT", "💥 Firebase AI agotó reintentos", ultimaEx)
-        throw ultimaEx ?: RuntimeException("Error desconocido consultando Firebase AI")
+        Log.e("DEBUG_CHAT", "💥 Gemini agotó reintentos", ultimaEx)
+        throw ultimaEx ?: RuntimeException("Error desconocido consultando Gemini")
     }
 }
 
