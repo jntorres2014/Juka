@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -22,6 +24,19 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        // Compatibilidad temporal con el Chat IA anterior de Huka.
+        // La clave permanece fuera del repositorio, en local.properties.
+        val localProperties = Properties()
+        val localPropertiesFile = rootProject.file("local.properties")
+        if (localPropertiesFile.exists()) {
+            localProperties.load(localPropertiesFile.reader())
+        }
+        buildConfigField(
+            "String",
+            "GEMINI_API_KEY",
+            "\"${localProperties["geminiApiKey"] ?: ""}\""
+        )
     }
 
     buildTypes {
@@ -67,8 +82,12 @@ dependencies {
     implementation("com.google.firebase:firebase-storage-ktx")
     implementation("com.google.firebase:firebase-messaging-ktx")
 
-    // Firebase AI Logic: evita incluir una GEMINI_API_KEY propia en el APK.
+    // Firebase AI Logic se mantiene por ahora porque la identificación Premium
+    // todavía lo usa. El Chat vuelve temporalmente al SDK directo anterior.
     implementation("com.google.firebase:firebase-ai")
+
+    // SDK directo de Gemini usado por el Chat anterior que ya funcionaba.
+    implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
 
     // App Check. Debug para Android Studio; Play Integrity para release.
     // Enforcement se habilita recién después de validar la migración.
