@@ -2,21 +2,39 @@ package com.example.juka.data.remote
 
 import android.util.Log
 import com.example.juka.BuildConfig
+import com.example.juka.HukaApplication
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.ai.client.generativeai.type.content
+import com.google.firebase.Firebase
+import com.google.firebase.FirebaseApp
+import com.google.firebase.ai.ai
+import com.google.firebase.ai.type.GenerativeBackend
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 class GeminiPescaService {
 
-    // Modelo anterior de Huka que ya estaba funcionando con el SDK directo.
-    private val modelName = "gemini-2.5-flash-lite"
+    // Proyecto secundario gratuito: prueba primero este camino.
+    private val firebaseAiModelName = "gemini-3.5-flash-lite"
 
-    private val generativeModel = GenerativeModel(
-        modelName = modelName,
+    // Camino anterior confirmado como funcional: queda como fallback.
+    private val directModelName = "gemini-2.5-flash-lite"
+
+    private val directGenerativeModel = GenerativeModel(
+        modelName = directModelName,
         apiKey = BuildConfig.GEMINI_API_KEY
     )
+
+    private val firebaseAiGenerativeModel by lazy {
+        val secondaryApp = FirebaseApp.getInstance(HukaApplication.AI_FIREBASE_APP_NAME)
+        Firebase
+            .ai(
+                app = secondaryApp,
+                backend = GenerativeBackend.googleAI()
+            )
+            .generativeModel(firebaseAiModelName)
+    }
 
     private val systemPrompt = """
         Sos un guía experto en pesca deportiva argentina. Respondés a
@@ -60,7 +78,6 @@ class GeminiPescaService {
         pregunta: String,
         contexto: ConversationContext? = null
     ): String = withContext(Dispatchers.IO) {
-        Log.d("DEBUG_CHAT", "obtenerConsejoPesca | modelo=$modelName | sdk=directo")
 
         val promptCompleto = buildString {
             append(systemPrompt)
@@ -75,15 +92,46 @@ class GeminiPescaService {
             append("Pregunta del pescador: $pregunta")
         }
 
+        // 1) Prueba del nuevo proyecto Spark dedicado a AI Logic.
+        try {
+            Log.d(
+                "DEBUG_CHAT",
+                "probando HUKA_AI_FREE | modelo=$firebaseAiModelName | sdk=firebase-ai"
+            )
+
+            val response = firebaseAiGenerativeModel.generateContent(promptCompleto)
+            val text = response.text
+            if (!text.isNullOrBlank()) {
+                Log.d(
+                    "DEBUG_CHAT",
+                    "✅ HUKA_AI_FREE respondió (${text.length} chars) | modelo=$firebaseAiModelName"
+                )
+                return@withContext text
+            }
+
+            Log.w("DEBUG_CHAT", "HUKA_AI_FREE devolvió respuesta vacía; fallback=directo")
+        } catch (e: Exception) {
+            val detalle = (e.message ?: "")
+                .replace("\n", " ")
+                .take(300)
+            Log.w(
+                "DEBUG_CHAT",
+                "HUKA_AI_FREE falló [${e.javaClass.simpleName}] | detalle='$detalle' | fallback=directo"
+            )
+        }
+
+        // 2) Fallback al camino anterior que ya comprobamos que funciona.
+        Log.d("DEBUG_CHAT", "obtenerConsejoPesca | modelo=$directModelName | sdk=directo | fallback=true")
+
         var ultimaEx: Exception? = null
         repeat(3) { intento ->
             try {
-                val response = generativeModel.generateContent(
+                val response = directGenerativeModel.generateContent(
                     content { text(promptCompleto) }
                 )
                 Log.d(
                     "DEBUG_CHAT",
-                    "✅ Gemini respondió (${response.text?.length ?: 0} chars) en intento ${intento + 1}"
+                    "✅ Gemini directo respondió (${response.text?.length ?: 0} chars) en intento ${intento + 1}"
                 )
                 return@withContext response.text
                     ?: "Lo siento, no pude generar un consejo en este momento."
@@ -98,7 +146,7 @@ class GeminiPescaService {
                 val detalle = msg.replace("\n", " ").take(400)
                 Log.w(
                     "DEBUG_CHAT",
-                    "Intento ${intento + 1}/3 falló [${e.javaClass.simpleName}] " +
+                    "Fallback intento ${intento + 1}/3 falló [${e.javaClass.simpleName}] " +
                         "transitorio=$transitorio | detalle='$detalle'"
                 )
 
@@ -107,7 +155,7 @@ class GeminiPescaService {
             }
         }
 
-        Log.e("DEBUG_CHAT", "💥 Gemini agotó reintentos", ultimaEx)
+        Log.e("DEBUG_CHAT", "💥 Gemini directo agotó reintentos", ultimaEx)
         throw ultimaEx ?: RuntimeException("Error desconocido consultando Gemini")
     }
 }
