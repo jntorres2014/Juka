@@ -69,13 +69,11 @@ class HukaApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
-        // Firebase principal: Auth / Firestore / Storage / FCM.
         val defaultApp = FirebaseApp.initializeApp(this)
         if (defaultApp != null) {
             configureAppCheck(defaultApp, "principal")
         }
 
-        // Segundo Firebase: exclusivamente para Firebase AI Logic.
         initializeSecondaryAiFirebase()
 
         org.osmdroid.config.Configuration.getInstance().userAgentValue =
@@ -100,6 +98,7 @@ class HukaApplication : Application() {
     private fun initializeSecondaryAiFirebase() {
         if (
             BuildConfig.HUKA_AI_PROJECT_ID.isBlank() ||
+            BuildConfig.HUKA_AI_PROJECT_NUMBER.isBlank() ||
             BuildConfig.HUKA_AI_APP_ID.isBlank() ||
             BuildConfig.HUKA_AI_API_KEY.isBlank()
         ) {
@@ -114,6 +113,7 @@ class HukaApplication : Application() {
             val aiApp = existente ?: run {
                 val options = FirebaseOptions.Builder()
                     .setProjectId(BuildConfig.HUKA_AI_PROJECT_ID)
+                    .setGcmSenderId(BuildConfig.HUKA_AI_PROJECT_NUMBER)
                     .setApplicationId(BuildConfig.HUKA_AI_APP_ID)
                     .setApiKey(BuildConfig.HUKA_AI_API_KEY)
                     .build()
