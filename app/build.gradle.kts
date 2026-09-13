@@ -177,8 +177,8 @@ dependencies {
     ksp("androidx.room:room-compiler:2.6.1")
 
     // LiteRT (sucesor de TFLite — soporta ops v12+)
-    implementation("com.google.ai.edge.litert:litert:1.0.1")
-    implementation("com.google.ai.edge.litert:litert-support:1.0.1")
+    implementation("com.google.ai.edge.litert:litert:1.4.2")
+    implementation("com.google.ai.edge.litert:litert-support:1.4.2")
 
     // WorkManager — sincronización offline de borradores
     implementation("androidx.work:work-runtime-ktx:2.9.0")
