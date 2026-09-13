@@ -31,22 +31,43 @@ android {
             localProperties.load(localPropertiesFile.reader())
         }
 
+        val hukaAiProjectId = localProperties.getProperty("hukaAiProjectId", "")
+        val hukaAiAppId = localProperties.getProperty("hukaAiAppId", "")
+        val hukaAiFirebaseApiKey = localProperties.getProperty("hukaAiFirebaseApiKey", "")
+
+        // Seguridad operativa: nunca generar una versión release sin la
+        // configuración del Firebase secundario de IA. De este modo una
+        // máquina mal configurada falla al compilar en vez de publicar una
+        // versión cuyo Chat/identificador Premium no funcionen.
+        val releaseRequested = gradle.startParameter.taskNames.any {
+            it.contains("release", ignoreCase = true)
+        }
+        if (releaseRequested) {
+            require(
+                hukaAiProjectId.isNotBlank() &&
+                    hukaAiAppId.isNotBlank() &&
+                    hukaAiFirebaseApiKey.isNotBlank()
+            ) {
+                "Falta configurar hukaAiProjectId, hukaAiAppId o hukaAiFirebaseApiKey en local.properties"
+            }
+        }
+
         // Configuración pública del segundo Firebase usado solo para AI Logic.
         // Se mantiene fuera del repositorio en local.properties.
         buildConfigField(
             "String",
             "HUKA_AI_PROJECT_ID",
-            "\"${localProperties.getProperty("hukaAiProjectId", "")}\""
+            "\"$hukaAiProjectId\""
         )
         buildConfigField(
             "String",
             "HUKA_AI_APP_ID",
-            "\"${localProperties.getProperty("hukaAiAppId", "")}\""
+            "\"$hukaAiAppId\""
         )
         buildConfigField(
             "String",
             "HUKA_AI_API_KEY",
-            "\"${localProperties.getProperty("hukaAiFirebaseApiKey", "")}\""
+            "\"$hukaAiFirebaseApiKey\""
         )
     }
 
