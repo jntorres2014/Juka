@@ -91,9 +91,13 @@ class GeminiPescaService {
                         msg.contains("high demand", true) ||
                         msg.contains("overloaded", true)
 
+                // Diagnóstico acotado: solo clase y mensaje del SDK/backend.
+                // No se registran prompts, tokens de App Check ni credenciales.
+                val detalle = msg.replace("\n", " ").take(400)
                 Log.w(
                     "DEBUG_CHAT",
-                    "Intento ${intento + 1}/3 falló [${e.javaClass.simpleName}] transitorio=$transitorio"
+                    "Intento ${intento + 1}/3 falló [${e.javaClass.simpleName}] " +
+                            "transitorio=$transitorio | detalle='$detalle'"
                 )
 
                 if (!transitorio) throw e
