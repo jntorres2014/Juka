@@ -68,6 +68,7 @@ class FishIdentifier(private val application: Application) {
     companion object {
         private const val FISHIAL_API_URL = "https://jntorres2014-identifier-fish-api.hf.space/identify"
         private const val TAG = "FishIdentifier"
+        private const val PREMIUM_MODEL = "gemini-3.5-flash-lite"
     }
 
     private val generativeModel by lazy {
@@ -77,7 +78,7 @@ class FishIdentifier(private val application: Application) {
                 app = secondaryApp,
                 backend = GenerativeBackend.googleAI()
             )
-            .generativeModel("gemini-3.5-flash")
+            .generativeModel(PREMIUM_MODEL)
     }
 
     private val httpClient = OkHttpClient.Builder()
@@ -136,10 +137,11 @@ class FishIdentifier(private val application: Application) {
     }
 
     private suspend fun identifyWithGemini(imagePath: String): String = withContext(Dispatchers.IO) {
+        val inicio = System.currentTimeMillis()
         try {
             Log.d(
                 TAG,
-                "Premium: HUKA_AI_FREE | modelo=gemini-3.5-flash | sdk=firebase-ai"
+                "Premium: HUKA_AI_FREE | modelo=$PREMIUM_MODEL | sdk=firebase-ai"
             )
 
             val bitmap = decodeBitmapFromFile(imagePath)
@@ -183,10 +185,21 @@ class FishIdentifier(private val application: Application) {
             }
 
             val response = generativeModel.generateContent(inputContent)
-            response.text ?: "La IA no devolvió texto."
+            val text = response.text ?: "La IA no devolvió texto."
+            val duracionMs = System.currentTimeMillis() - inicio
+            Log.d(
+                TAG,
+                "✅ Premium respondió (${text.length} chars) | modelo=$PREMIUM_MODEL | tiempo=${duracionMs}ms"
+            )
+            text
         } catch (e: Exception) {
             val errorMsg = e.localizedMessage ?: "Error desconocido"
-            Log.e(TAG, "Error Firebase AI: ${e.javaClass.simpleName}")
+            val detalle = errorMsg.replace("\n", " ").take(400)
+            val duracionMs = System.currentTimeMillis() - inicio
+            Log.e(
+                TAG,
+                "Error Firebase AI [${e.javaClass.simpleName}] | modelo=$PREMIUM_MODEL | tiempo=${duracionMs}ms | detalle='$detalle'"
+            )
 
             when {
                 errorMsg.contains("503") ||
