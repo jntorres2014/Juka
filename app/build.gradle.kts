@@ -160,12 +160,13 @@ dependencies {
     implementation("org.osmdroid:osmdroid-android:6.1.18")
     implementation("com.google.android.gms:play-services-location:21.2.0")
 
-    // ML Kit
+    // ML Kit. Estas versiones ya incluyen las actualizaciones de compatibilidad
+    // con tamaños de página de 16 KB publicadas por Google.
     implementation("com.google.mlkit:entity-extraction:16.0.0-beta5")
-    implementation("com.google.mlkit:language-id:17.0.4")
-    implementation("com.google.mlkit:translate:17.0.1")
-    implementation("com.google.mlkit:text-recognition:16.0.0")
-    implementation("com.google.mlkit:smart-reply:17.0.2")
+    implementation("com.google.mlkit:language-id:17.0.6")
+    implementation("com.google.mlkit:translate:17.0.3")
+    implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("com.google.mlkit:smart-reply:17.0.4")
 
     // Serialización
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
