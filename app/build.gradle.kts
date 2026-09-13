@@ -25,17 +25,36 @@ android {
             useSupportLibrary = true
         }
 
-        // Compatibilidad temporal con el Chat IA anterior de Huka.
-        // La clave permanece fuera del repositorio, en local.properties.
         val localProperties = Properties()
         val localPropertiesFile = rootProject.file("local.properties")
         if (localPropertiesFile.exists()) {
             localProperties.load(localPropertiesFile.reader())
         }
+
+        // Compatibilidad temporal con el Chat IA anterior de Huka.
+        // La clave permanece fuera del repositorio, en local.properties.
         buildConfigField(
             "String",
             "GEMINI_API_KEY",
-            "\"${localProperties["geminiApiKey"] ?: ""}\""
+            "\"${localProperties.getProperty("geminiApiKey", "")}\""
+        )
+
+        // Configuración del segundo Firebase usado solo para AI Logic.
+        // Los valores permanecen fuera del repositorio, en local.properties.
+        buildConfigField(
+            "String",
+            "HUKA_AI_PROJECT_ID",
+            "\"${localProperties.getProperty("hukaAiProjectId", "")}\""
+        )
+        buildConfigField(
+            "String",
+            "HUKA_AI_APP_ID",
+            "\"${localProperties.getProperty("hukaAiAppId", "")}\""
+        )
+        buildConfigField(
+            "String",
+            "HUKA_AI_API_KEY",
+            "\"${localProperties.getProperty("hukaAiFirebaseApiKey", "")}\""
         )
     }
 
@@ -82,11 +101,10 @@ dependencies {
     implementation("com.google.firebase:firebase-storage-ktx")
     implementation("com.google.firebase:firebase-messaging-ktx")
 
-    // Firebase AI Logic se mantiene por ahora porque la identificación Premium
-    // todavía lo usa. El Chat vuelve temporalmente al SDK directo anterior.
+    // Firebase AI Logic para la prueba con el proyecto secundario Huka AI Free.
     implementation("com.google.firebase:firebase-ai")
 
-    // SDK directo de Gemini usado por el Chat anterior que ya funcionaba.
+    // SDK directo de Gemini usado como fallback estable durante la prueba.
     implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
 
     // App Check. Debug para Android Studio; Play Integrity para release.
