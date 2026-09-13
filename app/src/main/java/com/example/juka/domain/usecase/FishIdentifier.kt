@@ -4,7 +4,9 @@ import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Log
+import com.example.juka.HukaApplication
 import com.google.firebase.Firebase
+import com.google.firebase.FirebaseApp
 import com.google.firebase.ai.ai
 import com.google.firebase.ai.type.GenerativeBackend
 import com.google.firebase.ai.type.content
@@ -68,9 +70,15 @@ class FishIdentifier(private val application: Application) {
         private const val TAG = "FishIdentifier"
     }
 
-    private val generativeModel = Firebase
-        .ai(backend = GenerativeBackend.googleAI())
-        .generativeModel("gemini-3.5-flash")
+    private val generativeModel by lazy {
+        val secondaryApp = FirebaseApp.getInstance(HukaApplication.AI_FIREBASE_APP_NAME)
+        Firebase
+            .ai(
+                app = secondaryApp,
+                backend = GenerativeBackend.googleAI()
+            )
+            .generativeModel("gemini-3.5-flash")
+    }
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
@@ -129,7 +137,10 @@ class FishIdentifier(private val application: Application) {
 
     private suspend fun identifyWithGemini(imagePath: String): String = withContext(Dispatchers.IO) {
         try {
-            Log.d(TAG, "Iniciando análisis premium con Firebase AI")
+            Log.d(
+                TAG,
+                "Premium: HUKA_AI_FREE | modelo=gemini-3.5-flash | sdk=firebase-ai"
+            )
 
             val bitmap = decodeBitmapFromFile(imagePath)
                 ?: return@withContext "❌ Error: No se pudo leer el archivo de imagen."
