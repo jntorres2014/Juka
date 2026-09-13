@@ -115,8 +115,9 @@ dependencies {
     // Firebase AI Logic para Chat e identificación Premium en Huka AI Free.
     implementation("com.google.firebase:firebase-ai")
 
-    // App Check. Debug para Android Studio; Play Integrity para release.
-    implementation("com.google.firebase:firebase-appcheck-debug")
+    // App Check: el proveedor debug solo entra en builds debug; release usa
+    // exclusivamente Play Integrity.
+    debugImplementation("com.google.firebase:firebase-appcheck-debug")
     implementation("com.google.firebase:firebase-appcheck-playintegrity")
 
     // Google Sign In
