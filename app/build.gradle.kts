@@ -31,16 +31,8 @@ android {
             localProperties.load(localPropertiesFile.reader())
         }
 
-        // Compatibilidad temporal con el Chat IA anterior de Huka.
-        // La clave permanece fuera del repositorio, en local.properties.
-        buildConfigField(
-            "String",
-            "GEMINI_API_KEY",
-            "\"${localProperties.getProperty("geminiApiKey", "")}\""
-        )
-
-        // Configuración del segundo Firebase usado solo para AI Logic.
-        // Los valores permanecen fuera del repositorio, en local.properties.
+        // Configuración pública del segundo Firebase usado solo para AI Logic.
+        // Se mantiene fuera del repositorio en local.properties.
         buildConfigField(
             "String",
             "HUKA_AI_PROJECT_ID",
@@ -91,8 +83,6 @@ android {
 dependencies {
 
     // BoM 33.15.0 incluye Firebase AI Logic 16.1.0 + App Check 18.0.0.
-    // Kotlin/Compose/KSP ya están alineados con la metadata Kotlin 2.1 usada
-    // por estas versiones de Firebase.
     implementation(platform("com.google.firebase:firebase-bom:33.15.0"))
 
     implementation("com.google.firebase:firebase-firestore-ktx")
@@ -101,14 +91,10 @@ dependencies {
     implementation("com.google.firebase:firebase-storage-ktx")
     implementation("com.google.firebase:firebase-messaging-ktx")
 
-    // Firebase AI Logic para la prueba con el proyecto secundario Huka AI Free.
+    // Firebase AI Logic para Chat e identificación Premium en Huka AI Free.
     implementation("com.google.firebase:firebase-ai")
 
-    // SDK directo de Gemini usado como fallback estable durante la prueba.
-    implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
-
     // App Check. Debug para Android Studio; Play Integrity para release.
-    // Enforcement se habilita recién después de validar la migración.
     implementation("com.google.firebase:firebase-appcheck-debug")
     implementation("com.google.firebase:firebase-appcheck-playintegrity")
 
