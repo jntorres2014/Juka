@@ -21,8 +21,6 @@ import com.example.juka.worker.SyncBorradoresWorker
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.appcheck.FirebaseAppCheck
-import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
-import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import GeminiChatService
@@ -89,15 +87,7 @@ class HukaApplication : Application() {
     private fun configureAppCheck(firebaseApp: FirebaseApp, label: String) {
         try {
             val appCheck = FirebaseAppCheck.getInstance(firebaseApp)
-            if (BuildConfig.DEBUG) {
-                appCheck.installAppCheckProviderFactory(
-                    DebugAppCheckProviderFactory.getInstance()
-                )
-            } else {
-                appCheck.installAppCheckProviderFactory(
-                    PlayIntegrityAppCheckProviderFactory.getInstance()
-                )
-            }
+            AppCheckProviderInstaller.install(appCheck)
             Log.d(TAG, "App Check configurado para Firebase $label")
         } catch (e: Exception) {
             Log.w(
