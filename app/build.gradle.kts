@@ -17,8 +17,8 @@ android {
         applicationId = "com.jonytorres.huka"
         minSdk = 24
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.0.3"
+        versionCode = 7
+        versionName = "1.0.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -32,23 +32,24 @@ android {
         }
 
         val hukaAiProjectId = localProperties.getProperty("hukaAiProjectId", "")
+        val hukaAiProjectNumber = localProperties.getProperty("hukaAiProjectNumber", "")
         val hukaAiAppId = localProperties.getProperty("hukaAiAppId", "")
         val hukaAiFirebaseApiKey = localProperties.getProperty("hukaAiFirebaseApiKey", "")
 
         // Seguridad operativa: nunca generar una versión release sin la
-        // configuración del Firebase secundario de IA. De este modo una
-        // máquina mal configurada falla al compilar en vez de publicar una
-        // versión cuyo Chat/identificador Premium no funcionen.
+        // configuración completa del Firebase secundario de IA. App Check con
+        // Play Integrity necesita también el número de proyecto (gcmSenderId).
         val releaseRequested = gradle.startParameter.taskNames.any {
             it.contains("release", ignoreCase = true)
         }
         if (releaseRequested) {
             require(
                 hukaAiProjectId.isNotBlank() &&
+                    hukaAiProjectNumber.isNotBlank() &&
                     hukaAiAppId.isNotBlank() &&
                     hukaAiFirebaseApiKey.isNotBlank()
             ) {
-                "Falta configurar hukaAiProjectId, hukaAiAppId o hukaAiFirebaseApiKey en local.properties"
+                "Falta configurar hukaAiProjectId, hukaAiProjectNumber, hukaAiAppId o hukaAiFirebaseApiKey en local.properties"
             }
         }
 
@@ -58,6 +59,11 @@ android {
             "String",
             "HUKA_AI_PROJECT_ID",
             "\"$hukaAiProjectId\""
+        )
+        buildConfigField(
+            "String",
+            "HUKA_AI_PROJECT_NUMBER",
+            "\"$hukaAiProjectNumber\""
         )
         buildConfigField(
             "String",
