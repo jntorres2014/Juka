@@ -1,10 +1,7 @@
 package com.example.juka.data.remote
 
 import android.util.Log
-import com.example.juka.BuildConfig
 import com.example.juka.HukaApplication
-import com.google.ai.client.generativeai.GenerativeModel
-import com.google.ai.client.generativeai.type.content
 import com.google.firebase.Firebase
 import com.google.firebase.FirebaseApp
 import com.google.firebase.ai.ai
@@ -15,16 +12,7 @@ import kotlinx.coroutines.withContext
 
 class GeminiPescaService {
 
-    // Proyecto secundario gratuito: prueba primero este camino.
     private val firebaseAiModelName = "gemini-3.5-flash-lite"
-
-    // Camino anterior confirmado como funcional: queda como fallback.
-    private val directModelName = "gemini-2.5-flash-lite"
-
-    private val directGenerativeModel = GenerativeModel(
-        modelName = directModelName,
-        apiKey = BuildConfig.GEMINI_API_KEY
-    )
 
     private val firebaseAiGenerativeModel by lazy {
         val secondaryApp = FirebaseApp.getInstance(HukaApplication.AI_FIREBASE_APP_NAME)
@@ -92,49 +80,27 @@ class GeminiPescaService {
             append("Pregunta del pescador: $pregunta")
         }
 
-        // 1) Prueba del nuevo proyecto Spark dedicado a AI Logic.
-        try {
-            Log.d(
-                "DEBUG_CHAT",
-                "probando HUKA_AI_FREE | modelo=$firebaseAiModelName | sdk=firebase-ai"
-            )
-
-            val response = firebaseAiGenerativeModel.generateContent(promptCompleto)
-            val text = response.text
-            if (!text.isNullOrBlank()) {
-                Log.d(
-                    "DEBUG_CHAT",
-                    "✅ HUKA_AI_FREE respondió (${text.length} chars) | modelo=$firebaseAiModelName"
-                )
-                return@withContext text
-            }
-
-            Log.w("DEBUG_CHAT", "HUKA_AI_FREE devolvió respuesta vacía; fallback=directo")
-        } catch (e: Exception) {
-            val detalle = (e.message ?: "")
-                .replace("\n", " ")
-                .take(300)
-            Log.w(
-                "DEBUG_CHAT",
-                "HUKA_AI_FREE falló [${e.javaClass.simpleName}] | detalle='$detalle' | fallback=directo"
-            )
-        }
-
-        // 2) Fallback al camino anterior que ya comprobamos que funciona.
-        Log.d("DEBUG_CHAT", "obtenerConsejoPesca | modelo=$directModelName | sdk=directo | fallback=true")
-
         var ultimaEx: Exception? = null
+
         repeat(3) { intento ->
             try {
-                val response = directGenerativeModel.generateContent(
-                    content { text(promptCompleto) }
-                )
                 Log.d(
                     "DEBUG_CHAT",
-                    "✅ Gemini directo respondió (${response.text?.length ?: 0} chars) en intento ${intento + 1}"
+                    "HUKA_AI_FREE intento ${intento + 1}/3 | modelo=$firebaseAiModelName | sdk=firebase-ai"
                 )
-                return@withContext response.text
-                    ?: "Lo siento, no pude generar un consejo en este momento."
+
+                val response = firebaseAiGenerativeModel.generateContent(promptCompleto)
+                val text = response.text
+
+                if (!text.isNullOrBlank()) {
+                    Log.d(
+                        "DEBUG_CHAT",
+                        "✅ HUKA_AI_FREE respondió (${text.length} chars) | modelo=$firebaseAiModelName | intento=${intento + 1}"
+                    )
+                    return@withContext text
+                }
+
+                throw IllegalStateException("Firebase AI devolvió una respuesta vacía")
             } catch (e: Exception) {
                 ultimaEx = e
                 val msg = e.message ?: ""
@@ -143,10 +109,10 @@ class GeminiPescaService {
                     msg.contains("high demand", true) ||
                     msg.contains("overloaded", true)
 
-                val detalle = msg.replace("\n", " ").take(400)
+                val detalle = msg.replace("\n", " ").take(300)
                 Log.w(
                     "DEBUG_CHAT",
-                    "Fallback intento ${intento + 1}/3 falló [${e.javaClass.simpleName}] " +
+                    "HUKA_AI_FREE intento ${intento + 1}/3 falló [${e.javaClass.simpleName}] " +
                         "transitorio=$transitorio | detalle='$detalle'"
                 )
 
@@ -155,8 +121,8 @@ class GeminiPescaService {
             }
         }
 
-        Log.e("DEBUG_CHAT", "💥 Gemini directo agotó reintentos", ultimaEx)
-        throw ultimaEx ?: RuntimeException("Error desconocido consultando Gemini")
+        Log.e("DEBUG_CHAT", "HUKA_AI_FREE agotó reintentos", ultimaEx)
+        throw ultimaEx ?: RuntimeException("Error desconocido consultando Firebase AI")
     }
 }
 
