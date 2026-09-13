@@ -26,32 +26,11 @@ fun AppWithAuth() {
     val navController = rememberNavController()
     val authState by authManager.authState.collectAsState()
 
-    // Flujo de auth: Login → Términos (si no aceptó) → Encuesta (si no completó) → App
-    LaunchedEffect(authState) {
-        when (val state = authState) {
-            is AuthState.Authenticated -> {
-                val destino = when {
-                    !state.terminosAceptados -> AuthRoute.Terminos.route
-                    !state.encuestaCompleta  -> AuthRoute.Encuesta.route
-                    else                     -> AuthRoute.MainApp.route
-                }
-                navController.navigate(destino) {
-                    popUpTo(AuthRoute.Login.route) { inclusive = true }
-                }
-            }
-            is AuthState.Unauthenticated -> {
-                navController.navigate(AuthRoute.Login.route) {
-                    popUpTo(AuthRoute.MainApp.route) { inclusive = true }
-                }
-            }
-            else -> {} // Loading: no hacemos nada todavía
-        }
-    }
-
-    // ✅ Evitamos el "fogonazo" del Login mostrando Loading primero
-    if (authState is AuthState.Loading) {
-        LoadingScreen("Verificando sesión...")
-    } else {
+    // El NavHost permanece montado también mientras se verifica la sesión.
+    // Esto evita una carrera de arranque en la que AuthState cambia muy rápido
+    // (por ejemplo, en modo offline) y se intenta navegar antes de que el
+    // NavController tenga instalado su grafo.
+    Box(modifier = Modifier.fillMaxSize()) {
         NavHost(
             navController = navController,
             startDestination = AuthRoute.Login.route
@@ -87,6 +66,40 @@ fun AppWithAuth() {
                     HukaAppWithUser(user = user, authManager = authManager)
                 }
             }
+        }
+
+        // Cubrimos el Login mientras Firebase determina el estado de la sesión,
+        // pero sin desmontar el NavHost que necesita el NavController.
+        if (authState is AuthState.Loading) {
+            Surface(modifier = Modifier.fillMaxSize()) {
+                LoadingScreen("Verificando sesión...")
+            }
+        }
+    }
+
+    // Flujo de auth: Login → Términos (si no aceptó) → Encuesta (si no completó) → App.
+    // Al estar declarado después del NavHost, el grafo ya quedó instalado antes
+    // de que este efecto pueda ejecutar una navegación.
+    LaunchedEffect(authState) {
+        when (val state = authState) {
+            is AuthState.Authenticated -> {
+                val destino = when {
+                    !state.terminosAceptados -> AuthRoute.Terminos.route
+                    !state.encuestaCompleta -> AuthRoute.Encuesta.route
+                    else -> AuthRoute.MainApp.route
+                }
+                navController.navigate(destino) {
+                    popUpTo(AuthRoute.Login.route) { inclusive = true }
+                }
+            }
+
+            is AuthState.Unauthenticated -> {
+                navController.navigate(AuthRoute.Login.route) {
+                    popUpTo(AuthRoute.MainApp.route) { inclusive = true }
+                }
+            }
+
+            else -> Unit
         }
     }
 }
