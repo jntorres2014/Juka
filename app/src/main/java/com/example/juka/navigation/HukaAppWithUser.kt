@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -43,6 +44,7 @@ import com.example.juka.ui.theme.logros.AchievementUnlockedPopup
 import com.example.juka.ui.theme.logros.AchievementsScreen
 import com.example.juka.ui.theme.navigation.Screen
 import com.example.juka.ui.torneos.TorneosScreen
+import com.example.juka.ui.tutorial.TutorialPreferences
 import com.example.juka.ui.wizard.ParteWizardScreen
 import com.example.juka.viewmodel.AppViewModelProvider
 import com.example.juka.viewmodel.EnhancedChatViewModel
@@ -55,10 +57,17 @@ import kotlinx.coroutines.launch
 @Composable
 fun HukaAppWithUser(user: FirebaseUser, authManager: AuthManager) {
     val navController = rememberNavController()
+    val context = LocalContext.current
     val sharedViewModel: EnhancedChatViewModel = viewModel(factory = AppViewModelProvider.Factory)
     val torneosViewModel: TorneosViewModel = viewModel()
-    val networkMonitor = (LocalContext.current.applicationContext as HukaApplication).networkMonitor
-    val storage = (LocalContext.current.applicationContext as HukaApplication).localStorageHelper
+    val networkMonitor = (context.applicationContext as HukaApplication).networkMonitor
+    val storage = (context.applicationContext as HukaApplication).localStorageHelper
+    val tutorialPreferences = remember(context) {
+        TutorialPreferences(context.applicationContext)
+    }
+    var tutorialStep by rememberSaveable {
+        mutableIntStateOf(if (tutorialPreferences.hasSeenMainTutorial()) -1 else 0)
+    }
     var pendingAchievement by remember { mutableStateOf<Achievement?>(null) }
     // Cola de modales de "Nueva especie en tu Pescadex". Si un parte aporta
     // más de una especie nueva, se muestran en secuencia: cuando el usuario
@@ -106,6 +115,37 @@ fun HukaAppWithUser(user: FirebaseUser, authManager: AuthManager) {
     fun cerrarDrawer() = scope.launch { drawerState.close() }
     fun abrirDrawer() = scope.launch { drawerState.open() }
 
+    fun finalizarTutorial() {
+        tutorialPreferences.markMainTutorialSeen()
+        tutorialStep = -1
+        cerrarDrawer()
+    }
+
+    fun siguienteTutorial() {
+        when (tutorialStep) {
+            0 -> tutorialStep = 1
+            1 -> {
+                tutorialStep = 2
+                abrirDrawer()
+            }
+            in 2..4 -> tutorialStep += 1
+            5 -> finalizarTutorial()
+        }
+    }
+
+    fun omitirTutorial() {
+        finalizarTutorial()
+    }
+
+    fun repetirTutorial() {
+        tutorialPreferences.resetMainTutorial()
+        cerrarDrawer()
+        navController.navigate(Screen.ChatMenu.route) {
+            launchSingleTop = true
+        }
+        tutorialStep = 0
+    }
+
     ModalNavigationDrawer(
         drawerState = drawerState,
         // Solo permitimos el gesto cuando el drawer YA está abierto (para
@@ -131,7 +171,11 @@ fun HukaAppWithUser(user: FirebaseUser, authManager: AuthManager) {
                 onSignOut = {
                     cerrarDrawer()
                     authManager.signOut()
-                }
+                },
+                tutorialStep = tutorialStep,
+                onTutorialNext = { siguienteTutorial() },
+                onTutorialSkip = { omitirTutorial() },
+                onReplayTutorial = { repetirTutorial() }
             )
         }
     ) {
@@ -174,7 +218,10 @@ fun HukaAppWithUser(user: FirebaseUser, authManager: AuthManager) {
                             onOpenDrawer = { abrirDrawer() },
                             onOpenNotificaciones = {
                                 navController.navigate(Screen.Notificaciones.route)
-                            }
+                            },
+                            tutorialStep = tutorialStep,
+                            onTutorialNext = { siguienteTutorial() },
+                            onTutorialSkip = { omitirTutorial() }
                         )
                     }
 

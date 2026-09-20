@@ -10,12 +10,14 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -28,6 +30,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.HorizontalDivider
@@ -37,14 +40,23 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.juka.ui.theme.navigation.Screen
+import com.example.juka.ui.tutorial.CoachMarkOverlay
 import com.google.firebase.auth.FirebaseUser
 
 /**
@@ -75,7 +87,11 @@ fun HukaNavigationDrawer(
     currentRoute: String?,
     onNavigate: (Screen) -> Unit,
     onCloseDrawer: () -> Unit,
-    onSignOut: () -> Unit
+    onSignOut: () -> Unit,
+    tutorialStep: Int = -1,
+    onTutorialNext: () -> Unit = {},
+    onTutorialSkip: () -> Unit = {},
+    onReplayTutorial: () -> Unit = {}
 ) {
     val acentoPescadex = Color(0xFF1D9E75)
     val acentoCrearParte = Color(0xFFEF9F27)
@@ -99,10 +115,39 @@ fun HukaNavigationDrawer(
         DrawerEntry(Screen.Profile, "Perfil", "Tu cuenta y ajustes", Icons.Default.Person, acentoPerfil)
     )
 
+    val listState = rememberLazyListState()
+    var crearParteBounds by remember { mutableStateOf<Rect?>(null) }
+    var identificarBounds by remember { mutableStateOf<Rect?>(null) }
+    var pescadexBounds by remember { mutableStateOf<Rect?>(null) }
+    var logrosBounds by remember { mutableStateOf<Rect?>(null) }
+
+    LaunchedEffect(tutorialStep) {
+        when (tutorialStep) {
+            2 -> {
+                crearParteBounds = null
+                listState.animateScrollToItem(1)
+            }
+            3 -> {
+                identificarBounds = null
+                listState.animateScrollToItem(7)
+            }
+            4 -> {
+                pescadexBounds = null
+                listState.animateScrollToItem(0)
+            }
+            5 -> {
+                logrosBounds = null
+                listState.animateScrollToItem(5)
+            }
+        }
+    }
+
     ModalDrawerSheet(
         modifier = Modifier.fillMaxHeight(),
         drawerContainerColor = MaterialTheme.colorScheme.background
     ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxSize()) {
         // ── Header ────────────────────────────────────────────────────
         Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp)) {
             Row(
@@ -154,6 +199,7 @@ fun HukaNavigationDrawer(
 
         // ── Entries ───────────────────────────────────────────────────
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .weight(1f)
                 .padding(horizontal = 12.dp),
@@ -170,15 +216,55 @@ fun HukaNavigationDrawer(
                 val seleccionado = currentRoute == entry.screen.route ||
                         (entry.screen == Screen.ChatMenu && currentRoute == Screen.Chat.route) ||
                         (entry.screen == Screen.Wizard && currentRoute == Screen.Wizard.routeWithArgs)
+                val tutorialModifier = when (entry.screen) {
+                    Screen.Wizard -> Modifier.onGloballyPositioned {
+                        crearParteBounds = it.boundsInWindow()
+                    }
+                    Screen.Identificar -> Modifier.onGloballyPositioned {
+                        identificarBounds = it.boundsInWindow()
+                    }
+                    Screen.Pescadex -> Modifier.onGloballyPositioned {
+                        pescadexBounds = it.boundsInWindow()
+                    }
+                    Screen.Logros -> Modifier.onGloballyPositioned {
+                        logrosBounds = it.boundsInWindow()
+                    }
+                    else -> Modifier
+                }
+
                 DrawerEntryCard(
                     entry = entry,
                     isSelected = seleccionado,
+                    modifier = tutorialModifier,
                     onClick = { onNavigate(entry.screen) }
                 )
             }
         }
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+        // ── Ayuda / repetir tutorial ──────────────────────────────────
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onReplayTutorial() }
+                .padding(horizontal = 18.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Default.HelpOutline,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(22.dp)
+            )
+            Spacer(modifier = Modifier.width(14.dp))
+            Text(
+                "Ver tutorial",
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
 
         // ── Cerrar sesión ─────────────────────────────────────────────
         Row(
@@ -201,6 +287,39 @@ fun HukaNavigationDrawer(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+            }
+
+            val tutorialTarget = when (tutorialStep) {
+                2 -> crearParteBounds
+                3 -> identificarBounds
+                4 -> pescadexBounds
+                5 -> logrosBounds
+                else -> null
+            }
+
+            tutorialTarget?.let { target ->
+                val (title, description) = when (tutorialStep) {
+                    2 -> "Registrá tu jornada" to
+                        "Creá un parte cada vez que salgas a pescar. También sirve si no tuviste capturas."
+                    3 -> "Identificá una especie" to
+                        "Sacale una foto a un pez y Huka puede ayudarte a identificarlo."
+                    4 -> "Completá tu Pescadex" to
+                        "Las especies que registres se van sumando a tu colección."
+                    else -> "Desbloqueá logros" to
+                        "Tus registros y participación en Huka te permiten conseguir nuevos logros."
+                }
+
+                CoachMarkOverlay(
+                    target = target,
+                    title = title,
+                    description = description,
+                    stepLabel = "${tutorialStep + 1} de 6",
+                    nextLabel = if (tutorialStep == 5) "Listo" else "Siguiente",
+                    onNext = onTutorialNext,
+                    onSkip = onTutorialSkip
+                )
+            }
+        }
     }
 }
 
@@ -208,6 +327,7 @@ fun HukaNavigationDrawer(
 private fun DrawerEntryCard(
     entry: DrawerEntry,
     isSelected: Boolean,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     val containerColor = if (isSelected) {
@@ -221,7 +341,7 @@ private fun DrawerEntryCard(
         shape = RoundedCornerShape(12.dp),
         color = containerColor,
         border = BorderStroke(if (isSelected) 1.dp else 0.dp, borderColor),
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable { onClick() }
     ) {
