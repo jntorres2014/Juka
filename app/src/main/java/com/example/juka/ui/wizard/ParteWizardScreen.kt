@@ -332,7 +332,14 @@ private fun Step1_DateTime(data: WizardData, showError: Boolean, onUpdate: (Wiza
         }, cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE), true).show()
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         WizardRow(label = "Fecha", icon = Icons.Default.CalendarToday, value = data.fecha, onClick = ::showDatePicker)
         WizardRow(label = "Hora de inicio", icon = Icons.Default.Schedule, value = data.horaInicio.ifBlank { "Seleccionar hora" }, isError = showError && data.horaInicio.isBlank(), onClick = { showTimePicker(true) })
         if (showError && data.horaInicio.isBlank()) StepErrorText("Seleccioná la hora de inicio.")
@@ -508,7 +515,14 @@ private fun Step3_Ubicacion(data: WizardData, showError: Boolean, onOpenMap: () 
         mostrarError -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.outlineVariant
     }
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         OutlinedCard(onClick = onOpenMap, modifier = Modifier.fillMaxWidth().height(140.dp), shape = RoundedCornerShape(16.dp), border = BorderStroke(if (hasLocation || mostrarError) 2.dp else 0.5.dp, borderColor), colors = CardDefaults.outlinedCardColors(containerColor = if (hasLocation) GREEN_LIGHT else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))) {
             Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 Icon(if (hasLocation) Icons.Default.CheckCircle else Icons.Default.Map, null, modifier = Modifier.size(36.dp), tint = if (hasLocation) GREEN else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -614,7 +628,14 @@ private fun Step4_Especies(data: WizardData, onUpdate: (WizardData) -> Unit) {
 // Paso — Observaciones | OBLIGATORIO
 @Composable
 private fun Step6_Observaciones(data: WizardData, showError: Boolean, onUpdate: (WizardData) -> Unit) {
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         OptionalBadge("Opcional — podés guardar el parte sin notas")
         OutlinedTextField(value = data.observaciones, onValueChange = { onUpdate(data.copy(observaciones = it)) }, placeholder = { Text("Ej: mucho viento del sur, usamos lombriz, el agua estaba turbia...") }, modifier = Modifier.fillMaxWidth().height(180.dp), shape = RoundedCornerShape(12.dp), maxLines = 8, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences))
         HintText("Describí las condiciones del agua, carnadas usadas, clima, o lo que quieras recordar.")
@@ -630,7 +651,14 @@ private fun Step7_Foto(data: WizardData, showError: Boolean, onPickImage: () -> 
         mostrarError -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.outlineVariant
     }
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         Box(modifier = Modifier.fillMaxWidth().height(240.dp).clip(RoundedCornerShape(16.dp)).border(if (data.imagenPath != null || mostrarError) 2.dp else 1.dp, borderColor, RoundedCornerShape(16.dp)).background(if (data.imagenPath != null) Color.Transparent else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)).clickable(enabled = data.imagenPath == null) { onPickImage() }, contentAlignment = Alignment.Center) {
             if (data.imagenPath != null) {
                 Image(painter = rememberAsyncImagePainter(File(data.imagenPath)), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
