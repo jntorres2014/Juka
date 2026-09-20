@@ -2,6 +2,7 @@ package com.example.juka.ui.wizard
 
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import android.content.res.Configuration
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,6 +22,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -208,21 +210,47 @@ fun ParteWizardScreen(
             modifier = Modifier.fillMaxSize().padding(paddingValues),
             label = "wizard_step"
         ) { step ->
-            Column(modifier = Modifier.fillMaxSize()) {
-                // Un solo contenedor scrollable para TODO el cuerpo del paso.
-                // En landscape la altura útil es muy baja; antes cada paso
-                // intentaba manejar su propio scroll dentro de un Box con weight,
-                // lo que podía dejar el gesto sin recorrido efectivo.
-                val stepScrollState = rememberScrollState()
+            val isLandscape =
+                LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+            val stepScrollState = rememberScrollState()
+
+            // En vertical mantenemos el botón fijo y hacemos scroll solo sobre
+            // el cuerpo. En horizontal la altura útil es mucho menor, por eso
+            // TODO el contenido (incluido Siguiente/Guardar) participa del
+            // mismo scroll. Así evitamos que top bar + progreso + footer dejen
+            // al paso con una altura prácticamente nula.
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(
+                        if (isLandscape) {
+                            Modifier.verticalScroll(stepScrollState)
+                        } else {
+                            Modifier
+                        }
+                    )
+            ) {
                 Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
+                    modifier = if (isLandscape) {
+                        Modifier.fillMaxWidth()
+                    } else {
+                        Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                    }
                 ) {
                     Column(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(stepScrollState)
+                            .fillMaxWidth()
+                            .then(
+                                if (isLandscape) {
+                                    Modifier
+                                } else {
+                                    Modifier
+                                        .fillMaxSize()
+                                        .verticalScroll(stepScrollState)
+                                }
+                            )
                             .padding(bottom = 16.dp)
                     ) {
                         Text(
