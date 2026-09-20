@@ -88,14 +88,25 @@ fun AppWithAuth() {
                     !state.encuestaCompleta -> AuthRoute.Encuesta.route
                     else -> AuthRoute.MainApp.route
                 }
-                navController.navigate(destino) {
-                    popUpTo(AuthRoute.Login.route) { inclusive = true }
+
+                // El NavController restaura su destino tras una recreación de
+                // Activity (por ejemplo, al girar la pantalla). Si ya estamos
+                // en ese destino, volver a navegar crearía otra instancia de
+                // MainApp y reiniciaría el NavHost interno (incluido el wizard).
+                if (navController.currentDestination?.route != destino) {
+                    navController.navigate(destino) {
+                        popUpTo(AuthRoute.Login.route) { inclusive = true }
+                        launchSingleTop = true
+                    }
                 }
             }
 
             is AuthState.Unauthenticated -> {
-                navController.navigate(AuthRoute.Login.route) {
-                    popUpTo(AuthRoute.MainApp.route) { inclusive = true }
+                if (navController.currentDestination?.route != AuthRoute.Login.route) {
+                    navController.navigate(AuthRoute.Login.route) {
+                        popUpTo(AuthRoute.MainApp.route) { inclusive = true }
+                        launchSingleTop = true
+                    }
                 }
             }
 
