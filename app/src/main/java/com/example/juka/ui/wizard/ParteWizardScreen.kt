@@ -2,14 +2,14 @@ package com.example.juka.ui.wizard
 
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import android.content.res.Configuration
 import android.net.Uri
+import android.os.Bundle
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -17,12 +17,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -55,6 +58,96 @@ private data class WizardData(
     val numeroCanas: Int? = null,
     val observaciones: String = "",
     val imagenPath: String? = null
+)
+
+/**
+ * Persiste el borrador del wizard ante recreaciones de Activity (rotación,
+ * cambio de configuración, etc.). Solo guardamos tipos compatibles con Bundle.
+ */
+private val WizardDataSaver = Saver<WizardData, Bundle>(
+    save = { data ->
+        Bundle().apply {
+            putString("fecha", data.fecha)
+            putString("horaInicio", data.horaInicio)
+            putString("horaFin", data.horaFin)
+            putString("modalidad", data.modalidad?.name)
+            putBoolean("esOtraModalidad", data.esOtraModalidad)
+            putString("otraModalidadTexto", data.otraModalidadTexto)
+
+            putBoolean("tieneUbicacion", data.ubicacion != null)
+            data.ubicacion?.let {
+                putDouble("latitud", it.latitude)
+                putDouble("longitud", it.longitude)
+            }
+
+            putString("nombreLugar", data.nombreLugar)
+            putStringArrayList(
+                "especies",
+                ArrayList(
+                    data.especies.map { especie ->
+                        listOf(
+                            Uri.encode(especie.nombre),
+                            especie.numeroEjemplares.toString(),
+                            especie.numeroRetenidos.toString(),
+                            especie.numeroDevueltos.toString(),
+                            if (especie.esEspecieDesconocida) "1" else "0"
+                        ).joinToString("|")
+                    }
+                )
+            )
+
+            putBoolean("tieneNumeroCanas", data.numeroCanas != null)
+            data.numeroCanas?.let { putInt("numeroCanas", it) }
+            putString("observaciones", data.observaciones)
+            putString("imagenPath", data.imagenPath)
+        }
+    },
+    restore = { bundle ->
+        val modalidad = bundle.getString("modalidad")?.let { nombre ->
+            runCatching { ModalidadPesca.valueOf(nombre) }.getOrNull()
+        }
+
+        val especies = bundle.getStringArrayList("especies")
+            .orEmpty()
+            .mapNotNull { serializada ->
+                val partes = serializada.split("|")
+                if (partes.size != 5) {
+                    null
+                } else {
+                    EspecieCapturada(
+                        nombre = Uri.decode(partes[0]),
+                        numeroEjemplares = partes[1].toIntOrNull() ?: 0,
+                        numeroRetenidos = partes[2].toIntOrNull() ?: 0,
+                        numeroDevueltos = partes[3].toIntOrNull() ?: 0,
+                        esEspecieDesconocida = partes[4] == "1"
+                    )
+                }
+            }
+
+        WizardData(
+            fecha = bundle.getString("fecha")
+                ?: SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()),
+            horaInicio = bundle.getString("horaInicio").orEmpty(),
+            horaFin = bundle.getString("horaFin").orEmpty(),
+            modalidad = modalidad,
+            esOtraModalidad = bundle.getBoolean("esOtraModalidad"),
+            otraModalidadTexto = bundle.getString("otraModalidadTexto").orEmpty(),
+            ubicacion = if (bundle.getBoolean("tieneUbicacion")) {
+                GeoPoint(bundle.getDouble("latitud"), bundle.getDouble("longitud"))
+            } else {
+                null
+            },
+            nombreLugar = bundle.getString("nombreLugar").orEmpty(),
+            especies = especies,
+            numeroCanas = if (bundle.getBoolean("tieneNumeroCanas")) {
+                bundle.getInt("numeroCanas")
+            } else {
+                null
+            },
+            observaciones = bundle.getString("observaciones").orEmpty(),
+            imagenPath = bundle.getString("imagenPath")
+        )
+    }
 )
 
 // Pasos (tras mover cañas a modalidad y poner foto antes que observaciones):
@@ -125,18 +218,23 @@ fun ParteWizardScreen(
     val scope = rememberCoroutineScope()
     val imageHelper = remember { ImageHelper(context) }
 
-    var currentStep by remember { mutableIntStateOf(0) }
-    var data by remember { mutableStateOf(WizardData()) }
-    var showMapPicker by remember { mutableStateOf(false) }
+    var currentStep by rememberSaveable { mutableIntStateOf(0) }
+    var data by rememberSaveable(stateSaver = WizardDataSaver) {
+        mutableStateOf(WizardData())
+    }
+    var showMapPicker by rememberSaveable { mutableStateOf(false) }
+    // No persistimos isSaving para no dejar la UI bloqueada si Android
+    // recrea la Activity mientras una operación estaba en curso.
     var isSaving by remember { mutableStateOf(false) }
-    var showStepError by remember { mutableStateOf(false) }
+    var showStepError by rememberSaveable { mutableStateOf(false) }
+    var initialPayloadApplied by rememberSaveable { mutableStateOf(false) }
 
     // Se ejecuta una sola vez al entrar (no en cada recomposición). Guarda
     // la foto en el mismo storage interno que usa el picker normal del
     // wizard, así el resto del flujo (paso Foto, guardado final) no
     // necesita saber de dónde vino.
-    LaunchedEffect(fotoInicialUri) {
-        if (fotoInicialUri != null) {
+    LaunchedEffect(fotoInicialUri, initialPayloadApplied) {
+        if (!initialPayloadApplied && fotoInicialUri != null) {
             val path = imageHelper.saveImageToInternalStorage(fotoInicialUri)
             if (path != null) {
                 data = data.copy(
@@ -144,6 +242,8 @@ fun ParteWizardScreen(
                     especies = if (especiesIniciales.isNotEmpty()) especiesIniciales else data.especies
                 )
             }
+            // Evita volver a aplicar la precarga al rotar.
+            initialPayloadApplied = true
         }
     }
 
@@ -210,16 +310,63 @@ fun ParteWizardScreen(
             modifier = Modifier.fillMaxSize().padding(paddingValues),
             label = "wizard_step"
         ) { step ->
-            Column(modifier = Modifier.fillMaxSize()) {
-                Text(STEP_TITLES[step], fontSize = 20.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp))
-                Box(modifier = Modifier.weight(1f)) {
-                    when (step) {
-                        0 -> Step1_DateTime(data, showStepError) { data = it }
-                        1 -> Step2_Modalidad(data, showStepError) { data = it }
-                        2 -> Step3_Ubicacion(data, showStepError, onOpenMap = { showMapPicker = true }) { data = it }
-                        3 -> Step4_Especies(data) { data = it }
-                        4 -> Step7_Foto(data, showStepError, onPickImage = abrirPickerImagen) { data = it }
-                        5 -> Step6_Observaciones(data, showStepError) { data = it }
+            val isLandscape =
+                LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+            val stepScrollState = rememberScrollState()
+
+            // En vertical mantenemos el botón fijo y hacemos scroll solo sobre
+            // el cuerpo. En horizontal la altura útil es mucho menor, por eso
+            // TODO el contenido (incluido Siguiente/Guardar) participa del
+            // mismo scroll. Así evitamos que top bar + progreso + footer dejen
+            // al paso con una altura prácticamente nula.
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(
+                        if (isLandscape) {
+                            Modifier.verticalScroll(stepScrollState)
+                        } else {
+                            Modifier
+                        }
+                    )
+            ) {
+                Box(
+                    modifier = if (isLandscape) {
+                        Modifier.fillMaxWidth()
+                    } else {
+                        Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                    }
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(
+                                if (isLandscape) {
+                                    Modifier
+                                } else {
+                                    Modifier
+                                        .fillMaxSize()
+                                        .verticalScroll(stepScrollState)
+                                }
+                            )
+                            .padding(bottom = 16.dp)
+                    ) {
+                        Text(
+                            STEP_TITLES[step],
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)
+                        )
+                        when (step) {
+                            0 -> Step1_DateTime(data, showStepError) { data = it }
+                            1 -> Step2_Modalidad(data, showStepError) { data = it }
+                            2 -> Step3_Ubicacion(data, showStepError, onOpenMap = { showMapPicker = true }) { data = it }
+                            3 -> Step4_Especies(data) { data = it }
+                            4 -> Step7_Foto(data, showStepError, onPickImage = abrirPickerImagen) { data = it }
+                            5 -> Step6_Observaciones(data, showStepError) { data = it }
+                        }
                     }
                 }
                 HorizontalDivider()
@@ -332,7 +479,13 @@ private fun Step1_DateTime(data: WizardData, showError: Boolean, onUpdate: (Wiza
         }, cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE), true).show()
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         WizardRow(label = "Fecha", icon = Icons.Default.CalendarToday, value = data.fecha, onClick = ::showDatePicker)
         WizardRow(label = "Hora de inicio", icon = Icons.Default.Schedule, value = data.horaInicio.ifBlank { "Seleccionar hora" }, isError = showError && data.horaInicio.isBlank(), onClick = { showTimePicker(true) })
         if (showError && data.horaInicio.isBlank()) StepErrorText("Seleccioná la hora de inicio.")
@@ -384,8 +537,7 @@ private fun Step2_Modalidad(data: WizardData, showError: Boolean, onUpdate: (Wiz
     )
     Column(
         modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .fillMaxWidth()
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -508,7 +660,13 @@ private fun Step3_Ubicacion(data: WizardData, showError: Boolean, onOpenMap: () 
         mostrarError -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.outlineVariant
     }
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         OutlinedCard(onClick = onOpenMap, modifier = Modifier.fillMaxWidth().height(140.dp), shape = RoundedCornerShape(16.dp), border = BorderStroke(if (hasLocation || mostrarError) 2.dp else 0.5.dp, borderColor), colors = CardDefaults.outlinedCardColors(containerColor = if (hasLocation) GREEN_LIGHT else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))) {
             Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 Icon(if (hasLocation) Icons.Default.CheckCircle else Icons.Default.Map, null, modifier = Modifier.size(36.dp), tint = if (hasLocation) GREEN else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -530,91 +688,251 @@ private fun Step4_Especies(data: WizardData, onUpdate: (WizardData) -> Unit) {
     val fishDatabase = remember { FishDatabase(context) }
     var busqueda by remember { mutableStateOf("") }
     var sugerencias by remember { mutableStateOf<List<String>>(emptyList()) }
+
     LaunchedEffect(Unit) { fishDatabase.initialize() }
-    LaunchedEffect(busqueda) { sugerencias = if (busqueda.length >= 2) fishDatabase.searchSpecies(busqueda).map { it.name }.take(5) else emptyList() }
+    LaunchedEffect(busqueda) {
+        sugerencias = if (busqueda.length >= 2) {
+            fishDatabase.searchSpecies(busqueda).map { it.name }.take(5)
+        } else {
+            emptyList()
+        }
+    }
+
     fun agregar(nombre: String) {
         val lista = data.especies.toMutableList()
         val idx = lista.indexOfFirst { it.nombre.equals(nombre, ignoreCase = true) }
-        if (idx != -1) lista[idx] = lista[idx].copy(numeroEjemplares = lista[idx].numeroEjemplares + 1)
-        else lista.add(EspecieCapturada(nombre = nombre, numeroEjemplares = 1))
-        onUpdate(data.copy(especies = lista)); busqueda = ""
+        if (idx != -1) {
+            lista[idx] = lista[idx].copy(
+                numeroEjemplares = lista[idx].numeroEjemplares + 1
+            )
+        } else {
+            lista.add(EspecieCapturada(nombre = nombre, numeroEjemplares = 1))
+        }
+        onUpdate(data.copy(especies = lista))
+        busqueda = ""
     }
+
     fun restar(nombre: String) {
         val lista = data.especies.toMutableList()
         val idx = lista.indexOfFirst { it.nombre.equals(nombre, ignoreCase = true) }
         if (idx != -1) {
             val n = lista[idx].numeroEjemplares - 1
-            if (n <= 0) lista.removeAt(idx)
-            // Al bajar el total, los devueltos no pueden superarlo.
-            else lista[idx] = lista[idx].copy(numeroEjemplares = n, numeroDevueltos = lista[idx].numeroDevueltos.coerceAtMost(n))
+            if (n <= 0) {
+                lista.removeAt(idx)
+            } else {
+                lista[idx] = lista[idx].copy(
+                    numeroEjemplares = n,
+                    numeroDevueltos = lista[idx].numeroDevueltos.coerceAtMost(n)
+                )
+            }
             onUpdate(data.copy(especies = lista))
         }
     }
+
     fun devolver(nombre: String, delta: Int) {
         val lista = data.especies.toMutableList()
         val idx = lista.indexOfFirst { it.nombre.equals(nombre, ignoreCase = true) }
         if (idx != -1) {
             val e = lista[idx]
-            lista[idx] = e.copy(numeroDevueltos = (e.numeroDevueltos + delta).coerceIn(0, e.numeroEjemplares))
+            lista[idx] = e.copy(
+                numeroDevueltos = (e.numeroDevueltos + delta)
+                    .coerceIn(0, e.numeroEjemplares)
+            )
             onUpdate(data.copy(especies = lista))
         }
     }
-    LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        item { OptionalBadge("Opcional — si no pescaste nada podés continuar") }
-        item { OutlinedTextField(value = busqueda, onValueChange = { busqueda = it }, label = { Text("Buscar especie") }, placeholder = { Text("Ej: Pejerrey, Róbalo...") }, leadingIcon = { Icon(Icons.Default.Search, null) }, trailingIcon = { if (busqueda.isNotBlank()) IconButton(onClick = { busqueda = "" }) { Icon(Icons.Default.Clear, null) } }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), singleLine = true) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        OptionalBadge("Opcional — si no pescaste nada podés continuar")
+
+        OutlinedTextField(
+            value = busqueda,
+            onValueChange = { busqueda = it },
+            label = { Text("Buscar especie") },
+            placeholder = { Text("Ej: Pejerrey, Róbalo...") },
+            leadingIcon = { Icon(Icons.Default.Search, null) },
+            trailingIcon = {
+                if (busqueda.isNotBlank()) {
+                    IconButton(onClick = { busqueda = "" }) {
+                        Icon(Icons.Default.Clear, null)
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            singleLine = true
+        )
+
         if (sugerencias.isNotEmpty()) {
-            item {
-                Card(shape = RoundedCornerShape(12.dp), border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)) {
-                    Column {
-                        sugerencias.forEachIndexed { i, especie ->
-                            Row(modifier = Modifier.fillMaxWidth().clickable { agregar(especie) }.padding(12.dp, 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text("🐟", fontSize = 16.sp); Spacer(Modifier.width(10.dp)); Text(especie, fontSize = 14.sp, modifier = Modifier.weight(1f)); Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                            }
-                            if (i < sugerencias.lastIndex) HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp))
+            Card(
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(
+                    0.5.dp,
+                    MaterialTheme.colorScheme.outlineVariant
+                )
+            ) {
+                Column {
+                    sugerencias.forEachIndexed { i, especie ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { agregar(especie) }
+                                .padding(12.dp, 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("🐟", fontSize = 16.sp)
+                            Spacer(Modifier.width(10.dp))
+                            Text(especie, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                            Icon(
+                                Icons.Default.Add,
+                                null,
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        if (i < sugerencias.lastIndex) {
+                            HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp))
                         }
                     }
                 }
             }
         }
-        if (data.especies.isNotEmpty()) item { Text("Capturas registradas", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        items(data.especies, key = { it.nombre }) { especie ->
+
+        if (data.especies.isNotEmpty()) {
+            Text(
+                "Capturas registradas",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        data.especies.forEach { especie ->
             val retenidos = especie.numeroEjemplares - especie.numeroDevueltos
-            Column(modifier = Modifier.fillMaxWidth().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp)).padding(12.dp, 10.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(
+                        0.5.dp,
+                        MaterialTheme.colorScheme.outlineVariant,
+                        RoundedCornerShape(12.dp)
+                    )
+                    .padding(12.dp, 10.dp)
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("🐟", fontSize = 18.sp); Spacer(Modifier.width(10.dp))
-                    Text(especie.nombre, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        IconButton(onClick = { restar(especie.nombre) }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Remove, null, modifier = Modifier.size(18.dp)) }
-                        Text("${especie.numeroEjemplares}", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.widthIn(min = 24.dp))
-                        IconButton(onClick = { agregar(especie.nombre) }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp)) }
+                    Text("🐟", fontSize = 18.sp)
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        especie.nombre,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        IconButton(
+                            onClick = { restar(especie.nombre) },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Default.Remove, null, modifier = Modifier.size(18.dp))
+                        }
+                        Text(
+                            "${especie.numeroEjemplares}",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.widthIn(min = 24.dp)
+                        )
+                        IconButton(
+                            onClick = { agregar(especie.nombre) },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
+                        }
                     }
                 }
-                // Devolución al agua, por especie.
+
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Waves, null, tint = GREEN, modifier = Modifier.size(16.dp))
+                    Icon(
+                        Icons.Default.Waves,
+                        null,
+                        tint = GREEN,
+                        modifier = Modifier.size(16.dp)
+                    )
                     Spacer(Modifier.width(6.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Devueltos al agua", fontSize = 13.sp)
-                        Text("Te llevás $retenidos", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "Te llevás $retenidos",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        IconButton(onClick = { devolver(especie.nombre, -1) }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Remove, null, modifier = Modifier.size(18.dp)) }
-                        Text("${especie.numeroDevueltos}", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = GREEN_DARK, modifier = Modifier.widthIn(min = 24.dp))
-                        IconButton(onClick = { devolver(especie.nombre, 1) }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp)) }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        IconButton(
+                            onClick = { devolver(especie.nombre, -1) },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Default.Remove, null, modifier = Modifier.size(18.dp))
+                        }
+                        Text(
+                            "${especie.numeroDevueltos}",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = GREEN_DARK,
+                            modifier = Modifier.widthIn(min = 24.dp)
+                        )
+                        IconButton(
+                            onClick = { devolver(especie.nombre, 1) },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
+                        }
                     }
                 }
             }
         }
-        if (data.especies.isEmpty() && sugerencias.isEmpty()) item { Box(modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp), contentAlignment = Alignment.Center) { Text("Buscá una especie para agregarla", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp) } }
-        item { Spacer(modifier = Modifier.height(8.dp)) }
+
+        if (data.especies.isEmpty() && sugerencias.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "Buscá una especie para agregarla",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 14.sp
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
     }
 }
 
 // Paso — Observaciones | OBLIGATORIO
 @Composable
 private fun Step6_Observaciones(data: WizardData, showError: Boolean, onUpdate: (WizardData) -> Unit) {
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         OptionalBadge("Opcional — podés guardar el parte sin notas")
         OutlinedTextField(value = data.observaciones, onValueChange = { onUpdate(data.copy(observaciones = it)) }, placeholder = { Text("Ej: mucho viento del sur, usamos lombriz, el agua estaba turbia...") }, modifier = Modifier.fillMaxWidth().height(180.dp), shape = RoundedCornerShape(12.dp), maxLines = 8, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences))
         HintText("Describí las condiciones del agua, carnadas usadas, clima, o lo que quieras recordar.")
@@ -630,7 +948,13 @@ private fun Step7_Foto(data: WizardData, showError: Boolean, onPickImage: () -> 
         mostrarError -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.outlineVariant
     }
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         Box(modifier = Modifier.fillMaxWidth().height(240.dp).clip(RoundedCornerShape(16.dp)).border(if (data.imagenPath != null || mostrarError) 2.dp else 1.dp, borderColor, RoundedCornerShape(16.dp)).background(if (data.imagenPath != null) Color.Transparent else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)).clickable(enabled = data.imagenPath == null) { onPickImage() }, contentAlignment = Alignment.Center) {
             if (data.imagenPath != null) {
                 Image(painter = rememberAsyncImagePainter(File(data.imagenPath)), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
