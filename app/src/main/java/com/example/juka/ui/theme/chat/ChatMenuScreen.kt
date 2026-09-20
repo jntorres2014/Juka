@@ -21,7 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -92,7 +92,7 @@ fun ChatMenuScreen(
                         onClick = onOpenDrawer,
                         modifier = Modifier
                             .size(28.dp)
-                            .onGloballyPositioned { menuButtonBounds = it.boundsInRoot() }
+                            .onGloballyPositioned { menuButtonBounds = it.boundsInWindow() }
                     ) {
                         Icon(
                             Icons.Default.Menu,
@@ -126,7 +126,7 @@ fun ChatMenuScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             MenuOptionCard(
-                modifier = Modifier.onGloballyPositioned { consultaCardBounds = it.boundsInRoot() },
+                modifier = Modifier.onGloballyPositioned { consultaCardBounds = it.boundsInWindow() },
                 icon = Icons.Default.Chat,
                 titulo = "Hacer una consulta",
                 subtitulo = "Preguntale lo que quieras a Huka",
