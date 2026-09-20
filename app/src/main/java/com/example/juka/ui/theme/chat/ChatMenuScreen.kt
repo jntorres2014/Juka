@@ -19,12 +19,16 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.juka.ui.notificaciones.CampanaIcon
+import com.example.juka.ui.tutorial.CoachMarkOverlay
 import com.google.firebase.auth.FirebaseUser
 
 /**
@@ -45,10 +49,15 @@ fun ChatMenuScreen(
     user: FirebaseUser,
     onConsultar: () -> Unit,
     onOpenDrawer: () -> Unit = {},
-    onOpenNotificaciones: () -> Unit = {}
+    onOpenNotificaciones: () -> Unit = {},
+    tutorialStep: Int = -1,
+    onTutorialNext: () -> Unit = {},
+    onTutorialSkip: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var mostrarInfoAdicional by rememberSaveable { mutableStateOf(false) }
+    var menuButtonBounds by remember { mutableStateOf<Rect?>(null) }
+    var consultaCardBounds by remember { mutableStateOf<Rect?>(null) }
 
     fun abrirLink(url: String) {
         try {
@@ -63,12 +72,13 @@ fun ChatMenuScreen(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .statusBarsPadding()
+        ) {
         Surface(shadowElevation = 4.dp, color = MaterialTheme.colorScheme.primary) {
             Row(
                 modifier = Modifier
@@ -78,7 +88,12 @@ fun ChatMenuScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onOpenDrawer, modifier = Modifier.size(28.dp)) {
+                    IconButton(
+                        onClick = onOpenDrawer,
+                        modifier = Modifier
+                            .size(28.dp)
+                            .onGloballyPositioned { menuButtonBounds = it.boundsInRoot() }
+                    ) {
                         Icon(
                             Icons.Default.Menu,
                             contentDescription = "Abrir menú",
@@ -111,6 +126,7 @@ fun ChatMenuScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             MenuOptionCard(
+                modifier = Modifier.onGloballyPositioned { consultaCardBounds = it.boundsInRoot() },
                 icon = Icons.Default.Chat,
                 titulo = "Hacer una consulta",
                 subtitulo = "Preguntale lo que quieras a Huka",
@@ -150,10 +166,36 @@ fun ChatMenuScreen(
             }
         }
     }
+
+        val tutorialTarget = when (tutorialStep) {
+            0 -> menuButtonBounds
+            1 -> consultaCardBounds
+            else -> null
+        }
+
+        tutorialTarget?.let { target ->
+            val (title, description) = when (tutorialStep) {
+                0 -> "Explorá Huka" to
+                    "Desde el menú accedés a Crear parte, Pescadex, Identificar pez, Logros, Torneos y más."
+                else -> "Consultá a Huka" to
+                    "Usá el chat para hacer consultas de pesca de forma rápida y conversacional."
+            }
+
+            CoachMarkOverlay(
+                target = target,
+                title = title,
+                description = description,
+                stepLabel = "${tutorialStep + 1} de 6",
+                onNext = onTutorialNext,
+                onSkip = onTutorialSkip
+            )
+        }
+    }
 }
 
 @Composable
 private fun MenuOptionCard(
+    modifier: Modifier = Modifier,
     icon: ImageVector,
     titulo: String,
     subtitulo: String,
@@ -166,7 +208,7 @@ private fun MenuOptionCard(
         shape = RoundedCornerShape(12.dp),
         color = if (destacado) MaterialTheme.colorScheme.primaryContainer
                 else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        modifier = Modifier.fillMaxWidth()
+        modifier = modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
