@@ -2,151 +2,203 @@ package com.example.juka.data.local.room
 
 import android.content.Context
 import androidx.room.*
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
+import com.google.firebase.auth.FirebaseAuth
 
-// 1. LA ENTIDAD (La tabla de la base de datos)
+private fun currentOwnerUid(): String =
+    FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+
 @Entity(tableName = "chat_messages")
 data class ChatMessageEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val content: String,
     val isFromUser: Boolean,
-    val type: String, // Guardamos el Enum como String (TEXT, AUDIO, IMAGE)
-    val timestamp: String
+    val type: String,
+    val timestamp: String,
+    @ColumnInfo(defaultValue = "''") val ownerUid: String = currentOwnerUid()
 )
 
-// 2. EL DAO (El intermediario para guardar/leer)
 @Dao
-interface ChatMessageDao {
-    @Query("SELECT * FROM chat_messages ORDER BY id ASC") // Orden cronológico
-    suspend fun getAllMessages(): List<ChatMessageEntity>
+abstract class ChatMessageDao {
+    @Query("SELECT * FROM chat_messages WHERE ownerUid = :ownerUid ORDER BY id ASC")
+    abstract suspend fun getAllMessagesForOwner(ownerUid: String): List<ChatMessageEntity>
+
+    suspend fun getAllMessages(): List<ChatMessageEntity> {
+        val uid = currentOwnerUid()
+        return if (uid.isBlank()) emptyList() else getAllMessagesForOwner(uid)
+    }
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertMessage(message: ChatMessageEntity)
+    abstract suspend fun insertMessage(message: ChatMessageEntity)
 
-    @Query("DELETE FROM chat_messages")
-    suspend fun clearHistory()
+    @Query("DELETE FROM chat_messages WHERE ownerUid = :ownerUid")
+    abstract suspend fun clearHistoryForOwner(ownerUid: String)
+
+    suspend fun clearHistory() {
+        val uid = currentOwnerUid()
+        if (uid.isNotBlank()) clearHistoryForOwner(uid)
+    }
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// NOTIFICACIONES — historial local de notificaciones que vio el usuario.
-// Incluye pushes FCM recibidos en foreground y logros desbloqueados.
-// La "campanita" del header lee de acá.
-// ─────────────────────────────────────────────────────────────────────────────
 
 @Entity(tableName = "notificaciones")
 data class NotificacionEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val titulo: String,
     val cuerpo: String,
-    /** ms epoch del momento en que llegó/se generó. Para ordenar y mostrar "hace X". */
     val timestamp: Long,
-    /** false cuando aparece nueva; true cuando el usuario abre la pantalla. */
     val leida: Boolean = false,
-    /** "FCM" | "LOGRO" | "SISTEMA" — para mostrar ícono distinto en la lista. */
-    val origen: String = "SISTEMA"
+    val origen: String = "SISTEMA",
+    @ColumnInfo(defaultValue = "''") val ownerUid: String = currentOwnerUid()
 )
 
 @Dao
-interface NotificacionDao {
-    @Query("SELECT * FROM notificaciones ORDER BY timestamp DESC")
-    suspend fun getAll(): List<NotificacionEntity>
+abstract class NotificacionDao {
+    @Query("SELECT * FROM notificaciones WHERE ownerUid = :ownerUid ORDER BY timestamp DESC")
+    abstract suspend fun getAllForOwner(ownerUid: String): List<NotificacionEntity>
 
-    @Query("SELECT COUNT(*) FROM notificaciones WHERE leida = 0")
-    suspend fun countUnread(): Int
+    suspend fun getAll(): List<NotificacionEntity> {
+        val uid = currentOwnerUid()
+        return if (uid.isBlank()) emptyList() else getAllForOwner(uid)
+    }
+
+    @Query("SELECT COUNT(*) FROM notificaciones WHERE ownerUid = :ownerUid AND leida = 0")
+    abstract suspend fun countUnreadForOwner(ownerUid: String): Int
+
+    suspend fun countUnread(): Int {
+        val uid = currentOwnerUid()
+        return if (uid.isBlank()) 0 else countUnreadForOwner(uid)
+    }
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insert(notificacion: NotificacionEntity): Long
+    abstract suspend fun insert(notificacion: NotificacionEntity): Long
 
-    @Query("UPDATE notificaciones SET leida = 1")
-    suspend fun markAllRead()
+    @Query("UPDATE notificaciones SET leida = 1 WHERE ownerUid = :ownerUid")
+    abstract suspend fun markAllReadForOwner(ownerUid: String)
 
-    @Query("DELETE FROM notificaciones WHERE id = :id")
-    suspend fun deleteById(id: Long)
+    suspend fun markAllRead() {
+        val uid = currentOwnerUid()
+        if (uid.isNotBlank()) markAllReadForOwner(uid)
+    }
 
-    @Query("DELETE FROM notificaciones")
-    suspend fun deleteAll()
+    @Query("DELETE FROM notificaciones WHERE id = :id AND ownerUid = :ownerUid")
+    abstract suspend fun deleteByIdForOwner(id: Long, ownerUid: String)
+
+    suspend fun deleteById(id: Long) {
+        val uid = currentOwnerUid()
+        if (uid.isNotBlank()) deleteByIdForOwner(id, uid)
+    }
+
+    @Query("DELETE FROM notificaciones WHERE ownerUid = :ownerUid")
+    abstract suspend fun deleteAllForOwner(ownerUid: String)
+
+    suspend fun deleteAll() {
+        val uid = currentOwnerUid()
+        if (uid.isNotBlank()) deleteAllForOwner(uid)
+    }
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// BORRADORES DE PARTE — múltiples partes a medio cargar persistidos local
-// para que el usuario pueda volver a cualquiera, retomarlos y enviarlos
-// cuando vuelva a tener señal.
-// ─────────────────────────────────────────────────────────────────────────────
 
 @Entity(tableName = "borradores_parte")
 data class BorradorParteEntity(
-    /** UUID generado al iniciar el borrador. */
     @PrimaryKey val id: String,
-    /** ParteEnProgreso serializado a JSON. Es la fuente de verdad. */
     val parteJson: String,
-    /** Timestamp de la última actualización (ms epoch). Para ordenar. */
     val fechaActualizacion: Long,
-    /** Snapshot del progreso (0-100) para mostrar en la lista sin parsear el JSON. */
     val porcentajeCompletado: Int,
-    /** Resumen del lugar para mostrar en la card (puede ser null). */
     val resumenLugar: String? = null,
-    /** Resumen de la fecha del parte (texto, no timestamp) para la card. */
-    val resumenFecha: String? = null
+    val resumenFecha: String? = null,
+    @ColumnInfo(defaultValue = "''") val ownerUid: String = currentOwnerUid()
 )
 
 @Dao
-interface BorradorParteDao {
-    @Query("SELECT * FROM borradores_parte ORDER BY fechaActualizacion DESC")
-    suspend fun getAll(): List<BorradorParteEntity>
+abstract class BorradorParteDao {
+    @Query("SELECT * FROM borradores_parte WHERE ownerUid = :ownerUid ORDER BY fechaActualizacion DESC")
+    abstract suspend fun getAllForOwner(ownerUid: String): List<BorradorParteEntity>
 
-    @Query("SELECT * FROM borradores_parte WHERE id = :id LIMIT 1")
-    suspend fun getById(id: String): BorradorParteEntity?
+    suspend fun getAll(): List<BorradorParteEntity> {
+        val uid = currentOwnerUid()
+        return if (uid.isBlank()) emptyList() else getAllForOwner(uid)
+    }
+
+    @Query("SELECT * FROM borradores_parte WHERE id = :id AND ownerUid = :ownerUid LIMIT 1")
+    abstract suspend fun getByIdForOwner(id: String, ownerUid: String): BorradorParteEntity?
+
+    suspend fun getById(id: String): BorradorParteEntity? {
+        val uid = currentOwnerUid()
+        return if (uid.isBlank()) null else getByIdForOwner(id, uid)
+    }
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(borrador: BorradorParteEntity)
+    abstract suspend fun upsert(borrador: BorradorParteEntity)
 
-    @Query("DELETE FROM borradores_parte WHERE id = :id")
-    suspend fun deleteById(id: String)
+    @Query("DELETE FROM borradores_parte WHERE id = :id AND ownerUid = :ownerUid")
+    abstract suspend fun deleteByIdForOwner(id: String, ownerUid: String)
 
-    @Query("DELETE FROM borradores_parte")
-    suspend fun deleteAll()
+    suspend fun deleteById(id: String) {
+        val uid = currentOwnerUid()
+        if (uid.isNotBlank()) deleteByIdForOwner(id, uid)
+    }
 
-    @Query("SELECT COUNT(*) FROM borradores_parte")
-    suspend fun count(): Int
+    @Query("DELETE FROM borradores_parte WHERE ownerUid = :ownerUid")
+    abstract suspend fun deleteAllForOwner(ownerUid: String)
+
+    suspend fun deleteAll() {
+        val uid = currentOwnerUid()
+        if (uid.isNotBlank()) deleteAllForOwner(uid)
+    }
+
+    @Query("SELECT COUNT(*) FROM borradores_parte WHERE ownerUid = :ownerUid")
+    abstract suspend fun countForOwner(ownerUid: String): Int
+
+    suspend fun count(): Int {
+        val uid = currentOwnerUid()
+        return if (uid.isBlank()) 0 else countForOwner(uid)
+    }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PESCADEX — cache local de las especies descubiertas y récords personales.
-// Permite consulta offline y recuperación rápida tras reinstall (vía sync).
-// ─────────────────────────────────────────────────────────────────────────────
-
-@Entity(tableName = "pescadex_records")
+@Entity(
+    tableName = "pescadex_records",
+    primaryKeys = ["especieId", "ownerUid"]
+)
 data class PescadexRecordEntity(
-    @PrimaryKey val especieId: String,
+    val especieId: String,
     val nombreComun: String,
     val nombreCientifico: String = "",
     val totalCapturas: Int,
     val pesoRecord: Double?,
     val primeraFoto: String?,
-    /** ms epoch de la primera captura. */
     val fechaDescubrimiento: Long?,
     val mejorDiaCantidad: Int,
     val mejorDiaFecha: String?,
     val rareza: String = "comun",
-    /** Locaciones concatenadas por pipe | */
-    val locacionesRaw: String = ""
+    val locacionesRaw: String = "",
+    @ColumnInfo(defaultValue = "''") val ownerUid: String = currentOwnerUid()
 )
 
 @Dao
-interface PescadexRecordDao {
-    @Query("SELECT * FROM pescadex_records")
-    suspend fun getAll(): List<PescadexRecordEntity>
+abstract class PescadexRecordDao {
+    @Query("SELECT * FROM pescadex_records WHERE ownerUid = :ownerUid")
+    abstract suspend fun getAllForOwner(ownerUid: String): List<PescadexRecordEntity>
+
+    suspend fun getAll(): List<PescadexRecordEntity> {
+        val uid = currentOwnerUid()
+        return if (uid.isBlank()) emptyList() else getAllForOwner(uid)
+    }
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertAll(records: List<PescadexRecordEntity>)
+    abstract suspend fun insertAll(records: List<PescadexRecordEntity>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(record: PescadexRecordEntity)
+    abstract suspend fun upsert(record: PescadexRecordEntity)
 
-    @Query("DELETE FROM pescadex_records")
-    suspend fun deleteAll()
+    @Query("DELETE FROM pescadex_records WHERE ownerUid = :ownerUid")
+    abstract suspend fun deleteAllForOwner(ownerUid: String)
+
+    suspend fun deleteAll() {
+        val uid = currentOwnerUid()
+        if (uid.isNotBlank()) deleteAllForOwner(uid)
+    }
 }
 
-// 3. LA BASE DE DATOS (El cerebro)
 @Database(
     entities = [
         ChatMessageEntity::class,
@@ -154,7 +206,7 @@ interface PescadexRecordDao {
         NotificacionEntity::class,
         PescadexRecordEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class HukaRoomDatabase : RoomDatabase() {
@@ -168,6 +220,40 @@ abstract class HukaRoomDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: HukaRoomDatabase? = null
 
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE chat_messages ADD COLUMN ownerUid TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE borradores_parte ADD COLUMN ownerUid TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE notificaciones ADD COLUMN ownerUid TEXT NOT NULL DEFAULT ''")
+
+                db.execSQL("DELETE FROM chat_messages WHERE ownerUid = ''")
+                db.execSQL("DELETE FROM borradores_parte WHERE ownerUid = ''")
+                db.execSQL("DELETE FROM notificaciones WHERE ownerUid = ''")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS pescadex_records_new (
+                        especieId TEXT NOT NULL,
+                        nombreComun TEXT NOT NULL,
+                        nombreCientifico TEXT NOT NULL,
+                        totalCapturas INTEGER NOT NULL,
+                        pesoRecord REAL,
+                        primeraFoto TEXT,
+                        fechaDescubrimiento INTEGER,
+                        mejorDiaCantidad INTEGER NOT NULL,
+                        mejorDiaFecha TEXT,
+                        rareza TEXT NOT NULL,
+                        locacionesRaw TEXT NOT NULL,
+                        ownerUid TEXT NOT NULL DEFAULT '',
+                        PRIMARY KEY(especieId, ownerUid)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("DROP TABLE pescadex_records")
+                db.execSQL("ALTER TABLE pescadex_records_new RENAME TO pescadex_records")
+            }
+        }
+
         fun getDatabase(context: Context): HukaRoomDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -175,11 +261,8 @@ abstract class HukaRoomDatabase : RoomDatabase() {
                     HukaRoomDatabase::class.java,
                     "juka_chat_database"
                 )
-                    // En dev usamos destructive: si bumpeamos versión, se borran
-                    // los datos locales (chat + borradores). Aceptable mientras
-                    // el applicationId siga siendo "com.example.juka". Antes de
-                    // ir a prod hay que escribir Migrations explícitas.
-                    .fallbackToDestructiveMigration()
+                    .addMigrations(MIGRATION_4_5)
+                    .fallbackToDestructiveMigrationFrom(1, 2, 3)
                     .build()
                 INSTANCE = instance
                 instance

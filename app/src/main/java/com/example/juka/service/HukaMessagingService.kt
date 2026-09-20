@@ -32,11 +32,8 @@ class HukaMessagingService : FirebaseMessagingService() {
         val title = remoteMessage.notification?.title ?: "Huka"
         val body = remoteMessage.notification?.body ?: ""
 
-        // 1. Mostrar la notificación del sistema.
         HukaNotifications.mostrar(context = this, titulo = title, cuerpo = body)
 
-        // 2. Persistirla en el historial local para que aparezca en la
-        //    campanita del header. Usamos el storage del Application.
         val storage = (applicationContext as? HukaApplication)?.localStorageHelper
         if (storage != null) {
             CoroutineScope(Dispatchers.IO).launch {
@@ -46,12 +43,9 @@ class HukaMessagingService : FirebaseMessagingService() {
     }
 
     override fun onNewToken(token: String) {
-        Log.d(TAG, "🔄 Token rotado: ${token.take(20)}...")
+        Log.d(TAG, "🔄 Token FCM rotado")
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
 
-        // set(merge) en lugar de update: garantiza que si el documento del
-        // usuario no existe todavía (caso edge en logins recientes), igual
-        // se crea con el token persistido.
         FirebaseFirestore.getInstance()
             .collection("users")
             .document(uid)

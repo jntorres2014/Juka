@@ -55,7 +55,7 @@ import java.io.FileOutputStream
 data class OpcionesCompartir(
     val fecha: Boolean = true,
     val especies: Boolean = true,
-    val ubicacion: Boolean = true,
+    val ubicacion: Boolean = false,
     val fotos: Boolean = true,
     val observaciones: Boolean = false
 )
@@ -175,10 +175,6 @@ fun CompartirParteSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(1080f / 1350f)
-                    // Tope de alto: en formato 1080x1350 a lo ancho de la
-                    // pantalla se iba a más de 400dp y dejaba el botón lejos
-                    // incluso con scroll. ContentScale.Fit adentro evita que
-                    // la imagen se deforme si el box queda más achatado.
                     .heightIn(max = 320.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -250,7 +246,6 @@ private fun OpcionCheckbox(
     }
 }
 
-/** Arma las líneas de texto (usadas tanto en la vista previa como en el caption real). */
 private fun construirLineasPreview(reporte: PartePesca, opciones: OpcionesCompartir): List<String> {
     val lineas = mutableListOf<String>()
 
@@ -277,23 +272,6 @@ private fun construirLineasPreview(reporte: PartePesca, opciones: OpcionesCompar
     return lineas
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GENERACIÓN Y ENVÍO
-//
-// Mismo patrón que `compartirRecordPescadex` en PescadexScreen.kt: siempre
-// intentamos compartir una IMAGEN (con la foto de la captura si el usuario
-// la incluyó, o una tarjeta de stats generada si no hay foto o la sacó) y
-// solo caemos a texto plano si algo falla técnicamente. WhatsApp directo
-// primero, chooser nativo como respaldo.
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * @param bitmapPrerenderizado la imagen ya generada para la vista previa del
- * sheet — se reusa tal cual en vez de volver a renderizar (misma imagen que
- * el usuario vio antes de tocar "Compartir"). Si por algo llega null
- * (por ejemplo, el usuario tocó el botón justo mientras se regeneraba), se
- * renderiza acá como respaldo.
- */
 private suspend fun compartirParte(
     context: Context,
     reporte: PartePesca,
@@ -388,18 +366,6 @@ private suspend fun cargarBitmap(context: Context, path: String): Bitmap? {
     }
 }
 
-/**
- * Tarjeta de 1080x1350 (mismo formato que la estampita de Pescadex, para
- * consistencia visual entre las dos funciones de compartir de la app).
- *
- * Layout:
- *  1. Fondo degradado verde/teal de marca + marco decorativo.
- *  2. "HUKA" + fecha/horario (si está incluida) arriba.
- *  3. Foto de la captura en tarjeta redondeada (si está incluida y disponible).
- *  4. Card blanca inferior con: cantidad de peces + especies, devueltos,
- *     ubicación y observaciones — cada uno solo si el usuario lo incluyó.
- *  5. Marca al pie.
- */
 private fun renderEstampitaParte(
     reporte: PartePesca,
     opciones: OpcionesCompartir,
@@ -416,10 +382,7 @@ private fun renderEstampitaParte(
     val colorTop = Color.rgb(0x1D, 0x9E, 0x75)
     val colorBottom = Color.rgb(0x08, 0x50, 0x41)
 
-    paint.shader = LinearGradient(
-        0f, 0f, width.toFloat(), height.toFloat(),
-        colorTop, colorBottom, Shader.TileMode.CLAMP
-    )
+    paint.shader = LinearGradient(0f, 0f, width.toFloat(), height.toFloat(), colorTop, colorBottom, Shader.TileMode.CLAMP)
     canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
     paint.shader = null
 
@@ -432,7 +395,6 @@ private fun renderEstampitaParte(
     canvas.drawRoundRect(padding + 14f, padding + 14f, width - padding - 14f, height - padding - 14f, 18f, 18f, paint)
     paint.style = Paint.Style.FILL
 
-    // ─── Header: marca + fecha ───
     paint.textAlign = Paint.Align.CENTER
     paint.isFakeBoldText = true
     paint.textSize = 30f
@@ -443,24 +405,16 @@ private fun renderEstampitaParte(
 
     paint.textSize = 58f
     paint.color = Color.WHITE
-    val tituloTop = if (opciones.fecha) {
-        formatearFecha(reporte.fecha).uppercase()
-    } else {
-        "PARTE DE PESCA"
-    }
+    val tituloTop = if (opciones.fecha) formatearFecha(reporte.fecha).uppercase() else "PARTE DE PESCA"
     canvas.drawText(tituloTop, width / 2f, padding + 145f, paint)
 
     if (opciones.fecha) {
         paint.isFakeBoldText = false
         paint.textSize = 30f
         paint.color = Color.argb(200, 255, 255, 255)
-        canvas.drawText(
-            "${reporte.horaInicio ?: "?"} a ${reporte.horaFin ?: "?"}",
-            width / 2f, padding + 190f, paint
-        )
+        canvas.drawText("${reporte.horaInicio ?: "?"} a ${reporte.horaFin ?: "?"}", width / 2f, padding + 190f, paint)
     }
 
-    // ─── Foto (si corresponde) ───
     var cursorY = padding + 240f
     val fotoAlto = 560f
     if (bitmapFoto != null) {
@@ -472,15 +426,11 @@ private fun renderEstampitaParte(
 
         paint.color = Color.argb(120, 0, 0, 0)
         paint.maskFilter = BlurMaskFilter(20f, BlurMaskFilter.Blur.NORMAL)
-        canvas.drawRoundRect(
-            RectF(fotoLeft + 4f, fotoTop + 10f, fotoRight + 4f, fotoBottom + 10f), 28f, 28f, paint
-        )
+        canvas.drawRoundRect(RectF(fotoLeft + 4f, fotoTop + 10f, fotoRight + 4f, fotoBottom + 10f), 28f, 28f, paint)
         paint.maskFilter = null
 
         paint.color = Color.WHITE
-        canvas.drawRoundRect(
-            RectF(fotoLeft - 8f, fotoTop - 8f, fotoRight + 8f, fotoBottom + 8f), 32f, 32f, paint
-        )
+        canvas.drawRoundRect(RectF(fotoLeft - 8f, fotoTop - 8f, fotoRight + 8f, fotoBottom + 8f), 32f, 32f, paint)
 
         val saved = canvas.save()
         val clipPath = Path().apply { addRoundRect(fotoRect, 24f, 24f, Path.Direction.CW) }
@@ -507,7 +457,6 @@ private fun renderEstampitaParte(
         cursorY += 20f
     }
 
-    // ─── Card blanca de stats ───
     val cardTop = cursorY
     val cardBottom = height - padding - 90f
     val cardLeft = padding + 30f
@@ -570,7 +519,6 @@ private fun renderEstampitaParte(
         )
     }
 
-    // ─── Footer ───
     paint.isFakeBoldText = false
     paint.textAlign = Paint.Align.CENTER
     paint.textSize = 24f
@@ -580,7 +528,6 @@ private fun renderEstampitaParte(
     return bitmap
 }
 
-/** Dibuja texto centrado con wrap automático (StaticLayout) y devuelve el Y donde terminó. */
 private fun dibujarTextoCentrado(
     canvas: Canvas,
     texto: String,

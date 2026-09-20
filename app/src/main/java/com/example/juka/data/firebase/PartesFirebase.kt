@@ -52,14 +52,6 @@ class PartesFirebase(private val manager: FirebaseManager) {
                 )
             } else null
 
-            // 🐛 DEBUG: qué ubicación se va a guardar (GeoPoint de entrada vs lo
-            // que termina en el documento). Si lat/lng salen null, el parte no
-            // va a aparecer como marcador en el mapa.
-            Log.d(
-                "DEBUG_PARTES",
-                "💾 Guardando parte id=$idFinal | GeoPoint entrada=${parteData.ubicacion} | UbicacionParte=lat=${ubicacion?.latitud} lng=${ubicacion?.longitud} nombre=${ubicacion?.nombre}"
-            )
-
             val parte = PartePesca(
                 id = idFinal,
                 userId = userId,
@@ -128,8 +120,8 @@ class PartesFirebase(private val manager: FirebaseManager) {
                 return FirebaseResult.Error("Usuario no autenticado. Por favor, inicia sesión.")
             }
 
-            Log.d(TAG, "💾 Guardando parte automático para usuario: $userId")
-            Log.d(TAG, "📝 Transcripción: '$transcripcion'")
+            Log.d(TAG, "💾 Guardando parte automático")
+            Log.d(TAG, "📝 Transcripción recibida (${transcripcion.length} caracteres)")
 
             // Validar que tiene datos mínimos necesarios
             if (!esParteValido(fishingData)) {
@@ -141,9 +133,6 @@ class PartesFirebase(private val manager: FirebaseManager) {
             val parteId = generarIdParte()
 
             Log.d(TAG, "🐟 Especies detectadas: ${parte.peces.size}")
-            parte.peces.forEach { pez ->
-                Log.d(TAG, "  - ${pez.especie}: ${pez.cantidad}")
-            }
 
             // Guardar en Firestore con estructura basada en usuario
             val documentPath = "$PARTES_COLLECTION/$userId/$SUBCOLLECTION_PARTES/$parteId"
@@ -153,7 +142,7 @@ class PartesFirebase(private val manager: FirebaseManager) {
                 .await()
 
             Log.i(TAG, "✅ Parte guardado exitosamente: $parteId")
-            Log.d(TAG, "📍 Ruta: $documentPath")
+            Log.d(TAG, "📍 Ruta de Firestore generada correctamente")
             Log.d(TAG, "🐟 Datos: ${parte.cantidadTotal} peces, tipo: ${parte.tipo}")
 
             FirebaseResult.Success
@@ -175,7 +164,7 @@ class PartesFirebase(private val manager: FirebaseManager) {
                 return emptyList()
             }
 
-            Log.d(TAG, "📋 Obteniendo partes para usuario: $userId")
+            Log.d(TAG, "📋 Obteniendo partes del usuario autenticado")
 
             val query = manager.firestore
                 .collection("$PARTES_COLLECTION/$userId/$SUBCOLLECTION_PARTES")
@@ -199,7 +188,7 @@ class PartesFirebase(private val manager: FirebaseManager) {
                 }
             }
 
-            Log.i(TAG, "📊 Encontrados ${partes.size} partes para usuario $userId")
+            Log.i(TAG, "📊 Encontrados ${partes.size} partes")
             partes
 
         } catch (e: Exception) {

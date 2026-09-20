@@ -1,6 +1,5 @@
 package com.example.juka
 
-import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -10,7 +9,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.example.juka.auth.AppWithAuth
 import com.example.juka.service.HukaNotifications
@@ -20,11 +18,9 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.inappmessaging.FirebaseInAppMessaging
-import com.google.firebase.installations.FirebaseInstallations
 import com.google.firebase.messaging.FirebaseMessaging
 
 class MainActivity : ComponentActivity() {
-    private val RECORD_AUDIO_PERMISSION = 1001
 
     /**
      * Launcher para pedir POST_NOTIFICATIONS (Android 13+). En versiones
@@ -48,48 +44,26 @@ class MainActivity : ComponentActivity() {
 
         FirebaseApp.initializeApp(this)
 
-        // In-App Messaging: loguear el Installation ID para poder agregar
-        // este dispositivo como dispositivo de prueba en la consola de Firebase.
-        FirebaseInstallations.getInstance().id
-            .addOnSuccessListener { id ->
-                Log.d("FIAM_TEST", "📱 Firebase Installation ID: $id")
-                Log.d("FIAM_TEST", "👆 Copiá este ID en Firebase Console → In-App Messaging → Probar en tu dispositivo")
-            }
-
-        // Deshabilitar throttle para pruebas (habilita mensajes sin esperar 24hs).
-        // ⚠️ Sacar esta línea antes de publicar en producción.
+        // In-App Messaging sigue habilitado, pero no exponemos el Installation ID en Logcat.
         FirebaseInAppMessaging.getInstance().isAutomaticDataCollectionEnabled = true
 
         // 1. Crear el canal de notificaciones al arrancar (idempotente).
-        //    Así existe siempre, sin depender de que el servicio FCM
-        //    haya recibido un push antes.
         HukaNotifications.crearCanal(this)
 
-        // 2. Pedir POST_NOTIFICATIONS en runtime (Android 13+). Sin este
-        //    permiso las notificaciones NO se muestran al usuario aunque
-        //    estén declaradas en el manifest.
+        // 2. Pedir POST_NOTIFICATIONS en runtime (Android 13+).
         pedirPermisoNotificacionesSiHaceFalta()
 
-        // 3. Obtener el token FCM y PERSISTIRLO en Firestore (no solo
-        //    loguearlo). Si el usuario ya está logueado, esto garantiza
-        //    que su fcmToken esté actualizado en cada arranque, incluso si
-        //    Firebase lo rotó silenciosamente.
+        // 3. Obtener el token FCM y persistirlo sin registrar su contenido.
         FirebaseMessaging.getInstance().token
             .addOnSuccessListener { token ->
-                Log.d("FCM_TOKEN", "🔑 Token: ${token.take(20)}...")
+                Log.d("FCM_TOKEN", "Token FCM obtenido correctamente")
                 persistirTokenSiHayUsuario(token)
             }
             .addOnFailureListener { e ->
                 Log.w("FCM_TOKEN", "⚠️ No se pudo obtener el token: ${e.message}")
             }
 
-        // 4. Permiso de audio (igual que antes).
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-            != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this,
-                arrayOf(Manifest.permission.RECORD_AUDIO), RECORD_AUDIO_PERMISSION)
-        }
-
+        // RECORD_AUDIO se solicita únicamente cuando el usuario usa la función de voz.
         setContent {
             HukaTheme {
                 AppWithAuth()
@@ -100,10 +74,10 @@ class MainActivity : ComponentActivity() {
     private fun pedirPermisoNotificacionesSiHaceFalta() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
         val concedido = ContextCompat.checkSelfPermission(
-            this, Manifest.permission.POST_NOTIFICATIONS
+            this, android.Manifest.permission.POST_NOTIFICATIONS
         ) == PackageManager.PERMISSION_GRANTED
         if (!concedido) {
-            notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            notifPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 

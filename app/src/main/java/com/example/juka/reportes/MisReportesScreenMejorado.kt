@@ -937,7 +937,7 @@ fun MapaGeneralDeReportes(reportes: List<PartePesca>, onCerrar: () -> Unit) {
                 Configuration.getInstance().load(ctx, ctx.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
                 // Re-afirmamos el User-Agent por si load() lo reseteó (OSM
                 // bloquea el default "osmdroid" y los paquetes com.example.*).
-                Configuration.getInstance().userAgentValue = "Huka-Pesca/1.0"
+                Configuration.getInstance().userAgentValue = "Huka/1.0.2 (com.jonytorres.huka)"
                 MapView(ctx).apply {
                     setTileSource(TileSourceFactory.MAPNIK)
                     setMultiTouchControls(true)

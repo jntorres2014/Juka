@@ -161,7 +161,7 @@ fun MapPickerScreen(
     // Configurar osmdroid una sola vez
     DisposableEffect(Unit) {
         // Antes usaba context.packageName (com.example.*), que OSM bloquea (403).
-        Configuration.getInstance().userAgentValue = "Huka-Pesca/1.0"
+        Configuration.getInstance().userAgentValue = "Huka/1.0.2 (com.jonytorres.huka)"
         onDispose { }
     }
 

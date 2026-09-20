@@ -3,9 +3,10 @@ import java.util.Properties
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
+    id("com.google.devtools.ksp")
     id("com.google.gms.google-services")
-    id("org.jetbrains.kotlin.plugin.serialization") version "1.9.0"
-    id("com.google.devtools.ksp") version "1.9.0-1.0.13"
 }
 
 android {
@@ -16,8 +17,8 @@ android {
         applicationId = "com.jonytorres.huka"
         minSdk = 24
         targetSdk = 36
-        versionCode = 5
-        versionName = "1.0.2"
+        versionCode = 7
+        versionName = "1.0.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -29,19 +30,62 @@ android {
         if (localPropertiesFile.exists()) {
             localProperties.load(localPropertiesFile.reader())
         }
-        buildConfigField("String", "GEMINI_API_KEY", "\"${localProperties["geminiApiKey"] ?: ""}\"")
+
+        val hukaAiProjectId = localProperties.getProperty("hukaAiProjectId", "")
+        val hukaAiProjectNumber = localProperties.getProperty("hukaAiProjectNumber", "")
+        val hukaAiAppId = localProperties.getProperty("hukaAiAppId", "")
+        val hukaAiFirebaseApiKey = localProperties.getProperty("hukaAiFirebaseApiKey", "")
+
+        // Seguridad operativa: nunca generar una versión release sin la
+        // configuración completa del Firebase secundario de IA. App Check con
+        // Play Integrity necesita también el número de proyecto (gcmSenderId).
+        val releaseRequested = gradle.startParameter.taskNames.any {
+            it.contains("release", ignoreCase = true)
+        }
+        if (releaseRequested) {
+            require(
+                hukaAiProjectId.isNotBlank() &&
+                    hukaAiProjectNumber.isNotBlank() &&
+                    hukaAiAppId.isNotBlank() &&
+                    hukaAiFirebaseApiKey.isNotBlank()
+            ) {
+                "Falta configurar hukaAiProjectId, hukaAiProjectNumber, hukaAiAppId o hukaAiFirebaseApiKey en local.properties"
+            }
+        }
+
+        // Configuración pública del segundo Firebase usado solo para AI Logic.
+        // Se mantiene fuera del repositorio en local.properties.
+        buildConfigField(
+            "String",
+            "HUKA_AI_PROJECT_ID",
+            "\"$hukaAiProjectId\""
+        )
+        buildConfigField(
+            "String",
+            "HUKA_AI_PROJECT_NUMBER",
+            "\"$hukaAiProjectNumber\""
+        )
+        buildConfigField(
+            "String",
+            "HUKA_AI_APP_ID",
+            "\"$hukaAiAppId\""
+        )
+        buildConfigField(
+            "String",
+            "HUKA_AI_API_KEY",
+            "\"$hukaAiFirebaseApiKey\""
+        )
     }
 
     buildTypes {
         release {
+            isDebuggable = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            buildConfigField("String", "OPENAI_API_KEY", "\"${project.findProperty("OPENAI_API_KEY") ?: ""}\"")
-        }
-        debug {
-            buildConfigField("String", "OPENAI_API_KEY", "\"${project.findProperty("OPENAI_API_KEY") ?: ""}\"")
         }
     }
 
@@ -56,9 +100,6 @@ android {
         compose = true
         buildConfig = true
     }
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.14"
-    }
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -68,17 +109,24 @@ android {
 
 dependencies {
 
-    // ✅ Firebase BoM - UNA sola versión controla todo
-    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    // BoM 33.15.0 incluye Firebase AI Logic 16.1.0 + App Check 18.0.0.
+    implementation(platform("com.google.firebase:firebase-bom:33.15.0"))
 
-    // ✅ Firebase - SIN versiones (el BoM las maneja)
     implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.google.firebase:firebase-analytics-ktx")
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-storage-ktx")
     implementation("com.google.firebase:firebase-messaging-ktx")
 
-    // Google Sign In - esta SÍ lleva versión (no es Firebase)
+    // Firebase AI Logic para Chat e identificación Premium en Huka AI Free.
+    implementation("com.google.firebase:firebase-ai")
+
+    // App Check: el proveedor debug solo entra en builds debug; release usa
+    // exclusivamente Play Integrity.
+    debugImplementation("com.google.firebase:firebase-appcheck-debug")
+    implementation("com.google.firebase:firebase-appcheck-playintegrity")
+
+    // Google Sign In
     implementation("com.google.android.gms:play-services-auth:20.7.0")
 
     // Firebase In-App Messaging
@@ -118,16 +166,16 @@ dependencies {
     implementation("org.osmdroid:osmdroid-android:6.1.18")
     implementation("com.google.android.gms:play-services-location:21.2.0")
 
-    // ML Kit
+    // ML Kit. Estas versiones ya incluyen las actualizaciones de compatibilidad
+    // con tamaños de página de 16 KB publicadas por Google.
     implementation("com.google.mlkit:entity-extraction:16.0.0-beta5")
-    implementation("com.google.mlkit:language-id:17.0.4")
-    implementation("com.google.mlkit:translate:17.0.1")
-    implementation("com.google.mlkit:text-recognition:16.0.0")
-    implementation("com.google.mlkit:smart-reply:17.0.2")
+    implementation("com.google.mlkit:language-id:17.0.6")
+    implementation("com.google.mlkit:translate:17.0.3")
+    implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("com.google.mlkit:smart-reply:17.0.4")
 
-    // Serialización y Gemini
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
-    implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
+    // Serialización
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
     // Room
     implementation("androidx.room:room-runtime:2.6.1")
@@ -135,8 +183,8 @@ dependencies {
     ksp("androidx.room:room-compiler:2.6.1")
 
     // LiteRT (sucesor de TFLite — soporta ops v12+)
-    implementation("com.google.ai.edge.litert:litert:1.0.1")
-    implementation("com.google.ai.edge.litert:litert-support:1.0.1")
+    implementation("com.google.ai.edge.litert:litert:1.4.2")
+    implementation("com.google.ai.edge.litert:litert-support:1.4.2")
 
     // WorkManager — sincronización offline de borradores
     implementation("androidx.work:work-runtime-ktx:2.9.0")
