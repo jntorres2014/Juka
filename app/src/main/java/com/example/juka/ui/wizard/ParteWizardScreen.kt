@@ -8,8 +8,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -211,15 +209,36 @@ fun ParteWizardScreen(
             label = "wizard_step"
         ) { step ->
             Column(modifier = Modifier.fillMaxSize()) {
-                Text(STEP_TITLES[step], fontSize = 20.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp))
-                Box(modifier = Modifier.weight(1f)) {
-                    when (step) {
-                        0 -> Step1_DateTime(data, showStepError) { data = it }
-                        1 -> Step2_Modalidad(data, showStepError) { data = it }
-                        2 -> Step3_Ubicacion(data, showStepError, onOpenMap = { showMapPicker = true }) { data = it }
-                        3 -> Step4_Especies(data) { data = it }
-                        4 -> Step7_Foto(data, showStepError, onPickImage = abrirPickerImagen) { data = it }
-                        5 -> Step6_Observaciones(data, showStepError) { data = it }
+                // Un solo contenedor scrollable para TODO el cuerpo del paso.
+                // En landscape la altura útil es muy baja; antes cada paso
+                // intentaba manejar su propio scroll dentro de un Box con weight,
+                // lo que podía dejar el gesto sin recorrido efectivo.
+                val stepScrollState = rememberScrollState()
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(stepScrollState)
+                            .padding(bottom = 16.dp)
+                    ) {
+                        Text(
+                            STEP_TITLES[step],
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)
+                        )
+                        when (step) {
+                            0 -> Step1_DateTime(data, showStepError) { data = it }
+                            1 -> Step2_Modalidad(data, showStepError) { data = it }
+                            2 -> Step3_Ubicacion(data, showStepError, onOpenMap = { showMapPicker = true }) { data = it }
+                            3 -> Step4_Especies(data) { data = it }
+                            4 -> Step7_Foto(data, showStepError, onPickImage = abrirPickerImagen) { data = it }
+                            5 -> Step6_Observaciones(data, showStepError) { data = it }
+                        }
                     }
                 }
                 HorizontalDivider()
@@ -334,8 +353,7 @@ private fun Step1_DateTime(data: WizardData, showError: Boolean, onUpdate: (Wiza
 
     Column(
         modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .fillMaxWidth()
             .padding(horizontal = 16.dp)
             .padding(bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -391,8 +409,7 @@ private fun Step2_Modalidad(data: WizardData, showError: Boolean, onUpdate: (Wiz
     )
     Column(
         modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .fillMaxWidth()
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -517,8 +534,7 @@ private fun Step3_Ubicacion(data: WizardData, showError: Boolean, onOpenMap: () 
     }
     Column(
         modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .fillMaxWidth()
             .padding(horizontal = 16.dp)
             .padding(bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -544,84 +560,238 @@ private fun Step4_Especies(data: WizardData, onUpdate: (WizardData) -> Unit) {
     val fishDatabase = remember { FishDatabase(context) }
     var busqueda by remember { mutableStateOf("") }
     var sugerencias by remember { mutableStateOf<List<String>>(emptyList()) }
+
     LaunchedEffect(Unit) { fishDatabase.initialize() }
-    LaunchedEffect(busqueda) { sugerencias = if (busqueda.length >= 2) fishDatabase.searchSpecies(busqueda).map { it.name }.take(5) else emptyList() }
+    LaunchedEffect(busqueda) {
+        sugerencias = if (busqueda.length >= 2) {
+            fishDatabase.searchSpecies(busqueda).map { it.name }.take(5)
+        } else {
+            emptyList()
+        }
+    }
+
     fun agregar(nombre: String) {
         val lista = data.especies.toMutableList()
         val idx = lista.indexOfFirst { it.nombre.equals(nombre, ignoreCase = true) }
-        if (idx != -1) lista[idx] = lista[idx].copy(numeroEjemplares = lista[idx].numeroEjemplares + 1)
-        else lista.add(EspecieCapturada(nombre = nombre, numeroEjemplares = 1))
-        onUpdate(data.copy(especies = lista)); busqueda = ""
+        if (idx != -1) {
+            lista[idx] = lista[idx].copy(
+                numeroEjemplares = lista[idx].numeroEjemplares + 1
+            )
+        } else {
+            lista.add(EspecieCapturada(nombre = nombre, numeroEjemplares = 1))
+        }
+        onUpdate(data.copy(especies = lista))
+        busqueda = ""
     }
+
     fun restar(nombre: String) {
         val lista = data.especies.toMutableList()
         val idx = lista.indexOfFirst { it.nombre.equals(nombre, ignoreCase = true) }
         if (idx != -1) {
             val n = lista[idx].numeroEjemplares - 1
-            if (n <= 0) lista.removeAt(idx)
-            // Al bajar el total, los devueltos no pueden superarlo.
-            else lista[idx] = lista[idx].copy(numeroEjemplares = n, numeroDevueltos = lista[idx].numeroDevueltos.coerceAtMost(n))
+            if (n <= 0) {
+                lista.removeAt(idx)
+            } else {
+                lista[idx] = lista[idx].copy(
+                    numeroEjemplares = n,
+                    numeroDevueltos = lista[idx].numeroDevueltos.coerceAtMost(n)
+                )
+            }
             onUpdate(data.copy(especies = lista))
         }
     }
+
     fun devolver(nombre: String, delta: Int) {
         val lista = data.especies.toMutableList()
         val idx = lista.indexOfFirst { it.nombre.equals(nombre, ignoreCase = true) }
         if (idx != -1) {
             val e = lista[idx]
-            lista[idx] = e.copy(numeroDevueltos = (e.numeroDevueltos + delta).coerceIn(0, e.numeroEjemplares))
+            lista[idx] = e.copy(
+                numeroDevueltos = (e.numeroDevueltos + delta)
+                    .coerceIn(0, e.numeroEjemplares)
+            )
             onUpdate(data.copy(especies = lista))
         }
     }
-    LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        item { OptionalBadge("Opcional — si no pescaste nada podés continuar") }
-        item { OutlinedTextField(value = busqueda, onValueChange = { busqueda = it }, label = { Text("Buscar especie") }, placeholder = { Text("Ej: Pejerrey, Róbalo...") }, leadingIcon = { Icon(Icons.Default.Search, null) }, trailingIcon = { if (busqueda.isNotBlank()) IconButton(onClick = { busqueda = "" }) { Icon(Icons.Default.Clear, null) } }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), singleLine = true) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        OptionalBadge("Opcional — si no pescaste nada podés continuar")
+
+        OutlinedTextField(
+            value = busqueda,
+            onValueChange = { busqueda = it },
+            label = { Text("Buscar especie") },
+            placeholder = { Text("Ej: Pejerrey, Róbalo...") },
+            leadingIcon = { Icon(Icons.Default.Search, null) },
+            trailingIcon = {
+                if (busqueda.isNotBlank()) {
+                    IconButton(onClick = { busqueda = "" }) {
+                        Icon(Icons.Default.Clear, null)
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            singleLine = true
+        )
+
         if (sugerencias.isNotEmpty()) {
-            item {
-                Card(shape = RoundedCornerShape(12.dp), border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)) {
-                    Column {
-                        sugerencias.forEachIndexed { i, especie ->
-                            Row(modifier = Modifier.fillMaxWidth().clickable { agregar(especie) }.padding(12.dp, 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text("🐟", fontSize = 16.sp); Spacer(Modifier.width(10.dp)); Text(especie, fontSize = 14.sp, modifier = Modifier.weight(1f)); Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                            }
-                            if (i < sugerencias.lastIndex) HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp))
+            Card(
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(
+                    0.5.dp,
+                    MaterialTheme.colorScheme.outlineVariant
+                )
+            ) {
+                Column {
+                    sugerencias.forEachIndexed { i, especie ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { agregar(especie) }
+                                .padding(12.dp, 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("🐟", fontSize = 16.sp)
+                            Spacer(Modifier.width(10.dp))
+                            Text(especie, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                            Icon(
+                                Icons.Default.Add,
+                                null,
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        if (i < sugerencias.lastIndex) {
+                            HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp))
                         }
                     }
                 }
             }
         }
-        if (data.especies.isNotEmpty()) item { Text("Capturas registradas", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        items(data.especies, key = { it.nombre }) { especie ->
+
+        if (data.especies.isNotEmpty()) {
+            Text(
+                "Capturas registradas",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        data.especies.forEach { especie ->
             val retenidos = especie.numeroEjemplares - especie.numeroDevueltos
-            Column(modifier = Modifier.fillMaxWidth().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp)).padding(12.dp, 10.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(
+                        0.5.dp,
+                        MaterialTheme.colorScheme.outlineVariant,
+                        RoundedCornerShape(12.dp)
+                    )
+                    .padding(12.dp, 10.dp)
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("🐟", fontSize = 18.sp); Spacer(Modifier.width(10.dp))
-                    Text(especie.nombre, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        IconButton(onClick = { restar(especie.nombre) }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Remove, null, modifier = Modifier.size(18.dp)) }
-                        Text("${especie.numeroEjemplares}", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.widthIn(min = 24.dp))
-                        IconButton(onClick = { agregar(especie.nombre) }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp)) }
+                    Text("🐟", fontSize = 18.sp)
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        especie.nombre,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        IconButton(
+                            onClick = { restar(especie.nombre) },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Default.Remove, null, modifier = Modifier.size(18.dp))
+                        }
+                        Text(
+                            "${especie.numeroEjemplares}",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.widthIn(min = 24.dp)
+                        )
+                        IconButton(
+                            onClick = { agregar(especie.nombre) },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
+                        }
                     }
                 }
-                // Devolución al agua, por especie.
+
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Waves, null, tint = GREEN, modifier = Modifier.size(16.dp))
+                    Icon(
+                        Icons.Default.Waves,
+                        null,
+                        tint = GREEN,
+                        modifier = Modifier.size(16.dp)
+                    )
                     Spacer(Modifier.width(6.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Devueltos al agua", fontSize = 13.sp)
-                        Text("Te llevás $retenidos", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "Te llevás $retenidos",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        IconButton(onClick = { devolver(especie.nombre, -1) }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Remove, null, modifier = Modifier.size(18.dp)) }
-                        Text("${especie.numeroDevueltos}", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = GREEN_DARK, modifier = Modifier.widthIn(min = 24.dp))
-                        IconButton(onClick = { devolver(especie.nombre, 1) }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp)) }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        IconButton(
+                            onClick = { devolver(especie.nombre, -1) },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Default.Remove, null, modifier = Modifier.size(18.dp))
+                        }
+                        Text(
+                            "${especie.numeroDevueltos}",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = GREEN_DARK,
+                            modifier = Modifier.widthIn(min = 24.dp)
+                        )
+                        IconButton(
+                            onClick = { devolver(especie.nombre, 1) },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
+                        }
                     }
                 }
             }
         }
-        if (data.especies.isEmpty() && sugerencias.isEmpty()) item { Box(modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp), contentAlignment = Alignment.Center) { Text("Buscá una especie para agregarla", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp) } }
-        item { Spacer(modifier = Modifier.height(8.dp)) }
+
+        if (data.especies.isEmpty() && sugerencias.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "Buscá una especie para agregarla",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 14.sp
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
     }
 }
 
@@ -630,8 +800,7 @@ private fun Step4_Especies(data: WizardData, onUpdate: (WizardData) -> Unit) {
 private fun Step6_Observaciones(data: WizardData, showError: Boolean, onUpdate: (WizardData) -> Unit) {
     Column(
         modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .fillMaxWidth()
             .padding(horizontal = 16.dp)
             .padding(bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -653,8 +822,7 @@ private fun Step7_Foto(data: WizardData, showError: Boolean, onPickImage: () -> 
     }
     Column(
         modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .fillMaxWidth()
             .padding(horizontal = 16.dp)
             .padding(bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
