@@ -50,7 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -218,16 +218,16 @@ fun HukaNavigationDrawer(
                         (entry.screen == Screen.Wizard && currentRoute == Screen.Wizard.routeWithArgs)
                 val tutorialModifier = when (entry.screen) {
                     Screen.Wizard -> Modifier.onGloballyPositioned {
-                        crearParteBounds = it.boundsInRoot()
+                        crearParteBounds = it.boundsInWindow()
                     }
                     Screen.Identificar -> Modifier.onGloballyPositioned {
-                        identificarBounds = it.boundsInRoot()
+                        identificarBounds = it.boundsInWindow()
                     }
                     Screen.Pescadex -> Modifier.onGloballyPositioned {
-                        pescadexBounds = it.boundsInRoot()
+                        pescadexBounds = it.boundsInWindow()
                     }
                     Screen.Logros -> Modifier.onGloballyPositioned {
-                        logrosBounds = it.boundsInRoot()
+                        logrosBounds = it.boundsInWindow()
                     }
                     else -> Modifier
                 }
