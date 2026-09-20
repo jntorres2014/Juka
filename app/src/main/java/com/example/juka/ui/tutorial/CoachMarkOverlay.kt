@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -140,12 +139,12 @@ fun CoachMarkOverlay(
                 Spacer(modifier = Modifier.height(14.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     TextButton(onClick = onSkip) {
                         Text("Omitir")
                     }
-                    Spacer(modifier = Modifier.weight(1f))
                     Button(onClick = onNext) {
                         Text(nextLabel)
                     }
