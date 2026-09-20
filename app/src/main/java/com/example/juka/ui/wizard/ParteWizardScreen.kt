@@ -3,6 +3,7 @@ package com.example.juka.ui.wizard
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.net.Uri
+import android.os.Bundle
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -17,6 +18,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -55,6 +58,104 @@ private data class WizardData(
     val numeroCanas: Int? = null,
     val observaciones: String = "",
     val imagenPath: String? = null
+)
+
+/**
+ * Saver explícito del borrador del wizard.
+ *
+ * `remember` solo vive mientras la composición actual existe; ante una
+ * recreación de Activity (por ejemplo, al girar la pantalla en algunos
+ * dispositivos) el wizard volvía a cero. Guardamos únicamente tipos que
+ * Android puede persistir en el Bundle del SavedStateRegistry.
+ */
+private val WizardDataSaver = Saver<WizardData, Bundle>(
+    save = { data ->
+        Bundle().apply {
+            putString("fecha", data.fecha)
+            putString("horaInicio", data.horaInicio)
+            putString("horaFin", data.horaFin)
+            putString("modalidad", data.modalidad?.name)
+            putBoolean("esOtraModalidad", data.esOtraModalidad)
+            putString("otraModalidadTexto", data.otraModalidadTexto)
+
+            putBoolean("tieneUbicacion", data.ubicacion != null)
+            data.ubicacion?.let {
+                putDouble("latitud", it.latitude)
+                putDouble("longitud", it.longitude)
+            }
+
+            putString("nombreLugar", data.nombreLugar)
+            putStringArrayList(
+                "especies",
+                ArrayList(
+                    data.especies.map { especie ->
+                        listOf(
+                            Uri.encode(especie.nombre),
+                            especie.numeroEjemplares.toString(),
+                            especie.numeroRetenidos.toString(),
+                            especie.numeroDevueltos.toString(),
+                            if (especie.esEspecieDesconocida) "1" else "0"
+                        ).joinToString("|")
+                    }
+                )
+            )
+
+            putBoolean("tieneNumeroCanas", data.numeroCanas != null)
+            data.numeroCanas?.let { putInt("numeroCanas", it) }
+
+            putString("observaciones", data.observaciones)
+            putString("imagenPath", data.imagenPath)
+        }
+    },
+    restore = { bundle ->
+        val modalidad = bundle.getString("modalidad")?.let { nombre ->
+            runCatching { ModalidadPesca.valueOf(nombre) }.getOrNull()
+        }
+
+        val especies = bundle.getStringArrayList("especies")
+            .orEmpty()
+            .mapNotNull { serializada ->
+                val partes = serializada.split("|")
+                if (partes.size != 5) {
+                    null
+                } else {
+                    EspecieCapturada(
+                        nombre = Uri.decode(partes[0]),
+                        numeroEjemplares = partes[1].toIntOrNull() ?: 0,
+                        numeroRetenidos = partes[2].toIntOrNull() ?: 0,
+                        numeroDevueltos = partes[3].toIntOrNull() ?: 0,
+                        esEspecieDesconocida = partes[4] == "1"
+                    )
+                }
+            }
+
+        WizardData(
+            fecha = bundle.getString("fecha")
+                ?: SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()),
+            horaInicio = bundle.getString("horaInicio").orEmpty(),
+            horaFin = bundle.getString("horaFin").orEmpty(),
+            modalidad = modalidad,
+            esOtraModalidad = bundle.getBoolean("esOtraModalidad"),
+            otraModalidadTexto = bundle.getString("otraModalidadTexto").orEmpty(),
+            ubicacion = if (bundle.getBoolean("tieneUbicacion")) {
+                GeoPoint(
+                    bundle.getDouble("latitud"),
+                    bundle.getDouble("longitud")
+                )
+            } else {
+                null
+            },
+            nombreLugar = bundle.getString("nombreLugar").orEmpty(),
+            especies = especies,
+            numeroCanas = if (bundle.getBoolean("tieneNumeroCanas")) {
+                bundle.getInt("numeroCanas")
+            } else {
+                null
+            },
+            observaciones = bundle.getString("observaciones").orEmpty(),
+            imagenPath = bundle.getString("imagenPath")
+        )
+    }
 )
 
 // Pasos (tras mover cañas a modalidad y poner foto antes que observaciones):
@@ -125,18 +226,23 @@ fun ParteWizardScreen(
     val scope = rememberCoroutineScope()
     val imageHelper = remember { ImageHelper(context) }
 
-    var currentStep by remember { mutableIntStateOf(0) }
-    var data by remember { mutableStateOf(WizardData()) }
-    var showMapPicker by remember { mutableStateOf(false) }
+    var currentStep by rememberSaveable { mutableIntStateOf(0) }
+    var data by rememberSaveable(stateSaver = WizardDataSaver) {
+        mutableStateOf(WizardData())
+    }
+    var showMapPicker by rememberSaveable { mutableStateOf(false) }
+    // No persistimos el flag de guardado: si Android recrea la Activity
+    // durante una operación, la nueva pantalla no debe quedar bloqueada.
     var isSaving by remember { mutableStateOf(false) }
-    var showStepError by remember { mutableStateOf(false) }
+    var showStepError by rememberSaveable { mutableStateOf(false) }
+    var initialPayloadApplied by rememberSaveable { mutableStateOf(false) }
 
     // Se ejecuta una sola vez al entrar (no en cada recomposición). Guarda
     // la foto en el mismo storage interno que usa el picker normal del
     // wizard, así el resto del flujo (paso Foto, guardado final) no
     // necesita saber de dónde vino.
-    LaunchedEffect(fotoInicialUri) {
-        if (fotoInicialUri != null) {
+    LaunchedEffect(fotoInicialUri, initialPayloadApplied) {
+        if (!initialPayloadApplied && fotoInicialUri != null) {
             val path = imageHelper.saveImageToInternalStorage(fotoInicialUri)
             if (path != null) {
                 data = data.copy(
@@ -144,6 +250,9 @@ fun ParteWizardScreen(
                     especies = if (especiesIniciales.isNotEmpty()) especiesIniciales else data.especies
                 )
             }
+            // Evita volver a copiar la foto o resetear especies precargadas
+            // si la Activity se recrea por una rotación.
+            initialPayloadApplied = true
         }
     }
 
